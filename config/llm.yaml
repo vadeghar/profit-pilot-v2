@@ -1,0 +1,16 @@
+provider:
+  name: openrouter
+
+models:
+
+  strategy_research:
+    model: openrouter/free
+
+  strategy_coding:
+    model: openrouter/pareto-code
+
+  result_analysis:
+    model: openrouter/free
+
+  difficult_reasoning:
+    model: openrouter/free
