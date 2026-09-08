@@ -1,0 +1,34 @@
+﻿# == Secrets ==
+.env
+
+# == Python ==
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.pytest_cache/
+
+# == Databases & large binary data (keep local, never push) ==
+*.duckdb
+*.duckdb.wal
+*.wal
+data/raw/
+data/staging/
+data/market_data.duckdb
+breeze_data_output/
+*.zip
+
+# == Logs & runtime artifacts ==
+logs
+*.log
+
+# == Node (stray npm project at root) ==
+node_modules/**
+
+# == OS / IDE ==
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
