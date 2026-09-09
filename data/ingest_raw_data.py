@@ -23,9 +23,9 @@ def init_database(con):
         con.execute("INSTALL spatial; LOAD spatial;")
     except Exception as e:
         print(f"Warning: could not load spatial extension ({e}) - continuing without it.")
-    con.execute("DROP TABLE IF EXISTS options_ticks")
+    # con.execute("DROP TABLE IF EXISTS options_ticks")
     con.execute("""
-        CREATE TABLE options_ticks (
+        CREATE TABLE IF NOT EXISTS options_ticks (
             trade_time TIMESTAMP,
             trade_date DATE,
             expiry_date DATE,
@@ -136,7 +136,7 @@ def ingest_all_zips(con, data_dir):
 def main():
     con = duckdb.connect(DB_PATH)
     try:
-        init_database(con)
+        # init_database(con)
         ingest_all_zips(con, DATA_DIR)
         print("\nETL Process Completed Successfully!")
     finally:
