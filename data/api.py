@@ -23,7 +23,7 @@ from fastapi import FastAPI
 from dotenv import load_dotenv
 
 from .providers.db import get_db_connection, get_db_path
-from .routers import spot, vix, options, meta
+from .routers import spot, vix, options, meta, equity
 
 # Load environment variables
 PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
@@ -64,6 +64,7 @@ app.include_router(spot.router)
 app.include_router(vix.router)
 app.include_router(options.router)
 app.include_router(meta.router)
+app.include_router(equity.router)
 
 
 if __name__ == "__main__":
