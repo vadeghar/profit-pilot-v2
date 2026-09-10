@@ -3,14 +3,8 @@ Equity Spot Data Provider
 Fetches 1-minute equity spot candles and daily aggregates from equity_spot table.
 Supports multiple Indian stocks (Nifty 50 / F&O stocks).
 """
-import os
-import duckdb
 import pandas as pd
-
-# Navigate to project root (parent of data/ directory)
-PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-_db_raw = os.getenv("DUCKDB_PATH", os.path.join("data", "market_data.duckdb"))
-DB = _db_raw if os.path.isabs(_db_raw) else os.path.join(PROJECT_ROOT, _db_raw)
+from .db import get_db_connection
 
 
 def df_to_records(df: pd.DataFrame):
@@ -21,7 +15,7 @@ def df_to_records(df: pd.DataFrame):
 
 def get_equity_symbols():
     """Fetch all distinct symbols available in the equity_spot table."""
-    con = duckdb.connect(DB, read_only=True)
+    con = get_db_connection()
     try:
         rows = con.execute(
             "SELECT DISTINCT symbol FROM equity_spot ORDER BY symbol ASC"
@@ -55,7 +49,7 @@ def get_equity_candles(
     Returns:
         List of dicts: symbol, trade_time, open, high, low, close, volume
     """
-    con = duckdb.connect(DB, read_only=True)
+    con = get_db_connection()
     try:
         query = "SELECT symbol, trade_time, open, high, low, close, volume FROM equity_spot WHERE 1=1"
         params = []
@@ -89,6 +83,7 @@ def get_equity_candles(
     finally:
         con.close()
 
+
 def get_equity_daily(
     symbol=None,
     trade_date=None,
@@ -107,7 +102,7 @@ def get_equity_daily(
     Returns:
         List of dicts: symbol, trade_date, open, high, low, close, volume
     """
-    con = duckdb.connect(DB, read_only=True)
+    con = get_db_connection()
     try:
         query = """
             SELECT
@@ -155,7 +150,7 @@ def get_equity_latest(symbol=None):
     Returns:
         List of dicts: symbol, trade_time, open, high, low, close, volume
     """
-    con = duckdb.connect(DB, read_only=True)
+    con = get_db_connection()
     try:
         if symbol:
             query = """

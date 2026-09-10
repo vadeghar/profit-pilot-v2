@@ -2,14 +2,8 @@
 Options Ticks Provider
 Fetches option ticks from options_ticks table
 """
-import os
-import duckdb
 import pandas as pd
-
-# Navigate to project root (parent of data/ directory)
-PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-_db_raw = os.getenv("DUCKDB_PATH", os.path.join("data", "market_data.duckdb"))
-DB = _db_raw if os.path.isabs(_db_raw) else os.path.join(PROJECT_ROOT, _db_raw)
+from .db import get_db_connection
 
 
 def df_to_records(df: pd.DataFrame):
@@ -36,7 +30,7 @@ def get_options_ticks(trade_date, expiry_date=None, strike_price=None, option_ty
     Returns:
         List of dicts with option tick data
     """
-    con = duckdb.connect(DB, read_only=True)
+    con = get_db_connection()
     try:
         query = "SELECT * FROM options_ticks WHERE trade_date = ?"
         params = [trade_date]
