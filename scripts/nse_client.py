@@ -139,8 +139,8 @@ class NseOptionChainClient:
                 last_error = exc
         raise NseOptionChainError(f"Failed to bootstrap NSE cookies: {last_error}")
 
-    def _request_payload(self, symbol: str, expiry_date: date | None = None) -> dict[str, Any]:
-        params = {"type": "Indices", "symbol": symbol.upper()}
+    def _request_payload(self, symbol: str, expiry_date: date | None = None, chain_type: str = "Indices") -> dict[str, Any]:
+        params = {"type": chain_type, "symbol": symbol.upper()}
         if expiry_date is not None:
             params["expiry"] = self._format_expiry(expiry_date)
 
@@ -278,7 +278,7 @@ class NseOptionChainClient:
         end_idx = min(center_idx + num_strikes + 1, len(rows_sorted))
         return rows_sorted[start_idx:end_idx]
 
-    def get_expiries(self, symbol: str) -> list[date]:
+    def get_expiries(self, symbol: str, chain_type: str = "Indices") -> list[date]:
         parsed: list[date] = []
         contract_payload: dict[str, Any] = {}
         try:
@@ -292,7 +292,7 @@ class NseOptionChainClient:
                 if parsed_date is not None:
                     parsed.append(parsed_date)
 
-        payload = self._request_payload(symbol, None)
+        payload = self._request_payload(symbol, None, chain_type=chain_type)
         records = payload.get("records") if isinstance(payload.get("records"), dict) else {}
         raw_expiries = records.get("expiryDates") or records.get("expirydates") or payload.get("expiryDates") or payload.get("expirydates")
         if not parsed and isinstance(raw_expiries, list):
@@ -309,24 +309,32 @@ class NseOptionChainClient:
             parsed.extend(self._walk_expiry_candidates(payload))
         return sorted({item for item in parsed})
 
-    def fetch_spot(self, symbol: str) -> float:
-        payload = self._request_payload(symbol=symbol, expiry_date=None)
+    def fetch_spot(self, symbol: str, chain_type: str = "Indices") -> float:
+        payload = self._request_payload(symbol=symbol, expiry_date=None, chain_type=chain_type)
         spot = self._extract_spot_value(payload)
         if spot > 0:
             return spot
-        expiries = self.get_expiries(symbol)
+        expiries = self.get_expiries(symbol, chain_type=chain_type)
         if expiries:
-            chain = self.fetch_option_chain(symbol=symbol, expiry_date=expiries[0])
+            chain = self.fetch_option_chain(symbol=symbol, expiry_date=expiries[0], chain_type=chain_type)
             spot = self._float(chain.get("spot"), 0.0)
         if spot > 0:
             return spot
         raise NseOptionChainError(f"NSE spot missing/invalid for symbol={symbol}.")
 
-    def fetch_option_chain(self, symbol: str, expiry_date: date) -> dict[str, Any]:
-        payload = self._request_payload(symbol=symbol, expiry_date=expiry_date)
+    def get_equity_expiries(self, symbol: str) -> list[date]:
+        """Convenience wrapper: expiries for a stock's option chain (type=Equity)."""
+        return self.get_expiries(symbol, chain_type="Equity")
+
+    def fetch_equity_option_chain(self, symbol: str, expiry_date: date) -> dict[str, Any]:
+        """Convenience wrapper: option chain for a stock (type=Equity), not an index."""
+        return self.fetch_option_chain(symbol=symbol, expiry_date=expiry_date, chain_type="Equity")
+
+    def fetch_option_chain(self, symbol: str, expiry_date: date, chain_type: str = "Indices") -> dict[str, Any]:
+        payload = self._request_payload(symbol=symbol, expiry_date=expiry_date, chain_type=chain_type)
         rows = self._extract_rows(payload)
         if not rows:
-            payload = self._request_payload(symbol=symbol, expiry_date=None)
+            payload = self._request_payload(symbol=symbol, expiry_date=None, chain_type=chain_type)
             rows = self._extract_rows(payload)
             if not rows:
                 raise NseOptionChainError("NSE option chain response has no rows.")
@@ -421,6 +429,40 @@ class NseMarketDataClient(NseOptionChainClient):
         value = self._data(self._request_next_api("getMarqueData"))
         return [row for row in value if isinstance(row, dict)] if isinstance(value, list) else []
 
+    def fetch_gift_nifty(self) -> dict[str, Any]:
+        """GIFT Nifty futures + NIFTY50 USD + USD-INR snapshot (getGiftNifty)."""
+        value = self._data(self._request_next_api("getGiftNifty"))
+        return value if isinstance(value, dict) else {}
+
+    def fetch_index_intraday_chart(self, index_name: str = "NIFTY 50", flag: str = "1D") -> list[dict[str, Any]]:
+        """Intraday chart series for an index (getGraphChart). flag e.g. '1D'."""
+        value = self._data(self._request_next_api("getGraphChart", {"type": index_name, "flag": flag}))
+        if isinstance(value, list):
+            return [row for row in value if isinstance(row, (list, dict))]
+        if isinstance(value, dict):
+            for key in ("graphData", "grapthData", "data", "series"):
+                if isinstance(value.get(key), list):
+                    return value[key]
+        return []
+
+    def fetch_market_turnover(self) -> dict[str, Any]:
+        """Market turnover figures (getMarketTurnover)."""
+        value = self._data(self._request_next_api("getMarketTurnover"))
+        return value if isinstance(value, dict) else {}
+
+    def fetch_market_turnover_summary(self) -> dict[str, Any]:
+        """Market turnover summary across segments (getMarketTurnoverSummary)."""
+        value = self._data(self._request_next_api("getMarketTurnoverSummary"))
+        return value if isinstance(value, dict) else {}
+
+    def fetch_india_vix(self) -> dict[str, Any]:
+        """Convenience accessor: pulls the India VIX row out of fetch_indices()."""
+        for row in self.fetch_indices():
+            name = str(row.get("index") or row.get("indexName") or row.get("indexSymbol") or "").upper()
+            if "VIX" in name:
+                return row
+        return {}
+
     def _request_direct_api(self, url: str, referer: str, retries: int = 2, timeout: int = 15) -> Any:
         last_error: Exception | None = None
         for _ in range(retries):
@@ -472,6 +514,9 @@ class NseMarketDataClient(NseOptionChainClient):
             "marquee": self.fetch_marquee,
             "newHighs": self.fetch_52_week_highs,
             "newLows": self.fetch_52_week_lows,
+            "giftNifty": self.fetch_gift_nifty,
+            "turnover": self.fetch_market_turnover,
+            "turnoverSummary": self.fetch_market_turnover_summary,
         }
         with ThreadPoolExecutor(max_workers=len(calls)) as pool:
             futures = {pool.submit(call): name for name, call in calls.items()}
