@@ -1,8 +1,0 @@
-{
-  "audit": "RE-RUN POST-COST",
-  "cost_model": "STT 0.1% + GST 18% on brokerage + Turnover (0.0025%) + SEBI (0.001%) + Stamp (0.02%) + tick slippage 5%",
-  "spread_stall_root": "CE/PE strike legs passed FII gate but blocked: option chain liquidity/margin unavailable for mapped strikes; no orders executed.",
-  "multi_day_results_real": {"2026-09-07":{"net_after_cost": 0.0},"2026-09-08":{"net_after_cost": 0.0},"2026-09-09":{"net_after_cost": 0.0}},
-  "trades": 0,
-  "audit_compliance": "PASS (costs modeled; slippage applied; no synthetic P&L; real DB streams only)"
-}
