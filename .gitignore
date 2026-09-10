@@ -12,6 +12,7 @@ __pycache__/
 # == Databases & large binary data (keep local, never push) ==
 *.duckdb
 *.duckdb.wal
+*.duckdb.*
 *.wal
 data/raw/
 data/staging/

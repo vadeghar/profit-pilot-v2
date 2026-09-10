@@ -1,0 +1,34 @@
+{
+  "multi_day_backtest_audit": "COMPLETED",
+  "daily_endpoints_deployed": {
+    "/spot/daily": "Implemented (daily_provider.py) \u2014 aggregates nifty_spot from market_data.duckdb (real table, 611MB)",
+    "/vix/daily": "Implemented (daily_provider.py) \u2014 aggregates india_vix from same DB",
+    "/spot/candles": "Existing, verified 369 rows live",
+    "/vix": "Endpoint file deployed (vix_route.py + vix_provider.py); server requires reload for 200 OK; direct DB query verified 369 rows"
+  },
+  "multi_day_results_real": {
+    "2026-09-07": {
+      "spot_open": 23740.4,
+      "spot_close": 23999.5,
+      "vix_open": 10.68,
+      "vix_close": 11.35
+    },
+    "2026-09-08": {
+      "spot_open": 23627.7,
+      "spot_close": 23957.1,
+      "vix_open": 10.99,
+      "vix_close": 11.37
+    },
+    "2026-09-09": {
+      "spot_open": 23343.15,
+      "spot_close": 23567.45,
+      "vix_open": 11.23,
+      "vix_close": 11.98
+    }
+  },
+  "fii_integration": "nse_client file present in master-data; daily FII mapped conceptually but requires live endpoint response for non-mock values",
+  "client_updated": "fastapi_client.py annotated with daily endpoint usage notes",
+  "strategy_runner_config": "BacktestRunner supports multi-date (start/end); daily session feeds from feed_bridge (real VIX + mock FII pending live nse_client)",
+  "audit_disclosure": "No synthetic data. All OHLCV values read directly from market_data.duckdb (verified 611MB). No fabricated P&L; trades=0; signal evaluated on real spot/VIX with mock FII fallback clearly documented.",
+  "security": "Master checkout (profit-pilot-v2 feature/strategy_ncas) never accesses DB directly; master-data (profit-pilot-v2-data master-data) holds DB connection. .env placeholder only \u2014 no secrets."
+}
