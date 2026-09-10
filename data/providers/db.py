@@ -1,43 +1,91 @@
 """
 Database Connection Provider
-Manages DuckDB connections for the API
+Manages DuckDB connections for the API.
+Supports both local files and remote URLs (GitHub Releases, S3, etc).
 """
 import os
 import duckdb
 from fastapi import HTTPException
 
-# Navigate to project root (parent of data/ directory)
-PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-_db_raw = os.getenv("DUCKDB_PATH", os.path.join("data", "market_data.duckdb"))
-DB_PATH = _db_raw if os.path.isabs(_db_raw) or os.path.splitdrive(_db_raw)[0] \
-    else os.path.join(PROJECT_ROOT, _db_raw)
+# Track whether httpfs is loaded for remote connections
+_httpfs_loaded = False
 
 
-def get_db_connection():
+def _get_db_path() -> str:
+    """Resolve the database path from env var or default."""
+    PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    _db_raw = os.getenv("DUCKDB_PATH", os.path.join("data", "market_data.duckdb"))
+    # Return as-is if it's a remote URL or an absolute local path
+    if _db_raw.startswith("http://") or _db_raw.startswith("https://"):
+        return _db_raw
+    return _db_raw if os.path.isabs(_db_raw) or os.path.splitdrive(_db_raw)[0] \
+        else os.path.join(PROJECT_ROOT, _db_raw)
+
+
+def _is_remote(path: str) -> bool:
+    """Check if the database path is a remote URL."""
+    return path.startswith("http://") or path.startswith("https://")
+
+
+def _load_httpfs(con: duckdb.DuckDBPyConnection) -> None:
+    """Load httpfs extension for remote database access."""
+    global _httpfs_loaded
+    if not _httpfs_loaded:
+        con.execute("INSTALL httpfs; LOAD httpfs;")
+        _httpfs_loaded = True
+
+
+def connect(read_only: bool = True) -> duckdb.DuckDBPyConnection:
     """
-    Returns a read-only connection to the persistent DuckDB instance.
-    Read-only mode prevents database locks when accessing data concurrently.
-    
+    Create a DuckDB connection (local or remote).
+
+    For local files: connects directly with read_only mode.
+    For remote URLs: uses :memory: + httpfs to attach the remote database.
+
+    Args:
+        read_only: Whether to open in read_only mode (default: True).
+
     Returns:
-        duckdb.DuckDBPyConnection: Read-only database connection
-        
+        duckdb.DuckDBPyConnection: Configured database connection.
+
     Raises:
-        HTTPException: 500 error if connection fails
+        HTTPException: 500 error if connection fails.
     """
+    DB_PATH = _get_db_path()
     try:
-        return duckdb.connect(DB_PATH, read_only=True)
+        if _is_remote(DB_PATH):
+            con = duckdb.connect(database=":memory:")
+            _load_httpfs(con)
+            con.execute(f"ATTACH '{DB_PATH}' AS remote_db (READ_ONLY);")
+            con.execute("USE remote_db;")
+            return con
+        else:
+            return duckdb.connect(DB_PATH, read_only=read_only)
     except Exception as e:
         raise HTTPException(
-            status_code=500, 
+            status_code=500,
             detail=f"Database connection error: {str(e)}"
         )
 
 
-def get_db_path():
+def get_db_connection() -> duckdb.DuckDBPyConnection:
+    """
+    Returns a read-only connection to the DuckDB instance.
+
+    Returns:
+        duckdb.DuckDBPyConnection: Read-only database connection.
+
+    Raises:
+        HTTPException: 500 error if connection fails.
+    """
+    return connect(read_only=True)
+
+
+def get_db_path() -> str:
     """
     Returns the configured database path.
-    
+
     Returns:
-        str: Path to the DuckDB database file
+        str: Path or URL to the DuckDB database.
     """
-    return DB_PATH
+    return _get_db_path()
