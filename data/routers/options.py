@@ -1,27 +1,47 @@
+"""Options Data Router
+Endpoints: /options - Aggregated option OHLCV candles (strike / expiry / type)
 """
-Options Data Router
-Endpoints: /options/ticks
-"""
-from fastapi import APIRouter, Query, HTTPException
+from fastapi import APIRouter, Depends, Query
 from typing import Optional
 from datetime import date
 
-from ..providers.options_ticks_provider import get_options_ticks
+from ..providers.candle_aggregator import CandleInterval
+from ..providers.ohlcv_service import get_options_candles
+from ._validation import guard_query_params
 
-router = APIRouter(tags=["Options Data"])
+router = APIRouter(
+    tags=["Options Data"],
+    dependencies=[Depends(guard_query_params("strike", "expiry", "optionType",
+                                             "fromDate", "toDate", "interval"))],
+)
 
 
-@router.get("/options/ticks")
-def get_options_ticks_endpoint(
-    trade_date: date = Query(..., description="Trading date (YYYY-MM-DD)"),
-    expiry_date: Optional[date] = Query(None, description="Contract expiry date (YYYY-MM-DD)"),
-    strike_price: Optional[int] = Query(None, description="Strike price (e.g., 24000)"),
-    option_type: Optional[str] = Query(None, description="Option type (CE, PE, or FUT)")
+@router.get("/options")
+def options_candles(
+    strike: int = Query(..., description="Strike price (e.g., 24000)"),
+    expiry: date = Query(..., description="Contract expiry date (YYYY-MM-DD)"),
+    optionType: Optional[str] = Query(None, description=(
+        "Option type: CE, PE or FUT (default CE & PE). Optional parameter: "
+        "enable its checkbox in the Try-it client for it to be included in the request."
+    )),
+    fromDate: date = Query(..., description="Start date (YYYY-MM-DD)"),
+    toDate: Optional[date] = Query(None, description=(
+        "End date (YYYY-MM-DD, optional). Optional parameter: enable its "
+        "checkbox in the Try-it client for it to be included in the request."
+    )),
+    interval: CandleInterval = Query(..., description=(
+        "Aggregation interval. One of: ONE_MINUTE, THREE_MINUTE, FIVE_MINUTE, "
+        "TEN_MINUTE, FIFTEEN_MINUTE, THIRTY_MINUTE, ONE_HOUR, ONE_DAY, WEEK, MONTH."
+    )),
 ):
     """
-    Fetch option ticks filtered by trade_date, expiry, strike, and type.
+    Fetch aggregated option OHLCV candles for a contract, capped at 800 buckets.
     """
-    try:
-        return get_options_ticks(trade_date, expiry_date, strike_price, option_type)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    return get_options_candles(
+        strike,
+        expiry.isoformat(),
+        optionType,
+        fromDate.isoformat(),
+        toDate.isoformat() if toDate else None,
+        interval,
+    )
