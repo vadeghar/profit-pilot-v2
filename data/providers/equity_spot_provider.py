@@ -5,6 +5,7 @@ Supports multiple Indian stocks (Nifty 50 / F&O stocks).
 """
 import pandas as pd
 from .db import get_db_connection
+from .candle_aggregator import build_ohlcv_aggregation
 
 
 def df_to_records(df: pd.DataFrame):
@@ -32,10 +33,12 @@ def get_equity_candles(
     end_date=None,
     start_time=None,
     end_time=None,
-    limit=None
+    limit=None,
+    interval=None
 ):
     """
-    Fetch 1-minute equity spot candles with flexible filtering.
+    Fetch equity spot candles with flexible filtering, optionally aggregated
+    into OHLCV buckets via the ``interval`` parameter.
 
     Query Params:
         symbol (str, required): Stock symbol (e.g., "RELIANCE", "HDFCBANK")
@@ -45,9 +48,15 @@ def get_equity_candles(
         start_time (str, optional): Start time filter (HH:MM:SS) within dates
         end_time (str, optional): End time filter (HH:MM:SS) within dates
         limit (int, optional): Max number of rows to return
+        interval (CandleInterval or str, optional): Aggregation interval.
+            When provided, 1-minute candles are aggregated into OHLCV buckets.
+            Supported values: ONE_MINUTE, THREE_MINUTE, FIVE_MINUTE,
+            TEN_MINUTE, FIFTEEN_MINUTE, THIRTY_MINUTE, ONE_HOUR, ONE_DAY,
+            WEEK, MONTH.
 
     Returns:
-        List of dicts: symbol, trade_time, open, high, low, close, volume
+        List of dicts: symbol, trade_time, open, high, low, close, volume.
+        With ``interval`` set, ``trade_time`` is the bucket start timestamp.
     """
     con = get_db_connection()
     try:
@@ -74,9 +83,14 @@ def get_equity_candles(
             query += " AND CAST(trade_time AS TIME) <= CAST(? AS TIME)"
             params.append(end_time)
 
-        query += " ORDER BY symbol ASC, trade_time ASC"
-        if limit:
-            query += f" LIMIT {int(limit)}"
+        if interval:
+            query = build_ohlcv_aggregation(
+                query, interval, ts_col="trade_time", key_cols=["symbol"]
+            )
+        else:
+            query += " ORDER BY symbol ASC, trade_time ASC"
+            if limit:
+                query += f" LIMIT {int(limit)}"
 
         df = con.execute(query, params).df()
         return df_to_records(df)

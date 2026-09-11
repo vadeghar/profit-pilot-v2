@@ -2,6 +2,7 @@
 breeze_connect==1.0.69
 python-dotenv==1.2.3
 fastapi==0.141.1
+scalar-fastapi==1.9.0
 pandas==3.0.5
 requests==2.34.2
 uvicorn==0.52.4

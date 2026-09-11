@@ -1,75 +1,32 @@
+"""Equity Data Router
+Endpoints: /equity - Aggregated equity OHLCV candles (per symbol)
 """
-Equity Spot Data Router
-Endpoints: /equity/candles, /equity/daily, /equity/latest, /equity/symbols
-"""
-from fastapi import APIRouter, Query, HTTPException
-from typing import Optional, List
+from fastapi import APIRouter, Query
+from typing import Optional
+from datetime import date
 
-from ..providers.equity_spot_provider import (
-    get_equity_candles,
-    get_equity_daily,
-    get_equity_latest,
-    get_equity_symbols,
-)
+from ..providers.candle_aggregator import CandleInterval
+from ..providers.ohlcv_service import get_equity_candles
 
-router = APIRouter(tags=["Equity Spot Data"])
+router = APIRouter(tags=["Equity Data"])
 
 
-@router.get("/equity/candles")
+@router.get("/equity")
 def equity_candles(
     symbol: str = Query(..., description="Stock symbol (e.g., RELIANCE, HDFCBANK)"),
-    trade_date: Optional[str] = Query(None, description="Specific trading date (YYYY-MM-DD)"),
-    start_date: Optional[str] = Query(None, description="Start of date range (YYYY-MM-DD, inclusive)"),
-    end_date: Optional[str] = Query(None, description="End of date range (YYYY-MM-DD, inclusive)"),
-    start_time: Optional[str] = Query(None, description="Start time filter (HH:MM:SS) within dates"),
-    end_time: Optional[str] = Query(None, description="End time filter (HH:MM:SS) within dates"),
-    limit: Optional[int] = Query(None, description="Max number of rows to return"),
+    fromDate: date = Query(..., description="Start date (YYYY-MM-DD)"),
+    toDate: Optional[date] = Query(None, description="End date (YYYY-MM-DD, optional; defaults to fromDate)"),
+    interval: CandleInterval = Query(..., description=(
+        "Aggregation interval. One of: ONE_MINUTE, THREE_MINUTE, FIVE_MINUTE, "
+        "TEN_MINUTE, FIFTEEN_MINUTE, THIRTY_MINUTE, ONE_HOUR, ONE_DAY, WEEK, MONTH."
+    )),
 ):
     """
-    Fetch 1-minute equity spot candles with flexible filtering.
+    Fetch aggregated equity OHLCV candles for a symbol, capped at 800 buckets.
     """
-    try:
-        return get_equity_candles(symbol, trade_date, start_date, end_date, start_time, end_time, limit)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.get("/equity/daily")
-def equity_daily(
-    symbol: Optional[str] = Query(None, description="Stock symbol filter"),
-    trade_date: Optional[str] = Query(None, description="Specific trading date (YYYY-MM-DD)"),
-    start_date: Optional[str] = Query(None, description="Start of date range (YYYY-MM-DD, inclusive)"),
-    end_date: Optional[str] = Query(None, description="End of date range (YYYY-MM-DD, inclusive)"),
-):
-    """
-    Fetch daily aggregated OHLCV for equity spot data.
-    Aggregates 1-minute candles into daily OHLCV per symbol.
-    """
-    try:
-        return get_equity_daily(symbol, trade_date, start_date, end_date)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.get("/equity/latest")
-def equity_latest(
-    symbol: Optional[str] = Query(None, description="Stock symbol. If omitted, returns latest for each symbol."),
-):
-    """
-    Fetch the most recent equity spot candle(s).
-    """
-    try:
-        return get_equity_latest(symbol)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.get("/equity/symbols")
-def equity_symbols():
-    """
-    List all available equity symbols in the database.
-    """
-    try:
-        return get_equity_symbols()
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    return get_equity_candles(
+        symbol,
+        fromDate.isoformat(),
+        toDate.isoformat() if toDate else None,
+        interval,
+    )

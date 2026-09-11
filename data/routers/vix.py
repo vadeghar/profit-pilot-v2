@@ -1,31 +1,30 @@
-"""
-VIX Data Router
-Endpoints: /vix, /vix/daily
+"""VIX Data Router
+Endpoints: /vix - Aggregated VIX OHLCV candles
 """
 from fastapi import APIRouter, Query
 from typing import Optional
 from datetime import date
 
-from ..providers.vix_provider import get_vix_latest
-from ..providers.daily_provider import get_vix_daily
+from ..providers.candle_aggregator import CandleInterval
+from ..providers.ohlcv_service import get_vix_candles
 
 router = APIRouter(tags=["VIX Data"])
 
 
 @router.get("/vix")
-def vix_endpoint(trade_date: str = None):
+def vix_candles(
+    fromDate: date = Query(..., description="Start date (YYYY-MM-DD)"),
+    toDate: Optional[date] = Query(None, description="End date (YYYY-MM-DD, optional; defaults to fromDate)"),
+    interval: CandleInterval = Query(..., description=(
+        "Aggregation interval. One of: ONE_MINUTE, THREE_MINUTE, FIVE_MINUTE, "
+        "TEN_MINUTE, FIFTEEN_MINUTE, THIRTY_MINUTE, ONE_HOUR, ONE_DAY, WEEK, MONTH."
+    )),
+):
     """
-    Fetch latest VIX data.
-    Uses vix_provider (reads india_vix table from market_data.duckdb).
+    Fetch aggregated VIX OHLCV candles, capped at 800 buckets.
     """
-    rows = get_vix_latest(trade_date=trade_date)
-    return rows if isinstance(rows, list) else []
-
-
-@router.get("/vix/daily")
-def vix_daily(trade_date: str = None):
-    """
-    Fetch daily aggregated VIX OHLCV data.
-    Aggregates 1-minute data from india_vix into daily OHLCV.
-    """
-    return get_vix_daily(trade_date)
+    return get_vix_candles(
+        fromDate.isoformat(),
+        toDate.isoformat() if toDate else None,
+        interval,
+    )
