@@ -97,7 +97,8 @@ def _run(sql, params, interval, ts_col, key_cols, from_date, to_date=None, symbo
         return []
 
     # Resample to a continuous grid and forward-fill any gaps.
-    resampled = resample_and_fill(records, interval, from_date, to_date, symbol_type)
+    resampled = resample_and_fill(records, interval, from_date, to_date,
+                                  symbol_type, key_cols)
     # Re-apply the cap after gap-filling so we never exceed MAX_CANDLES.
     if len(resampled) > MAX_CANDLES:
         resampled = resampled[-MAX_CANDLES:]
@@ -226,10 +227,12 @@ def get_options_candles(strike, expiry, option_type=None, from_date=None, to_dat
         interval: Aggregation interval.
 
     Returns:
-        List of dicts: trade_time, open, high, low, close, volume
-        (capped at MAX_CANDLES buckets).
+        List of dicts: option_type, trade_time, open, high, low, close, volume
+        (capped at MAX_CANDLES buckets). When both CE and PE are requested,
+        buckets are resampled independently per option_type so each series
+        keeps its own grid. option_type is "CE" or "PE" (or "FUT" if filtered).
     """
-    # options_ticks stores the closing price in the `price` column.
+    # options_ticks stores the closing price in the `close` column.
     allowed = {"CE", "PE", "FUT"}
     if option_type:
         opt = option_type.strip().upper()
@@ -245,7 +248,8 @@ def get_options_candles(strike, expiry, option_type=None, from_date=None, to_dat
     bounds, date_params = _date_bounds(from_date, to_date)
     placeholders = ", ".join("?" for _ in opt_types)
     sql = (
-        "SELECT trade_time, price AS close, open, high, low, volume "
+        "SELECT trade_time, close AS open, close AS high, close AS low, "
+        "close, volume, option_type "
         "FROM options_ticks "
         "WHERE strike_price = ? AND expiry_date = CAST(? AS DATE) "
         + bounds.format(col="trade_date")
@@ -254,5 +258,5 @@ def get_options_candles(strike, expiry, option_type=None, from_date=None, to_dat
     if is_intraday(interval):
         sql += " AND CAST(trade_time AS TIME) >= CAST('09:15:00' AS TIME)"
     params = [strike, expiry] + date_params + opt_types
-    return _run(sql, params, interval, "trade_time", [],
+    return _run(sql, params, interval, "trade_time", ["option_type"],
                 from_date, to_date, "options")

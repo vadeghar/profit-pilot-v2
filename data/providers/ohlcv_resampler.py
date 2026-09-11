@@ -46,6 +46,7 @@ INTERVAL_MINUTES = {
 }
 
 MARKET_OPEN = time(9, 15)
+OPTIONS_EXTENDED_SESSION_START = date(2026, 8, 3)
 
 
 def _parse_date(d):
@@ -89,13 +90,19 @@ def generate_intraday_grid(from_date, to_date, interval, symbol_type="spot"):
     if interval_min is None:
         raise ValueError(f"Cannot generate intraday grid for interval {interval}")
 
-    session_end = _session_end(symbol_type)
     grid = []
     current_date = from_d
     while current_date <= to_d:
+        session_end = _session_end(symbol_type)
+        if symbol_type == "options" and current_date < OPTIONS_EXTENDED_SESSION_START:
+            session_end = time(15, 30)
         bucket_start = datetime.combine(current_date, MARKET_OPEN)
         session_end_dt = datetime.combine(current_date, session_end)
-        while bucket_start <= session_end_dt:
+        # The normal equity/index session ends before the configured boundary
+        # (15:15 means the last minute is 15:14). Options retain their
+        # explicit 15:39 endpoint because that is a valid option tick time.
+        include_end = symbol_type == "options" and session_end == time(15, 39)
+        while bucket_start < session_end_dt or (include_end and bucket_start == session_end_dt):
             grid.append(bucket_start)
             bucket_start += timedelta(minutes=interval_min)
         current_date += timedelta(days=1)
@@ -142,7 +149,7 @@ def generate_monthly_grid(from_date, to_date):
     return grid
 
 
-def resample_and_fill(records, interval, from_date, to_date=None, symbol_type="spot"):
+def resample_and_fill(records, interval, from_date, to_date=None, symbol_type="spot", key_cols=None):
     """
     Ensure a continuous time series by filling gaps in aggregated data.
 
@@ -150,12 +157,20 @@ def resample_and_fill(records, interval, from_date, to_date=None, symbol_type="s
     time grid. Missing intervals are forward-filled (prices) or zero-filled
     (volume).
 
+    Records may contain several parallel series distinguished by ``key_cols``
+    identity columns (e.g. ``["option_type"]`` for CE/PE contracts). Each
+    series is resampled independently so identity values sharing the same
+    trade_time never overwrite each other, and every output row carries its
+    identity columns.
+
     Args:
-        records: List of dicts with keys: trade_time, open, high, low, close, volume.
+        records: List of dicts with keys: key_cols..., trade_time, open,
+            high, low, close, volume.
         interval: CandleInterval used for aggregation.
         from_date: Start date (YYYY-MM-DD).
         to_date: End date (YYYY-MM-DD). If None, defaults to from_date.
         symbol_type: Symbol type for session end lookup.
+        key_cols: Optional list of identity columns (e.g. ["option_type"]).
 
     Returns:
         List of dicts with complete time grid, forward-filled prices, and
@@ -164,6 +179,32 @@ def resample_and_fill(records, interval, from_date, to_date=None, symbol_type="s
     if not records:
         return []
 
+    key_cols = list(key_cols or [])
+
+    # Group records by identity columns so parallel series (e.g. CE and PE)
+    # are resampled independently instead of overwriting each other.
+    groups = {}
+    for r in records:
+        identity = tuple(r.get(k) for k in key_cols)
+        groups.setdefault(identity, []).append(r)
+
+    result = []
+    for identity, group_records in groups.items():
+        result.extend(
+            _resample_series(group_records, interval, from_date, to_date,
+                             symbol_type, key_cols, identity)
+        )
+
+    # Keep a stable ascending order: time first, then identity values.
+    if key_cols:
+        result.sort(key=lambda r: (r["trade_time"],) + tuple(r.get(k) for k in key_cols))
+    else:
+        result.sort(key=lambda r: r["trade_time"])
+    return result
+
+
+def _resample_series(records, interval, from_date, to_date, symbol_type, key_cols, identity):
+    """Resample a single identity series onto the complete time grid."""
     # Parse records into a dict keyed by trade_time
     aggregated = {}
     for r in records:
@@ -179,31 +220,39 @@ def resample_and_fill(records, interval, from_date, to_date=None, symbol_type="s
     # Generate the complete time grid
     if is_intraday(interval):
         grid = generate_intraday_grid(from_date, to_date, interval, symbol_type)
-    elif interval == CandleInterval.ONE_DAY:
-        grid = generate_daily_grid(from_date, to_date)
-    elif interval == CandleInterval.WEEK:
-        grid = generate_weekly_grid(from_date, to_date)
-    elif interval == CandleInterval.MONTH:
-        grid = generate_monthly_grid(from_date, to_date)
+    elif interval in (CandleInterval.ONE_DAY, CandleInterval.WEEK, CandleInterval.MONTH):
+        # Higher-timeframe candles are trading-data-only. Do not generate
+        # weekend/holiday buckets or forward-fill periods without real data.
+        return [
+            dict(zip(key_cols, identity)) | {
+                'trade_time': ts,
+                'open': candle['open'],
+                'high': candle['high'],
+                'low': candle['low'],
+                'close': candle['close'],
+                'volume': candle['volume'] if candle['volume'] is not None else 0,
+            }
+            for ts, candle in sorted(aggregated.items())
+            if candle['close'] is not None
+        ]
     else:
         return records
 
-    # Build the complete series with forward-fill
-    result = []
-    last_valid = None
-
     # Find the first valid data point for backward-fill (in case the grid
-    # starts before any actual data — e.g. from_date has no data at 09:15).
+    # starts before any actual data, e.g. from_date has no data at 09:15).
     first_valid = None
     for ts in grid:
         if ts in aggregated and aggregated[ts]['close'] is not None:
             first_valid = aggregated[ts]
             break
 
+    result = []
+    last_valid = None
     for ts in grid:
         if ts in aggregated and aggregated[ts]['close'] is not None:
             candle = aggregated[ts]
-            result.append({
+            row = dict(zip(key_cols, identity))
+            row.update({
                 'trade_time': ts,
                 'open': candle['open'],
                 'high': candle['high'],
@@ -211,13 +260,15 @@ def resample_and_fill(records, interval, from_date, to_date=None, symbol_type="s
                 'close': candle['close'],
                 'volume': candle['volume'] if candle['volume'] is not None else 0,
             })
+            result.append(row)
             last_valid = candle
         else:
             # Forward-fill from last valid candle; if none yet, backward-fill
             # from the first valid candle so the grid always starts at 09:15.
             fill = last_valid if last_valid is not None else first_valid
             if fill is not None:
-                result.append({
+                row = dict(zip(key_cols, identity))
+                row.update({
                     'trade_time': ts,
                     'open': fill['close'],
                     'high': fill['close'],
@@ -225,5 +276,6 @@ def resample_and_fill(records, interval, from_date, to_date=None, symbol_type="s
                     'close': fill['close'],
                     'volume': 0,
                 })
+                result.append(row)
 
     return result

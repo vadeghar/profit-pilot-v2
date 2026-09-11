@@ -168,12 +168,41 @@ GET /options?strike=24000&expiry=2026-09-30&optionType=CE&fromDate=2026-09-09&to
 | ------------ | ------ | -------- | ------------------------------------------------ |
 | `strike`     | int    | Yes      | Strike price (e.g. `24000`)                     |
 | `expiry`     | date   | Yes      | Contract expiry date (YYYY-MM-DD)               |
-| `optionType` | string | No       | `CE`, `PE` or `FUT`. **Default is `CE` & `PE`** |
+| `optionType` | string | No       | **Query parameter** — `CE`, `PE` or `FUT`. **Default is `CE` & `PE`** |
 | `fromDate`   | date   | Yes      | Start date (YYYY-MM-DD)                         |
 | `toDate`     | date   | No       | End date (YYYY-MM-DD). **When omitted, the first 800 candles from `fromDate` are returned (ascending order).** |
 | `interval`   | string | Yes      | Aggregation interval                            |
 
-**Response fields:** `trade_time`, `open`, `high`, `low`, `close`, `volume`
+**Response fields:** `option_type`, `trade_time`, `open`, `high`, `low`,
+`close`, `volume`
+
+**Filter contract:**
+
+| Request                          | Response contains                    |
+| -------------------------------- | ------------------------------------ |
+| `optionType=CE`                  | ONLY `CE` candles                    |
+| `optionType=PE`                  | ONLY `PE` candles                    |
+| `optionType=FUT`                 | ONLY `FUT` candles                   |
+| `optionType` omitted / empty / null | BOTH `CE` and `PE` candles        |
+
+> `option_type` is `"CE"`, `"PE"` or `"FUT"` — the option contract type the
+> bucket belongs to. When both types are requested (no `optionType` param),
+> the response contains interleaved CE and PE buckets, each with its own
+> complete, independently gap-filled time grid (the 800-bucket cap applies
+> per series).
+
+> **Note:** `optionType` must be sent as a **query parameter**, not in the
+> request body. Unknown or misspelled query parameters (e.g. `opttionType`)
+> are rejected with `422` listing the valid parameter names — they are never
+> silently ignored.
+
+> **Scalar UI note:** In the Try-it client, every query parameter has a
+> **checkbox** on the left. Only parameters with the checkbox **enabled** are
+> included in the request URL. Required parameters (marked with the checkmark)
+> are pre-enabled; **optional parameters (`optionType`, `toDate`) are disabled
+> by default** — a typed value is ignored until you enable the checkbox.
+> Quick check: the executed request URL must contain `optionType=…`; if it
+> does not, the checkbox was not enabled.
 
 ---
 

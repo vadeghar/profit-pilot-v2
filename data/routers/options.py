@@ -1,23 +1,34 @@
 """Options Data Router
 Endpoints: /options - Aggregated option OHLCV candles (strike / expiry / type)
 """
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
 from typing import Optional
 from datetime import date
 
 from ..providers.candle_aggregator import CandleInterval
 from ..providers.ohlcv_service import get_options_candles
+from ._validation import guard_query_params
 
-router = APIRouter(tags=["Options Data"])
+router = APIRouter(
+    tags=["Options Data"],
+    dependencies=[Depends(guard_query_params("strike", "expiry", "optionType",
+                                             "fromDate", "toDate", "interval"))],
+)
 
 
 @router.get("/options")
 def options_candles(
     strike: int = Query(..., description="Strike price (e.g., 24000)"),
     expiry: date = Query(..., description="Contract expiry date (YYYY-MM-DD)"),
-    optionType: Optional[str] = Query(None, description="Option type: CE, PE or FUT (default CE & PE)"),
+    optionType: Optional[str] = Query(None, description=(
+        "Option type: CE, PE or FUT (default CE & PE). Optional parameter: "
+        "enable its checkbox in the Try-it client for it to be included in the request."
+    )),
     fromDate: date = Query(..., description="Start date (YYYY-MM-DD)"),
-    toDate: Optional[date] = Query(None, description="End date (YYYY-MM-DD, optional; defaults to fromDate)"),
+    toDate: Optional[date] = Query(None, description=(
+        "End date (YYYY-MM-DD, optional). Optional parameter: enable its "
+        "checkbox in the Try-it client for it to be included in the request."
+    )),
     interval: CandleInterval = Query(..., description=(
         "Aggregation interval. One of: ONE_MINUTE, THREE_MINUTE, FIVE_MINUTE, "
         "TEN_MINUTE, FIFTEEN_MINUTE, THIRTY_MINUTE, ONE_HOUR, ONE_DAY, WEEK, MONTH."
