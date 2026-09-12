@@ -1,1 +1,4 @@
 pytest==9.0.2
+breeze-connect>=1.0.69
+smartapi-python>=1.5.5
+pyotp>=2.9.0

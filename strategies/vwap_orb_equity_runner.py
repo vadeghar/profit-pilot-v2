@@ -264,7 +264,7 @@ class VWAPORBRunner:
 
         # Day-level tracking
         self.or_high: float = 0.0
-        self.or_low: float = 0.0
+        self.or_low: float = float('-inf')
         self.or_range: float = 0.0
         self.or_mid: float = 0.0
         self.orb_complete: bool = False
@@ -441,7 +441,7 @@ class VWAPORBRunner:
                 if self.session_sm.transition("OR_LOCKED"):
                     self.orb_complete = True
 
-        if current_state == "OR_LOCKED":
+        if self.session_sm.state == "OR_LOCKED":
             self.session_sm.transition("WAITING_FOR_BREAKOUT")
 
         # ── VWAP update (always, for every bar in session) ──
@@ -450,7 +450,7 @@ class VWAPORBRunner:
         self.vol_acc.add_session_bar(candle.volume)
 
         # ── Signal evaluation (only in WAITING_FOR_BREAKOUT, spec §24-25) ──
-        if current_state in ("WAITING_FOR_BREAKOUT", "SIGNAL_CONFIRMED"):
+        if self.session_sm.state == "WAITING_FOR_BREAKOUT":
             self._evaluate_breakout(candle)
 
         # ── Position management (spec §17) ──
@@ -744,10 +744,14 @@ class VWAPORBRunner:
             exit_reason=reason,
             direction=direction,
             quantity=quantity,
-            gross_pnl=gross_pnl,
+            gross_pnl=gross_pnl, mae=self.position_mae, mfe=self.position_mfe,
         )
         self.trades.append(trade)
 
+        # FIX 5: daily loss check (§27) — compute realized P&L for today from trade history
+        today_pnl = sum(t.gross_pnl for t in self.trades if t.exit_timestamp.date() == candle.timestamp.date())
+        if today_pnl < -self.max_daily_loss_pct * self.starting_equity:
+            self.daily_loss_reached = True
         # Reset position
         self.position_active = False
         self.position_direction = ""
