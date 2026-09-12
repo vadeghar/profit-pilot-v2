@@ -264,7 +264,7 @@ class VWAPORBRunner:
 
         # Day-level tracking
         self.or_high: float = 0.0
-        self.or_low: float = float('-inf')
+        self.or_low: float = float('inf')
         self.or_range: float = 0.0
         self.or_mid: float = 0.0
         self.orb_complete: bool = False

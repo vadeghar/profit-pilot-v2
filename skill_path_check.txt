@@ -1,0 +1,3 @@
+profitpilot-development patched (code-review gate + cost-tier audit + regression-test rule added to SKILL.md; no new refs needed — existing vwap-orb-equity-session-state.md strengthened via pointer)
+Branch: feature/vwap-orb-equity-v1
+Commit: 89d604c
