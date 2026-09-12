@@ -25,39 +25,37 @@ class HttpMarketDataProvider:
 
     def states(self, start: date, end: date) -> Iterable[MarketState]:
         """Yield MarketState rows for [start, end] from the API."""
-        current = start
-        while current <= end:
-            # Fetch up to 800 buckets per call (api cap); chunk by month to stay sane
-            month_end = self._month_end(current)
-            url = (f"{API_URL}/equity?symbol={self.symbol}"
-                   f"&fromDate={current.isoformat()}"
-                   f"&toDate={month_end.isoformat()}"
-                   f"&interval={self.interval}")
+        # The daily endpoint supports the full validated window (271 rows).
+        # Fetching month-by-month caused repeated API stalls during multi-stock
+        # research runs, so use one bounded request and retain the API-only rule.
+        url = (f"{API_URL}/equity?symbol={self.symbol}"
+               f"&fromDate={start.isoformat()}"
+               f"&toDate={end.isoformat()}"
+               f"&interval={self.interval}")
+        try:
+            with urllib.request.urlopen(url, timeout=60) as resp:
+                rows = json.loads(resp.read().decode("utf-8"))
+        except Exception as exc:
+            import sys
+            print(f"[HttpMarketDataProvider] Error fetching {url}: {exc}", file=sys.stderr)
+            rows = []
+        for r in rows:
+            ts_str = r.get("trade_time")
             try:
-                with urllib.request.urlopen(url, timeout=30) as resp:
-                    rows = json.loads(resp.read().decode("utf-8"))
-            except Exception as exc:
-                import sys
-                print(f"[HttpMarketDataProvider] Error fetching {url}: {exc}", file=sys.stderr)
-                rows = []
-            for r in rows:
-                ts_str = r.get("trade_time")
-                try:
-                    ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
-                except Exception:
-                    continue
-                yield MarketState(
-                    timestamp=ts,
-                    symbol=self.symbol,
-                    price=float(r.get("close", r.get("close") or 0)),
-                    fields={
-                        "open": float(r.get("open", 0)),
-                        "high": float(r.get("high", 0)),
-                        "low": float(r.get("low", 0)),
-                        "volume": float(r.get("volume") or 0),
-                    },
-                )
-            current = month_end + __import__("datetime").timedelta(days=1)
+                ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+            except Exception:
+                continue
+            yield MarketState(
+                timestamp=ts,
+                symbol=self.symbol,
+                price=float(r.get("close", r.get("close") or 0)),
+                fields={
+                    "open": float(r.get("open", 0)),
+                    "high": float(r.get("high", 0)),
+                    "low": float(r.get("low", 0)),
+                    "volume": float(r.get("volume") or 0),
+                },
+            )
 
     @staticmethod
     def _month_end(d: date) -> date:

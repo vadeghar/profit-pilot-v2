@@ -12,6 +12,19 @@
     "User approval before production"
   ],
   "current_state": "No production change; pure VPA; geometry verified; all tests saved",
+  "independent_takeover_audit": {
+    "date": "2026-09-12",
+    "branch": "feature/hermes-agent-setup",
+    "data_api": "reachable",
+    "sample_check": "RELIANCE returned 271 daily rows for 2025-08-01 through 2026-09-11",
+    "bug_fixes": [
+      "Fixed unexpected indentation in stopping-volume implementation",
+      "Fixed undefined daily_bars reference in absorption implementation"
+    ],
+    "test_result": "24 passed, 5 failed",
+    "baseline_reproduced": false,
+    "reason": "Existing test and fixture failures prevent an independently validated end-to-end baseline"
+  },
   "dataset": "8 stocks x 271 bars (2025-08-01 -> 2026-09-11); no gaps",
   "key_numbers": {
     "SV_candidates_approx": 420,

@@ -1,1 +1,2 @@
 pytest==9.0.2
+breeze-connect>=1.0.69

@@ -1,4 +1,4 @@
-from profit_pilot.backtest.results import BacktestResult
+from profit_pilot.backtest.results import BacktestResult, Trade
 from profit_pilot.backtest.simulator import ExecutionSimulator
 from profit_pilot.data.market_data import MarketDataProvider
 from profit_pilot.data.models import MarketState

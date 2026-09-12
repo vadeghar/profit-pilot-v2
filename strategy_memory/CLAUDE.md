@@ -1,9 +1,9 @@
 # Hermes — Working Memory
 
 ## Currently in flight
-- Strategy: (none yet)
-- Round: -
-- Best metrics so far: -
+- Strategy: VPA_SWING_EQUITY_LONG_V2 takeover audit
+- Round: baseline reproducibility audit
+- Best metrics so far: prior V3.7 report only; not independently reproduced
 - Open PRs awaiting review: -
 
 ## Success criteria (fill in — see AGENTS.md)

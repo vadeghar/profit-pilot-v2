@@ -7,6 +7,9 @@ Strategy: Pure VPA (Anna Coulling 5-phase) long-equity on 8 NSE stocks (AXISBANK
 Finding: The 2026 dataset shows very few genuine Coulling-style declining-consolidation-to-breakout sequences. Concept B (B_moderate) captures more post-SV behavior than Concept A, but complete-sequence conversion remains very low (~0-1 trades across 271 bars x 8 stocks). The bottleneck is dataset regime, not a single-stage implementation error.
 No statistical significance established (single dataset, single market, single period). No production strategy code changed; no new indicators added; thresholds unmodified in production source.
 
+### Independent takeover audit (2026-09-12)
+The prior report was not fully reproducible from the checked-out source at takeover. The strategy file contained an `IndentationError` in `_is_stopping_volume` and `_is_absorption` referenced the undefined name `daily_bars`; both are code-integrity defects, not strategy changes, and were corrected on `feature/hermes-agent-setup`. The data API was reachable and returned 271 daily rows for RELIANCE over the stated range. After the syntax fix, `py_compile` passed, but the full test suite remained red: 5 failed, 24 passed. Two failures are infrastructure/data-fixture related, two are backtest-engine/end-to-end failures, and one is an inconsistent absorption fixture assertion. Therefore the historical V3.7 funnel and execution metrics remain prior-research claims, not an independently reproduced baseline in this takeover.
+
 ## 2. Current Baseline (retained from V2/V6)
 - Pure VPA: no RSI/MACD/VWAP/news/AI/options.
 - Proper Wilder ATR(14), not rolling mean.

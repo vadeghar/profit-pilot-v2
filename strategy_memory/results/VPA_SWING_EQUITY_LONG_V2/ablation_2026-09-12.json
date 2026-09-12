@@ -1,0 +1,485 @@
+[
+  {
+    "step": "permissive_baseline",
+    "symbol": "AXISBANK",
+    "params": {},
+    "trades": 23,
+    "fills": 46,
+    "return_pct": 0.002249000000000233,
+    "max_drawdown": 0.0013256663965496788,
+    "win_rate": 0.6521739130434783,
+    "pnl": 224.89999999999964
+  },
+  {
+    "step": "permissive_baseline",
+    "symbol": "BAJFINANCE",
+    "params": {},
+    "trades": 0,
+    "fills": 0,
+    "return_pct": 0.0,
+    "max_drawdown": 0.0,
+    "win_rate": 0.0,
+    "pnl": 0
+  },
+  {
+    "step": "permissive_baseline",
+    "symbol": "ICICIBANK",
+    "params": {},
+    "trades": 23,
+    "fills": 46,
+    "return_pct": -0.0016639999999999418,
+    "max_drawdown": 0.00325768726202302,
+    "win_rate": 0.4782608695652174,
+    "pnl": -166.4000000000001
+  },
+  {
+    "step": "permissive_baseline",
+    "symbol": "ITC",
+    "params": {},
+    "trades": 17,
+    "fills": 34,
+    "return_pct": -0.00030950000000026193,
+    "max_drawdown": 0.0005104430855959852,
+    "win_rate": 0.35294117647058826,
+    "pnl": -30.950000000000102
+  },
+  {
+    "step": "permissive_baseline",
+    "symbol": "LT",
+    "params": {},
+    "trades": 23,
+    "fills": 46,
+    "return_pct": 0.003017000000000262,
+    "max_drawdown": 0.003251461266607,
+    "win_rate": 0.5652173913043478,
+    "pnl": 301.70000000000164
+  },
+  {
+    "step": "permissive_baseline",
+    "symbol": "RELIANCE",
+    "params": {},
+    "trades": 24,
+    "fills": 48,
+    "return_pct": -0.0016509999999996217,
+    "max_drawdown": 0.002732095782183538,
+    "win_rate": 0.4583333333333333,
+    "pnl": -165.1000000000006
+  },
+  {
+    "step": "permissive_baseline",
+    "symbol": "SBIN",
+    "params": {},
+    "trades": 0,
+    "fills": 0,
+    "return_pct": 0.0,
+    "max_drawdown": 0.0,
+    "win_rate": 0.0,
+    "pnl": 0
+  },
+  {
+    "step": "breakout_rvol_0_8",
+    "symbol": "AXISBANK",
+    "params": {
+      "require_breakout_rvol": true
+    },
+    "trades": 23,
+    "fills": 46,
+    "return_pct": 0.002249000000000233,
+    "max_drawdown": 0.0013256663965496788,
+    "win_rate": 0.6521739130434783,
+    "pnl": 224.89999999999964
+  },
+  {
+    "step": "breakout_rvol_0_8",
+    "symbol": "BAJFINANCE",
+    "params": {
+      "require_breakout_rvol": true
+    },
+    "trades": 0,
+    "fills": 0,
+    "return_pct": 0.0,
+    "max_drawdown": 0.0,
+    "win_rate": 0.0,
+    "pnl": 0
+  },
+  {
+    "step": "breakout_rvol_0_8",
+    "symbol": "ICICIBANK",
+    "params": {
+      "require_breakout_rvol": true
+    },
+    "trades": 21,
+    "fills": 42,
+    "return_pct": -0.0014589999999997962,
+    "max_drawdown": 0.003013710683774445,
+    "win_rate": 0.47619047619047616,
+    "pnl": -145.90000000000032
+  },
+  {
+    "step": "breakout_rvol_0_8",
+    "symbol": "ITC",
+    "params": {
+      "require_breakout_rvol": true
+    },
+    "trades": 16,
+    "fills": 32,
+    "return_pct": -0.00030950000000026193,
+    "max_drawdown": 0.0005104430855959852,
+    "win_rate": 0.375,
+    "pnl": -30.950000000000102
+  },
+  {
+    "step": "breakout_rvol_0_8",
+    "symbol": "LT",
+    "params": {
+      "require_breakout_rvol": true
+    },
+    "trades": 23,
+    "fills": 46,
+    "return_pct": 0.003017000000000262,
+    "max_drawdown": 0.003251461266607,
+    "win_rate": 0.5652173913043478,
+    "pnl": 301.70000000000164
+  },
+  {
+    "step": "breakout_rvol_0_8",
+    "symbol": "RELIANCE",
+    "params": {
+      "require_breakout_rvol": true
+    },
+    "trades": 22,
+    "fills": 44,
+    "return_pct": -0.0013059999999996217,
+    "max_drawdown": 0.0024835735486427426,
+    "win_rate": 0.45454545454545453,
+    "pnl": -130.6000000000006
+  },
+  {
+    "step": "breakout_rvol_0_8",
+    "symbol": "SBIN",
+    "params": {
+      "require_breakout_rvol": true
+    },
+    "trades": 0,
+    "fills": 0,
+    "return_pct": 0.0,
+    "max_drawdown": 0.0,
+    "win_rate": 0.0,
+    "pnl": 0
+  },
+  {
+    "step": "sv_context",
+    "symbol": "AXISBANK",
+    "params": {
+      "require_breakout_rvol": true,
+      "require_sv_context": true
+    },
+    "trades": 0,
+    "fills": 0,
+    "return_pct": 0.0,
+    "max_drawdown": 0.0,
+    "win_rate": 0.0,
+    "pnl": 0
+  },
+  {
+    "step": "sv_context",
+    "symbol": "BAJFINANCE",
+    "params": {
+      "require_breakout_rvol": true,
+      "require_sv_context": true
+    },
+    "trades": 0,
+    "fills": 0,
+    "return_pct": 0.0,
+    "max_drawdown": 0.0,
+    "win_rate": 0.0,
+    "pnl": 0
+  },
+  {
+    "step": "sv_context",
+    "symbol": "ICICIBANK",
+    "params": {
+      "require_breakout_rvol": true,
+      "require_sv_context": true
+    },
+    "trades": 0,
+    "fills": 0,
+    "return_pct": 0.0,
+    "max_drawdown": 0.0,
+    "win_rate": 0.0,
+    "pnl": 0
+  },
+  {
+    "step": "sv_context",
+    "symbol": "ITC",
+    "params": {
+      "require_breakout_rvol": true,
+      "require_sv_context": true
+    },
+    "trades": 0,
+    "fills": 0,
+    "return_pct": 0.0,
+    "max_drawdown": 0.0,
+    "win_rate": 0.0,
+    "pnl": 0
+  },
+  {
+    "step": "sv_context",
+    "symbol": "LT",
+    "params": {
+      "require_breakout_rvol": true,
+      "require_sv_context": true
+    },
+    "trades": 0,
+    "fills": 0,
+    "return_pct": 0.0,
+    "max_drawdown": 0.0,
+    "win_rate": 0.0,
+    "pnl": 0
+  },
+  {
+    "step": "sv_context",
+    "symbol": "RELIANCE",
+    "params": {
+      "require_breakout_rvol": true,
+      "require_sv_context": true
+    },
+    "trades": 0,
+    "fills": 0,
+    "return_pct": 0.0,
+    "max_drawdown": 0.0,
+    "win_rate": 0.0,
+    "pnl": 0
+  },
+  {
+    "step": "sv_context",
+    "symbol": "SBIN",
+    "params": {
+      "require_breakout_rvol": true,
+      "require_sv_context": true
+    },
+    "trades": 0,
+    "fills": 0,
+    "return_pct": 0.0,
+    "max_drawdown": 0.0,
+    "win_rate": 0.0,
+    "pnl": 0
+  },
+  {
+    "step": "moderate_absorption",
+    "symbol": "AXISBANK",
+    "params": {
+      "require_breakout_rvol": true,
+      "require_sv_context": true,
+      "require_moderate_absorption": true
+    },
+    "trades": 0,
+    "fills": 0,
+    "return_pct": 0.0,
+    "max_drawdown": 0.0,
+    "win_rate": 0.0,
+    "pnl": 0
+  },
+  {
+    "step": "moderate_absorption",
+    "symbol": "BAJFINANCE",
+    "params": {
+      "require_breakout_rvol": true,
+      "require_sv_context": true,
+      "require_moderate_absorption": true
+    },
+    "trades": 0,
+    "fills": 0,
+    "return_pct": 0.0,
+    "max_drawdown": 0.0,
+    "win_rate": 0.0,
+    "pnl": 0
+  },
+  {
+    "step": "moderate_absorption",
+    "symbol": "ICICIBANK",
+    "params": {
+      "require_breakout_rvol": true,
+      "require_sv_context": true,
+      "require_moderate_absorption": true
+    },
+    "trades": 0,
+    "fills": 0,
+    "return_pct": 0.0,
+    "max_drawdown": 0.0,
+    "win_rate": 0.0,
+    "pnl": 0
+  },
+  {
+    "step": "moderate_absorption",
+    "symbol": "ITC",
+    "params": {
+      "require_breakout_rvol": true,
+      "require_sv_context": true,
+      "require_moderate_absorption": true
+    },
+    "trades": 0,
+    "fills": 0,
+    "return_pct": 0.0,
+    "max_drawdown": 0.0,
+    "win_rate": 0.0,
+    "pnl": 0
+  },
+  {
+    "step": "moderate_absorption",
+    "symbol": "LT",
+    "params": {
+      "require_breakout_rvol": true,
+      "require_sv_context": true,
+      "require_moderate_absorption": true
+    },
+    "trades": 0,
+    "fills": 0,
+    "return_pct": 0.0,
+    "max_drawdown": 0.0,
+    "win_rate": 0.0,
+    "pnl": 0
+  },
+  {
+    "step": "moderate_absorption",
+    "symbol": "RELIANCE",
+    "params": {
+      "require_breakout_rvol": true,
+      "require_sv_context": true,
+      "require_moderate_absorption": true
+    },
+    "trades": 0,
+    "fills": 0,
+    "return_pct": 0.0,
+    "max_drawdown": 0.0,
+    "win_rate": 0.0,
+    "pnl": 0
+  },
+  {
+    "step": "moderate_absorption",
+    "symbol": "SBIN",
+    "params": {
+      "require_breakout_rvol": true,
+      "require_sv_context": true,
+      "require_moderate_absorption": true
+    },
+    "trades": 0,
+    "fills": 0,
+    "return_pct": 0.0,
+    "max_drawdown": 0.0,
+    "win_rate": 0.0,
+    "pnl": 0
+  },
+  {
+    "step": "breakout_close_location_0_60",
+    "symbol": "AXISBANK",
+    "params": {
+      "require_breakout_rvol": true,
+      "require_sv_context": true,
+      "require_moderate_absorption": true,
+      "require_breakout_close_location": true
+    },
+    "trades": 0,
+    "fills": 0,
+    "return_pct": 0.0,
+    "max_drawdown": 0.0,
+    "win_rate": 0.0,
+    "pnl": 0
+  },
+  {
+    "step": "breakout_close_location_0_60",
+    "symbol": "BAJFINANCE",
+    "params": {
+      "require_breakout_rvol": true,
+      "require_sv_context": true,
+      "require_moderate_absorption": true,
+      "require_breakout_close_location": true
+    },
+    "trades": 0,
+    "fills": 0,
+    "return_pct": 0.0,
+    "max_drawdown": 0.0,
+    "win_rate": 0.0,
+    "pnl": 0
+  },
+  {
+    "step": "breakout_close_location_0_60",
+    "symbol": "ICICIBANK",
+    "params": {
+      "require_breakout_rvol": true,
+      "require_sv_context": true,
+      "require_moderate_absorption": true,
+      "require_breakout_close_location": true
+    },
+    "trades": 0,
+    "fills": 0,
+    "return_pct": 0.0,
+    "max_drawdown": 0.0,
+    "win_rate": 0.0,
+    "pnl": 0
+  },
+  {
+    "step": "breakout_close_location_0_60",
+    "symbol": "ITC",
+    "params": {
+      "require_breakout_rvol": true,
+      "require_sv_context": true,
+      "require_moderate_absorption": true,
+      "require_breakout_close_location": true
+    },
+    "trades": 0,
+    "fills": 0,
+    "return_pct": 0.0,
+    "max_drawdown": 0.0,
+    "win_rate": 0.0,
+    "pnl": 0
+  },
+  {
+    "step": "breakout_close_location_0_60",
+    "symbol": "LT",
+    "params": {
+      "require_breakout_rvol": true,
+      "require_sv_context": true,
+      "require_moderate_absorption": true,
+      "require_breakout_close_location": true
+    },
+    "trades": 0,
+    "fills": 0,
+    "return_pct": 0.0,
+    "max_drawdown": 0.0,
+    "win_rate": 0.0,
+    "pnl": 0
+  },
+  {
+    "step": "breakout_close_location_0_60",
+    "symbol": "RELIANCE",
+    "params": {
+      "require_breakout_rvol": true,
+      "require_sv_context": true,
+      "require_moderate_absorption": true,
+      "require_breakout_close_location": true
+    },
+    "trades": 0,
+    "fills": 0,
+    "return_pct": 0.0,
+    "max_drawdown": 0.0,
+    "win_rate": 0.0,
+    "pnl": 0
+  },
+  {
+    "step": "breakout_close_location_0_60",
+    "symbol": "SBIN",
+    "params": {
+      "require_breakout_rvol": true,
+      "require_sv_context": true,
+      "require_moderate_absorption": true,
+      "require_breakout_close_location": true
+    },
+    "trades": 0,
+    "fills": 0,
+    "return_pct": 0.0,
+    "max_drawdown": 0.0,
+    "win_rate": 0.0,
+    "pnl": 0
+  }
+]

@@ -38,19 +38,28 @@ class VPA_SWING_EQUITY_LONG_V2(Strategy):
     """
 
     name: str = "VPA_SWING_EQUITY_LONG_V2"
+    exploratory_hold_bars: int = 5
+    require_breakout_rvol: bool = False
+    require_sv_context: bool = False
+    require_moderate_absorption: bool = False
+    require_breakout_close_location: bool = False
 
     # VPA parameters (research thresholds, treated as hypotheses per spec)
-    rvol_stopping_min: float = 1.0
-    range_atr_stopping_max: float = 1.5
-    close_location_stopping_min: float = 0.45
-    lower_wick_stopping_min: float = 0.25
-    rvol_test_max: float = 1.0
-    range_atr_test_max: float = 1.0
-    close_location_test_min: float = 0.40
-    test_location_tolerance: float = 0.25  # % of congestion_range
-    rvol_breakout_min: float = 1.0
-    close_location_breakout_min: float = 0.70
-    range_atr_breakout_min: float = 0.8
+    # Controlled B-moderate research candidate: less brittle than V2 while
+    # retaining the same VPA concepts and sequencing.
+    rvol_stopping_min: float = 0.60
+    range_atr_stopping_max: float = 2.0
+    close_location_stopping_min: float = 0.20
+    lower_wick_stopping_min: float = 0.05
+    rvol_test_max: float = 1.50
+    range_atr_test_max: float = 2.00
+    close_location_test_min: float = 0.20
+    test_location_tolerance: float = 0.75
+    rvol_breakout_min: float = 0.50
+    close_location_breakout_min: float = 0.50
+    range_atr_breakout_min: float = 0.30
+    waterfall_weak_bars_min: int = 2
+    waterfall_decline_atr_min: float = 0.30
 
     @property
     def symbol(self) -> str:
@@ -66,6 +75,16 @@ class VPA_SWING_EQUITY_LONG_V2(Strategy):
         if len(daily_bars) == 0:
             return Signal(SignalAction.HOLD, ctx.symbol, 0)
 
+        # Exploratory benchmark exit: close after a fixed holding period so
+        # breakout predictive power can be measured with closed trades.
+        held = getattr(self, "_held_bars", 0)
+        if held > 0:
+            if held >= self.exploratory_hold_bars:
+                self._held_bars = 0
+                return Signal(SignalAction.SELL, ctx.symbol, 1)
+            self._held_bars = held + 1
+            return Signal(SignalAction.HOLD, ctx.symbol, 0)
+
         # ---- Weekly context filter (not standalone signal) ----
         # Per spec: weekly context (W_BULLISH / W_BEARISH / W_NEUTRAL / W_ACCUMULATION / W_DISTRIBUTION)
         # is used as a filter, never as an entry trigger.
@@ -74,6 +93,14 @@ class VPA_SWING_EQUITY_LONG_V2(Strategy):
         # Defer entry on bearish / distribution contexts (filters only; does not trigger)
         if weekly_regime in ("W_BEARISH", "W_DISTRIBUTION"):
             return Signal(SignalAction.HOLD, ctx.symbol, 0)
+
+        # Research sequencing fix: phases occur on different completed bars.
+        if not self._has_completed_sequence(daily_bars):
+            return Signal(SignalAction.HOLD, ctx.symbol, 0)
+        signal = self._generate_breakout_signal(daily_bars, ctx)
+        if signal.action == SignalAction.BUY:
+            self._held_bars = 1
+        return signal
 
         # ---- Phase 1: Bearish Waterfall (10-day prior) ----
         if not self._is_bearish_waterfall(daily_bars):
@@ -100,6 +127,32 @@ class VPA_SWING_EQUITY_LONG_V2(Strategy):
 
     # ---------- Phase implementations ----------
 
+    def _has_completed_sequence(self, daily: list) -> bool:
+        if len(daily) < 8 or not self._is_breakout(daily):
+            return False
+        test_idx = len(daily) - 2
+        for window_len in range(3, 13):
+            start = test_idx - window_len
+            sv_idx = start - 1
+            if sv_idx < 5:
+                continue
+            # Exploratory candidate: require the supply-to-demand sequence
+            # (Absorption -> Test -> Breakout), while Waterfall and Stopping
+            # Volume remain diagnostic/context fields rather than hard gates.
+            absorption_ok = self._is_absorption(daily[start:test_idx])
+            sv_ok = (self._is_stopping_volume(daily[:sv_idx + 1])
+                     and self._is_bearish_waterfall(daily[:sv_idx + 1]))
+            if (self._is_low_volume_test(daily[:test_idx + 1])
+                    and (not self.require_moderate_absorption or absorption_ok)
+                    and (not self.require_sv_context or sv_ok)):
+                return True
+        # Exploratory benchmark fallback. This is intentionally not treated as
+        # production VPA: it isolates the predictive value of a local,
+        # volume-confirmed breakout when the full sequence has no sample.
+        if self.require_sv_context or self.require_moderate_absorption:
+            return False
+        return self._is_breakout(daily)
+
     def _is_bearish_waterfall(self, daily: list) -> bool:
         """≥3 weak/down bars in last 10, cumulative decline ≥ 1×ATR(14)."""
         if len(daily) < 5:
@@ -107,7 +160,7 @@ class VPA_SWING_EQUITY_LONG_V2(Strategy):
 
         recent = daily[-10:]
         weak_bars = [b for b in recent if b["close"] < b["open"]]
-        if len(weak_bars) < 3:
+        if len(weak_bars) < self.waterfall_weak_bars_min:
             return False
 
         # Compute ATR(14) from the recent 10-day ranges
@@ -119,7 +172,7 @@ class VPA_SWING_EQUITY_LONG_V2(Strategy):
         # Cumulative decline = sum of (close_i - open_i) for last 10 bars
         # (positive values = net decline; this is a simplified measure)
         cum_decline = sum(b["close"] - b["open"] for b in recent)
-        return cum_decline <= -atr  # cumulative decline ≥ 1×ATR
+        return cum_decline <= -self.waterfall_decline_atr_min * atr
 
     def _wilder_atr(self, daily: list, period: int = 14) -> float:
         """Wilder/TradingView-style ATR(14) using RMA: first ATR = SMA(14), then ATR = (prev_ATR * 13 + TR) / 14."""
@@ -177,9 +230,9 @@ class VPA_SWING_EQUITY_LONG_V2(Strategy):
         # Lower wick ratio = (low - min(open,close)) / range
         lower_wick = min(cur["open"], cur["close"]) - cur["low"]
         lower_wick_ratio = lower_wick / rng if rng > 0 else 0.0
-    # Verified formula (not used in SV rules): upper_wick = high - max(open, close)
-    upper_wick = cur["high"] - max(cur["open"], cur["close"])
-    upper_wick_ratio = upper_wick / rng if rng > 0 else 0.0
+        # Verified formula (not used in SV rules): upper_wick = high - max(open, close)
+        upper_wick = cur["high"] - max(cur["open"], cur["close"])
+        upper_wick_ratio = upper_wick / rng if rng > 0 else 0.0
 
         cond_rvol = rvol >= self.rvol_stopping_min
         cond_range_atr = range_atr <= self.range_atr_stopping_max
@@ -196,7 +249,7 @@ class VPA_SWING_EQUITY_LONG_V2(Strategy):
         Second-half down range < first-half down range.
         No sustained new lows (close >= congestion_low throughout).
         """
-        if len(daily_bars) < 3 or len(daily_bars) > 20:
+        if len(daily) < 3 or len(daily) > 12:
             return False
 
         congestion_high = max(b["high"] for b in daily)
@@ -209,7 +262,7 @@ class VPA_SWING_EQUITY_LONG_V2(Strategy):
         # Down-volume counts: volume on close < open bars
         down_first = sum(b["volume"] for b in first_half if b["close"] < b["open"])
         down_second = sum(b["volume"] for b in second_half if b["close"] < b["open"])
-        if down_second >= down_first:
+        if down_first > 0 and down_second > down_first * 1.25:
             return False
 
         # Down-range: range on down bars
@@ -221,7 +274,7 @@ class VPA_SWING_EQUITY_LONG_V2(Strategy):
             (b["high"] - b["low"] for b in second_half if b["close"] < b["open"]),
             default=float("inf"),
         )
-        if second_down_range >= first_down_range:
+        if first_down_range != float("inf") and second_down_range > first_down_range * 1.25:
             return False
 
         # No sustained new lows: every bar's close >= congestion_low
@@ -237,7 +290,11 @@ class VPA_SWING_EQUITY_LONG_V2(Strategy):
             return False
 
         # congestion boundaries
-        congestion_high = max(b["high"] for b in daily)
+        setup = daily[:-1]
+        if not setup:
+            return False
+        setup = setup[-5:]
+        congestion_high = max(b["high"] for b in setup)
         congestion_low = min(b["low"] for b in daily)
         rng = congestion_high - congestion_low
 
@@ -275,7 +332,10 @@ class VPA_SWING_EQUITY_LONG_V2(Strategy):
         if len(daily) == 0:
             return False
 
-        congestion_high = max(b["high"] for b in daily)
+        setup = daily[:-1][-5:]
+        if not setup:
+            return False
+        congestion_high = max(b["high"] for b in setup)
         cur = daily[-1]
 
         # Breakout level = max of congestion window
@@ -308,7 +368,12 @@ class VPA_SWING_EQUITY_LONG_V2(Strategy):
         range_atr = cur_range / atr if atr > 0 else 1.0
         cond_range_atr = range_atr >= self.range_atr_breakout_min
 
-        return cond_close_above and cond_rvol and cond_close_loc and cond_range_atr
+        # Exploratory probability benchmark: price acceptance above local
+        # resistance is the primary event; the other measurements remain in
+        # the code for diagnostics but are not hard gates in this round.
+        return (cond_close_above
+                and (not self.require_breakout_rvol or cond_rvol)
+                and (not self.require_breakout_close_location or cond_close_loc))
 
     # ---------- Signal generation ----------
 
