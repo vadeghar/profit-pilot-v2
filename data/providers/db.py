@@ -4,6 +4,7 @@ Manages DuckDB connections for the API.
 Supports both local files and remote URLs (GitHub Releases, S3, etc).
 """
 import os
+import tempfile
 import duckdb
 from fastapi import HTTPException
 
@@ -31,6 +32,16 @@ def _load_httpfs(con: duckdb.DuckDBPyConnection) -> None:
     """Load httpfs extension for remote database access."""
     global _httpfs_loaded
     if not _httpfs_loaded:
+        # Some server/container environments run with HOME unset. DuckDB then
+        # cannot determine where to cache extensions and fails with:
+        # "Can't find the home directory at ''". Allow an explicit directory,
+        # otherwise use a writable temp location.
+        home_dir = os.getenv("DUCKDB_HOME") or os.path.join(
+            tempfile.gettempdir(), "profit-pilot-duckdb"
+        )
+        os.makedirs(home_dir, exist_ok=True)
+        escaped_home = home_dir.replace("'", "''")
+        con.execute(f"SET home_directory = '{escaped_home}'")
         con.execute("INSTALL httpfs; LOAD httpfs;")
         _httpfs_loaded = True
 
