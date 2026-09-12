@@ -20,7 +20,7 @@ from __future__ import annotations
 import json
 import urllib.request
 from dataclasses import dataclass, field
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, time as time_constructor
 from typing import Any, Sequence
 
 from profit_pilot.execution.fill import Fill
@@ -786,10 +786,10 @@ class VWAPORBRunner:
             # Round to nearest tick (toward achievable)
             return round(price / ts) * ts
 
-    def _parse_time(self, time_str: str) -> datetime.time:
-        """Parse 'HH:MM' string to time object."""
+    def _parse_time(self, time_str: str) -> "datetime.time":
+        import datetime as dt_lib
         h, m = time_str.split(":")
-        return datetime.time(int(h), int(m))
+        return time_constructor(int(h), int(m))
 
     def _log_signal(
         self,
