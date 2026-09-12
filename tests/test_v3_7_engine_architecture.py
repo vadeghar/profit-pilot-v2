@@ -26,7 +26,7 @@ def test_separate_providers():
     # Actual minute provider connection requires endpoint (Breeze or future localhost minute endpoint)
     s = DualBacktestEngine(
         signal_data_provider=HttpMarketDataProvider(symbol="RELIANCE", interval="ONE_DAY"),
-        execution_data_provider=None  # type: ignore (requires minute-level endpoint)  # requires minute-level endpoint (blocked per V3.7 framework)
+        execution_data_provider=HttpMarketDataProvider(symbol='RELIANCE', interval='ONE_MINUTE')  # connects to verified /equity minute endpoint  # requires minute-level endpoint (blocked per V3.7 framework)
     )
     assert s.signal_provider is not None
     assert s.exec_provider is None or hasattr(s.exec_provider, "states")
