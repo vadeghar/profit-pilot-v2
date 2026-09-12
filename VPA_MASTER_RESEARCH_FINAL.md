@@ -122,3 +122,35 @@ If user stops: retain all reports (V2-V3.7), preserve VPA registry entry (curren
 - Tests: tests/test_v3_0/1/2/3/4/5/6_ab_validation.py
 - Reports: V2_5_REPORT.md V3_0_DIAGNOSTIC.md V3_1_REPORT V3_2_REPORT V3_3_REPORT V3_4_REPORT V3_5_COMPARISON.md V3_6_AB_VALIDATION.md + VPA_MASTER_RESEARCH_FINAL.md
 - Workspace: /root/profit-pilot-v2 (master branch; data layer at ../profit-pilot-v2-data master-data)
+
+
+=== RECONCILIATION — EXTERNAL SESSION FINDINGS (post-V3.7) ===
+Source: external session work (Breeze integration, symbol mappings, ablation). Read from /root/.hermes/pastes/paste_19_090953.txt; reconciled, not silently adopted.
+
+Data source change: localhost:8000 (my V2-V6 / V3.6 audit) -> Breeze historical-data integration (external session). Breeze has different candle history; results not directly comparable without cross-check.
+
+Personnel change: external session switched backtest runner to Breeze; my V3.7 framework was designed for localhost:8000 /equity endpoint. Both paths must be verified independently.
+
+Universe change: HDFCBANK excluded from clean benchmark due to ~50% corporate-action-style price discontinuity (external audit). My 8-stock analysis should be re-run as 7-stock clean benchmark for direct comparison.
+
+Ablation results (external session, Breeze, 7-stock clean, permissive / breakout / SV-restore / Absorption-restore / close-location-restore):
+- Permissive benchmark (no SV/Absorption restrictions): 110 trades, ₹163.85 aggregate PNL
+- Breakout RVOL >= 0.8: 105 trades, ₹219.15 aggregate PNL
+- Restoring SV context (strict): 0 trades
+- Restoring moderate Absorption after SV: 0 trades
+- Restoring close_location >= 0.60: 0 trades
+=> The external session confirms: without SV/Absorption constraints, strategy produces many trades and positive aggregate; with strict SV/Absorption, 0. This validates my diagnosis that the bottleneck is the SV->Absorption->Test sequence definition, not the core execution/exit logic.
+
+Revised interpretation of V3.4/V3.5: Concept B (moderate/permissive) captures more genuine VPA sequences than A, but still requires correct SV-context + Absorption rules to reach trades. The external ablation shows that removing SV/Absorption constraints yields trades — confirming the rules are the gatekeeper, not the pipeline.
+
+Engineering blocker (external): engine needs separate daily-signal data provider + 1-minute execution provider before realistic OOS can be trusted. This aligns with V3.7 framework (execution framework defined; full run blocked by data-layer separation, not strategy logic).
+
+Updated recommendation (reconciled):
+1. Do NOT modify production strategy automatically (per rule 14 / gate 15).
+2. Confirm Breeze data against localhost data (cross-check HDFCBANK discontinuity, verify symbol mappings, compare 271-bar set to Breeze history).
+3. If Breeze is confirmed as the authoritative source, re-run V2-V6 pipeline on Breeze with HDFCBANK excluded; document delta.
+4. Use external session's ablation results to justify a V3.7/3.8 experiment: test B_moderate with Breeze, include the 7-stock clean universe, run with 1-minute execution, report full metrics (not just PNL).
+5. Do NOT claim statistical significance from either dataset alone (each is single-market / single-period); any production recommendation requires multi-market / multi-period / out-of-sample confirmation.
+6. Preserve all existing reports; do not discard V2-V3.7 work — it provides the diagnostic foundation for the Breeze experiment.
+
+Updated final decision (reconciled): B — Concept B_moderate for controlled V3.7 production-paper-trading experiment (requires: Breeze source confirmed, 7-stock clean baseline, 1-min execution, statistical significance, user approval). If Breeze data differs materially from localhost, decision must be re-evaluated after cross-check.

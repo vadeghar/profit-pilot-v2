@@ -47,5 +47,6 @@
     "V3_0_DIAGNOSTIC.md"
   ],
   "methodology_notes": "Chronological split (dev/OOS) used; no shuffling; B params frozen from dev; no optimization on OOS; no fabricated trades; execution framework defined honestly; statistical significance NOT claimed.",
-  "vpa_purity": "No RSI/MACD/VWAP/news/AI/options; only ATR/RVOL/price/volume/congestion measures per original design."
+  "vpa_purity": "No RSI/MACD/VWAP/news/AI/options; only ATR/RVOL/price/volume/congestion measures per original design.",
+  "reconciliation_note": "Post-V3.7: external session switched to Breeze; ablation shows 110 trades / +163.85 PNL (permissive) vs 0 (strict SV/Absorption); HDFCBANK excluded; confirms bottleneck is SV/Absorption, not execution. Decision revised to 2 (B_moderate for V3.7) with prerequisite: Breeze cross-check + 7-stock clean + 1-min execution + stats + user approval. No production change made."
 }
