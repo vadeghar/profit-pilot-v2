@@ -8,10 +8,6 @@ import tempfile
 import duckdb
 from fastapi import HTTPException
 
-# Track whether httpfs is loaded for remote connections
-_httpfs_loaded = False
-
-
 def _get_db_path() -> str:
     """Resolve the database path from env var or default."""
     PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -30,20 +26,25 @@ def _is_remote(path: str) -> bool:
 
 def _load_httpfs(con: duckdb.DuckDBPyConnection) -> None:
     """Load httpfs extension for remote database access."""
-    global _httpfs_loaded
-    if not _httpfs_loaded:
-        # Some server/container environments run with HOME unset. DuckDB then
-        # cannot determine where to cache extensions and fails with:
-        # "Can't find the home directory at ''". Allow an explicit directory,
-        # otherwise use a writable temp location.
-        home_dir = os.getenv("DUCKDB_HOME") or os.path.join(
-            tempfile.gettempdir(), "profit-pilot-duckdb"
-        )
-        os.makedirs(home_dir, exist_ok=True)
-        escaped_home = home_dir.replace("'", "''")
-        con.execute(f"SET home_directory = '{escaped_home}'")
-        con.execute("INSTALL httpfs; LOAD httpfs;")
-        _httpfs_loaded = True
+    # Some server/container environments run with HOME unset. DuckDB then
+    # cannot determine where to cache extensions and fails with:
+    # "Can't find the home directory at ''". Allow an explicit directory,
+    # otherwise use a writable temp location.
+    home_dir = os.getenv("DUCKDB_HOME") or os.path.join(
+        tempfile.gettempdir(), "profit-pilot-duckdb"
+    )
+    os.makedirs(home_dir, exist_ok=True)
+    escaped_home = home_dir.replace("'", "''")
+    con.execute(f"SET home_directory = '{escaped_home}'")
+
+    # Connections are independent: an extension loaded on the first
+    # connection is not loaded on later :memory: connections. Load it for
+    # every connection, installing it only when the local cache lacks it.
+    try:
+        con.execute("LOAD httpfs")
+    except Exception:
+        con.execute("INSTALL httpfs")
+        con.execute("LOAD httpfs")
 
 
 def connect(read_only: bool = True) -> duckdb.DuckDBPyConnection:
