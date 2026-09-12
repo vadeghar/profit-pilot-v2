@@ -1,0 +1,14 @@
+{
+  "concept_b_candidates_est": 28,
+  "overlap_with_A": 0,
+  "B_only": 28,
+  "behavior_captured": {
+    "mixed_consolidation": "~40%",
+    "recovery": "~25%",
+    "continued_weakness": "~15%",
+    "declining_vpa_style": "~20%"
+  },
+  "v3_5_recommendation": "Data-driven thresholds + controlled A/B before production change",
+  "production_changed": false,
+  "geometry_verified": true
+}

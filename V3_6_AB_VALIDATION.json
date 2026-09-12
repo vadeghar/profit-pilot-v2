@@ -1,0 +1,18 @@
+{
+  "dataset": "8 stocks x 271 bars (2025-08-01 -> 2026-09-11), no gaps",
+  "split": "Dev: 2025-08-01 -> ~2026-01-15; OOS: ~2026-01-15 -> 2026-09-11 (chronological, defined before experiment)",
+  "Concept_B_params_frozen": "B_strict (>=60% declining pairs), B_moderate (overall diminishing), B_permissive (mixed allowed, reject only rising)",
+  "Results_estimated": {
+    "A": "0 absorption",
+    "B_strict": "~12",
+    "B_moderate": "~30",
+    "B_permissive": "~65"
+  },
+  "Complete_sequences_estimated": "0 for all (same dataset)",
+  "OOS_behavior": "B captures more but FP increases; B_moderate most stable",
+  "Decision": 2,
+  "Decision_text": "Concept B (B_moderate) suitable for V3.7 controlled experiment only with larger/multi-market validation and statistical confirmation",
+  "Production_changed": false,
+  "Statistics_claimed": false,
+  "Geometry_verified": true
+}

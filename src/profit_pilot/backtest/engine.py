@@ -5,12 +5,13 @@ from profit_pilot.data.models import MarketState
 from profit_pilot.execution.portfolio import Portfolio
 from profit_pilot.execution.order import Order
 from profit_pilot.strategy.base import Strategy
-from profit_pilot.strategy.context import SignalContext  # ← added
+from profit_pilot.strategy.context import SignalContext
 from profit_pilot.strategy.signal import Signal, SignalAction
 from profit_pilot.backtest.commission import CommissionModel, FlatCommission, BpsCommission, CompositeCommission
 from profit_pilot.backtest.slippage import SlippageModel, BpsSlippage
 from typing import Sequence, Mapping, Optional
-from datetime import datetime
+from datetime import datetime, timedelta, date
+from collections import defaultdict
 
 
 class BacktestEngine:
@@ -83,10 +84,30 @@ class BacktestEngine:
             # Compute signal using on_signal_context with rolling history.
             # We pass the newest state as the "current" state and the full
             # history minus the newest as the "reference window".
+            # Build daily bars from history for VPA strategy
+            daily_map = defaultdict(lambda: {"o":None,"h":None,"l":None,"c":None,"v":0.0,"d":None})
+            for h in history:
+                d = h.timestamp.date()
+                m = daily_map[d]
+                m["d"] = d
+                price = h.price
+                if m["o"] is None: m["o"] = price
+                if m["h"] is None or price > m["h"]: m["h"] = price
+                if m["l"] is None or price < m["l"]: m["l"] = price
+                m["c"] = price
+                m["v"] += h.fields.get("volume",0)
+            daily_bars = [{"date":m["d"],"open":m["o"],"high":m["h"],"low":m["l"],"close":m["c"],"volume":m["v"]} for d,m in sorted(daily_map.items())]
+            weekly_regime = "W_NEUTRAL"
+            if len(daily_bars) >= 5:
+                w1 = daily_bars[-5]["close"]
+                w2 = daily_bars[-1]["close"]
+                if w2 > w1 * 1.01: weekly_regime = "W_BULLISH"
+                elif w2 < w1 * 0.99: weekly_regime = "W_BEARISH"
             ctx = SignalContext(
                 state=state,
                 params=strategy.params,
-                history=list(history[-20:] if hasattr(history, '__len__') else history),  # rolling window
+                history=list(history[-20:] if hasattr(history, '__len__') else history),
+                reference={"daily_bars": daily_bars[-20:], "weekly_context": {"regime": weekly_regime}},
             )
             sig = strategy.on_signal_context(ctx)
 

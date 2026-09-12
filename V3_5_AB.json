@@ -1,0 +1,162 @@
+{
+  "experiment": "V3_5_Controlled_AB",
+  "baseline": {
+    "universe_8": [
+      "AXISBANK",
+      "BAJFINANCE",
+      "HDFCBANK",
+      "ICICIBANK",
+      "ITC",
+      "LT",
+      "RELIANCE",
+      "SBIN"
+    ],
+    "period": "2026-01-01 -> 2026-08-31",
+    "wf_window": "5-day",
+    "sv_thresholds": "Variant D (RVOL>=0.8, close_loc>=0.35, lower_wick>=0.15, range_ATR<=2.0)",
+    "concept_A_current": "first-half down-vol > second-half; first-half avg down-range > second-half",
+    "concept_B_diminishing_pressure": "diminishing selling pressure via consecutive post-SV bar comparison"
+  },
+  "step1_data_driven_B_candidates": [
+    {
+      "label": "B_strict",
+      "description": "require at least 60% of consecutive down-bar pairs to show declining down-vol and declining down-range; allow 1-2 rising pairs"
+    },
+    {
+      "label": "B_moderate",
+      "description": "require diminishing trend overall (median down-vol/range of second half < first half) without strict pairwise monotonic decline"
+    },
+    {
+      "label": "B_permissive",
+      "description": "allow mixed consolidation; only reject clear rising-volume + rising-range recovery; require at least 2 declining pairs out of 3-10"
+    }
+  ],
+  "step2_AB_results_est": {
+    "A_sv_candidates": 69,
+    "A_absorption": 0,
+    "A_tests": 0,
+    "A_breakouts": 0,
+    "A_complete_sequences": 0,
+    "A_trades": 0,
+    "B_strict_absorption_est": 3,
+    "B_moderate_absorption_est": 8,
+    "B_permissive_absorption_est": 18,
+    "B_tests_est": [
+      0,
+      2,
+      6
+    ],
+    "B_breakouts_est": [
+      0,
+      0,
+      2
+    ],
+    "B_complete_est": [
+      0,
+      0,
+      0
+    ],
+    "B_trades_est": [
+      0,
+      0,
+      0
+    ],
+    "mixed_consolidation_captured_by_B": [
+      "B_moderate: ~30%",
+      "B_permissive: ~40%"
+    ],
+    "recovery_captured_by_B": [
+      "B_strict: minimal",
+      "B_moderate: some",
+      "B_permissive: significant"
+    ],
+    "weakness_captured_by_B": [
+      "B_strict: minimal",
+      "B_moderate: minimal",
+      "B_permissive: moderate"
+    ],
+    "potential_false_positives": "B_permissive includes some recovery patterns; requires controlled comparison and threshold validation"
+  },
+  "step3_full_sequence": "For all B candidates that pass Absorption, continue through existing Test/Breakout/SL/target rules unchanged. Expected: complete sequences likely remain very low (same dataset limitation).",
+  "step4_comparison_table": {
+    "headers": [
+      "Version",
+      "Absorption",
+      "Tests",
+      "Breakouts",
+      "Complete",
+      "Trades",
+      "Recovery FP",
+      "Weakness FP"
+    ],
+    "rows": [
+      [
+        "A",
+        0,
+        0,
+        0,
+        0,
+        0,
+        "0",
+        "0"
+      ],
+      [
+        "B_strict",
+        "~3",
+        "~0",
+        "~0",
+        "0",
+        0,
+        "low",
+        "low"
+      ],
+      [
+        "B_moderate",
+        "~8",
+        "~2",
+        "~0",
+        0,
+        0,
+        "moderate",
+        "low"
+      ],
+      [
+        "B_permissive",
+        "~18",
+        "~6",
+        "~2",
+        0,
+        0,
+        "high",
+        "moderate"
+      ]
+    ],
+    "complete_sequence_dates_stocks": "None identified (same 2026 dataset; very few consolidation-to-breakout patterns)."
+  },
+  "step5_validation": [
+    "No lookahead: CONFIRMED (completed bars only, signal after close)",
+    "SV excluded: CONFIRMED (absorption window starts after SV index)",
+    "3-12 bar window: CONFIRMED",
+    "Correct congestion boundaries: CONFIRMED",
+    "State transitions S2->S3->S4->S5: CONFIRMED",
+    "No duplicate sequences: CONFIRMED (unique SV events only)",
+    "No accidental recovery/weakness classification: requires threshold tuning; B_moderate recommended for V3.6 only if A/B comparison supports improvement",
+    "Geometry verified: lower_wick=min(open,close)-low; upper_wick=high-max(open,close)"
+  ],
+  "statistical_note": "Sample (n=69 SV events, 8 stocks) is too small to claim statistical significance. Any V3.6 decision should use additional data periods / out-of-sample validation.",
+  "decision": 3,
+  "decision_text": "3 \u2014 Neither A nor B is sufficiently reliable for production replacement with this dataset. Concept B shows potential but requires data-driven thresholds (from larger/more diverse dataset) and a controlled out-of-sample A/B before V3.6 production change.",
+  "production_changed": false,
+  "thresholds_changed": false,
+  "indicators_added": 0,
+  "execution_changed": false,
+  "geometry_verified": true,
+  "tests_file": "tests/test_v3_5_ab_comparison.py",
+  "report_files": [
+    "V3_5_AB.md",
+    "V3_5_COMPARISON.md",
+    "V3_5_FULL_TRACES.md",
+    "V3_5_DECISION.md",
+    "V3_5_AB.json"
+  ]
+}

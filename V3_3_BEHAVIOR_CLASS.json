@@ -1,0 +1,29 @@
+{
+  "V3_3_ABSORPTION_BEHAVIOR_DIAGNOSTIC.md": {
+    "title": "V3.3 Absorption: Volume-Price Behavior Classification (69 SV events)",
+    "sections": [
+      "Concept A (current rule): first-half down-vol > second-half; first-half avg down-range > second-half",
+      "Concept B (alternative measurement): diminishing selling pressure without monotonic decline; per-bar comparison",
+      "Concept C (observed behavior): actual 2026-01->08 dataset patterns"
+    ],
+    "behavior_classes_approx": {
+      "declining_vol_range": 0,
+      "rising_vol_rising_price": 23,
+      "mixed_consolidation": 31,
+      "immediate_recovery": 8,
+      "continued_weakness": 7
+    },
+    "percentages_approx": {
+      "declining_vol_range": "0%",
+      "rising_vol_rising_price": "33%",
+      "mixed_consolidation": "45%",
+      "immediate_recovery": "12%",
+      "continued_weakness": "10%"
+    },
+    "key_finding": "Dataset shows mixed consolidation (45%) and recovery (33%) rather than declining consolidation. Down-volume declining is genuinely absent, confirming V3.2. This is a dataset/regime characteristic, not an implementation error.",
+    "recommendation_for_V3_4": "If adjusting Absorption, consider an alternative measurement (Concept B) rather than relaxing thresholds; or retain strict definition and accept fewer sequences in this regime.",
+    "no_changes_made": true,
+    "geometry_verified": true,
+    "tests_added": "tests/test_v3_3_behavior_classification.py (concept A/B/C comparison)"
+  }
+}

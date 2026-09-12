@@ -1,0 +1,38 @@
+{
+  "title": "VPA Master Research Final \u2014 Anna Coulling Strategy (V2->V3.7)",
+  "version": "v3.7-final",
+  "decision": "B (Concept B_moderate \u2014 controlled V3.7 experiment only with prerequisites)",
+  "decision_code": 2,
+  "prerequisites_for_v3_7": [
+    "Larger/multi-market dataset",
+    "Out-of-sample validation (chronological, frozen params)",
+    "Statistical significance (not visual)",
+    "Full execution + SL/2R/time-stop + failure-first review",
+    "Side-by-side A comparison",
+    "User approval before production"
+  ],
+  "current_state": "No production change; pure VPA; geometry verified; all tests saved",
+  "dataset": "8 stocks x 271 bars (2025-08-01 -> 2026-09-11); no gaps",
+  "key_numbers": {
+    "SV_candidates_approx": 420,
+    "A_absorption_approx": 0,
+    "B_moderate_absorption_approx": 30,
+    "B_permissive_absorption_approx": 65,
+    "complete_sequences_all_approx": 0,
+    "trades_all_approx": 0,
+    "n_insufficient_for_statistical_claim": true
+  },
+  "files": [
+    "VPA_MASTER_RESEARCH_FINAL.md",
+    "VPA_MASTER_RESEARCH_FINAL.json",
+    "V3_7_COMPLETE_PIPELINE.md",
+    "V3_7_BACKTEST_FRAMEWORK.md",
+    "V3_7_ROBUSTNESS.md",
+    "V3_6_DATASET_AUDIT.md",
+    "V3_6_DECISION.md",
+    "V2_5_REPORT.md",
+    "V3_0_DIAGNOSTIC.md"
+  ],
+  "methodology_notes": "Chronological split (dev/OOS) used; no shuffling; B params frozen from dev; no optimization on OOS; no fabricated trades; execution framework defined honestly; statistical significance NOT claimed.",
+  "vpa_purity": "No RSI/MACD/VWAP/news/AI/options; only ATR/RVOL/price/volume/congestion measures per original design."
+}

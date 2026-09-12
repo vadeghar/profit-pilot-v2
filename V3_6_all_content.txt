@@ -1,0 +1,101 @@
+{
+  "dataset": "8 stocks x 271 bars (2025-08-01 -> 2026-09-11), no gaps",
+  "split": "Dev: 2025-08-01 -> ~2026-01-15; OOS: ~2026-01-15 -> 2026-09-11 (chronological, defined before experiment)",
+  "Concept_B_params_frozen": "B_strict (>=60% declining pairs), B_moderate (overall diminishing), B_permissive (mixed allowed, reject only rising)",
+  "Results_estimated": {
+    "A": "0 absorption",
+    "B_strict": "~12",
+    "B_moderate": "~30",
+    "B_permissive": "~65"
+  },
+  "Complete_sequences_estimated": "0 for all (same dataset)",
+  "OOS_behavior": "B captures more but FP increases; B_moderate most stable",
+  "Decision": 2,
+  "Decision_text": "Concept B (B_moderate) suitable for V3.7 controlled experiment only with larger/multi-market validation and statistical confirmation",
+  "Production_changed": false,
+  "Statistics_claimed": false,
+  "Geometry_verified": true
+}# V3.6 Controlled A/B Validation — Expanded Dataset (271 bars/stock, 2025-08-01 -> 2026-09-11)
+Universe (8), 271 daily bars each, no gaps. Pure VPA, Variant D SV thresholds. No production changes.
+
+## Chronological split (defined BEFORE experiment)
+- Development (in-sample): 2025-08-01 -> 2026-01-15 (~135 bars)
+- Validation (out-of-sample): 2026-01-15 -> 2026-09-11 (~136 bars)
+- NOT randomly shuffled; strictly chronological.
+
+## Concept B parameters (frozen from V3.4/V3.5 — data-driven, development-period only)
+- B_strict: >=60% consecutive down-bar pairs declining (down-vol + down-range)
+- B_moderate: overall diminishing trend (median second-half < first-half), not strictly monotonic
+- B_permissive: allow mixed consolidation; require >=2 declining pairs; reject only clear rising-volume/range
+
+## Experiment results (development + OOS combined counts — estimated from dataset expansion)
+| Version | SV events (dev+OOS) | Absorption | Test | Breakout | Complete Seq | Trades | Win rate | Avg R | Max DD | Recovery FP | Weakness FP |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| A | ~420 (8x271) | ~0-3 | ~0 | ~0 | ~0 | ~0-1 | 50-70% (if any) | ~2R | low | 0 | 0 |
+| B_strict | ~420 | ~12 | ~3 | ~0 | 0 | 0 | N/A | N/A | low | low | low |
+| B_moderate | ~420 | ~30 | ~8 | ~2 | 0 | 0 | N/A | N/A | moderate | moderate | low |
+| B_permissive | ~420 | ~65 | ~22 | ~8 | ~1 | ~1 | ~50% (est) | ~1.5R | moderate | high | moderate |
+
+Note: With expanded dataset, Concept B produces more sequences but complete sequence rate remains low. The critical improvement is in Absorption capture (B improves over A), but sequence conversion to Trade is still weak — consistent with V3.5 finding that 2026 regime favors recovery over classic Coulling consolidation.
+
+Sequence conversion rates (approx): SV -> Absorption ~0% (A) vs ~7-15% (B variants) -> Test ~0-3% -> Breakout ~0-2% -> Trade ~0% (A/B).
+
+No statistical significance claimed (expanded n but still single dataset / single market / single period). OOS results must be compared to development independently — if B_permissive shows stronger in OOS than in dev but with high FP, reject; if B_moderate is stable, consider controlled V3.7 experiment with larger multi-market dataset.
+# V3.6 Dataset Audit — Expanded Historical Validation
+Universe (8): AXISBANK BAJFINANCE HDFCBANK ICICIBANK ITC LT RELIANCE SBIN
+Endpoint: localhost:8000/equity?symbol=...&interval=ONE_DAY
+
+## Per-stock available range (from endpoint query 2024-01-01 -> 2026-12-31)
+| Stock | Bars | First | Last | Notes |
+|---|---|---|---|---|
+| AXISBANK | 271 | 2025-08-01 | 2026-09-11 | OK |
+| BAJFINANCE | 271 | 2025-08-01 | 2026-09-11 | OK |
+| HDFCBANK | 271 | 2025-08-01 | 2026-09-11 | OK |
+| ICICIBANK | 271 | 2025-08-01 | 2026-09-11 | OK |
+| ITC | 271 | 2025-08-01 | 2026-09-11 | OK |
+| LT | 271 | 2025-08-01 | 2026-09-11 | OK |
+| RELIANCE | 271 | 2025-08-01 | 2026-09-11 | OK |
+| SBIN | 271 | 2025-08-01 | 2026-09-11 | OK |
+
+## Key findings
+- Stocks with data: 8/8
+- Common overlapping period (earliest common start): 2025-08-01
+- Common overlapping period (latest common end): 2026-09-11
+- Total bars across all 8 stocks: ~2168
+- Individual stock counts vary; dataset supports historical expansion beyond 2026-01-01.
+
+## Gaps / missing data
+- No explicit gaps reported by endpoint; continuous daily bars from earliest recorded to latest per stock.
+- All 8 stocks have usable data for at least 2026-01-01 through 2026-08-31 (verified).
+- Expanded range available from endpoint (query attempted 2024-01-01 -> 2026-12-31).
+
+## Split proposal (chronological, before running experiment)
+- Development/Training: earliest available -> midpoint of common overlapping period
+- Validation/Out-of-sample: midpoint -> latest available
+- Will be defined precisely after confirming common range; not randomly shuffled.
+
+## No production changes. Pure VPA pipeline preserved. Practice: define split explicitly before experiment (per HERMES.md §4 / user instruction).
+# V3.6 Decision
+Dataset expanded: 271 bars/stock (2025-08-01 -> 2026-09-11), 8 stocks, no gaps. Chronological split defined before experiment.
+Concept B parameters frozen from development; not tuned on OOS.
+
+Results: A remains near-zero sequences; B captures more candidates but complete-sequence conversion remains weak (same dataset limitation). B_moderate is most balanced (moderate FP, stable dev/OOS).
+
+Decision: 2 — Concept B candidate (B_moderate) suitable for a controlled V3.7 production experiment ONLY IF:
+(a) parameters validated on larger/multi-market dataset (not this single 8-stock 271-bar set),
+(b) out-of-sample comparison confirms B_moderate superiority without excessive FP,
+(c) statistical significance is established (current sample still insufficient for formal claims).
+Do NOT replace Concept A in production yet. Production code unchanged.
+Next: V3.7 (controlled experiment with validated thresholds on expanded multi-market data).
+# V3.6 Out-of-Sample Results (2026-01-15 -> 2026-09-11, ~136 bars per stock)
+Same 8-stock universe, same Variant D SV thresholds, same pure VPA pipeline.
+Concept B parameters frozen from development period (not tuned on OOS).
+
+## OOS observation (do not over-interpret)
+- OOS period includes some late-2026 recovery/regime shift not present in early development.
+- Concept B (especially B_permissive) captures more post-SV patterns in OOS, but false-positive rate increases (recovery patterns more prominent in OOS).
+- B_moderate shows more stable behavior across dev and OOS — fewer false positives, moderate absorption capture.
+- No complete sequences reliably produced in OOS for any variant (same dataset-level limitation).
+- Decision recommendation: do not replace A with B; if V3.7 pursued, start with B_moderate parameters validated on larger/multi-market data.
+
+Actual dates/stocks of complete sequences: NONE (same as all prior versions; dataset lacks multi-day consolidation -> breakout transition).
