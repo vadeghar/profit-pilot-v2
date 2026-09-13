@@ -29,7 +29,9 @@ def equity_candles(
     )),
 ):
     """
-    Fetch aggregated equity OHLCV candles for a symbol, capped at 800 buckets.
+    Fetch aggregated equity OHLCV candles for a symbol, bounded by
+    resolution-based request-range caps (ONE_MINUTE: 7 days, multi-minute
+    intraday: 30 days, 1D/WEEK/MONTH: up to 5 years).
     """
     return get_equity_candles(
         symbol,

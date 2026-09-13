@@ -21,8 +21,10 @@ Endpoints:
 
 Interval aggregation:
     Every data endpoint aggregates the raw 1-minute candles into OHLCV buckets
-    via the required `interval` query param, and caps the response to the 800
-    most recent buckets.
+    via the required `interval` query param, and enforces a resolution-based
+    request-range cap (ONE_MINUTE: 7 days, multi-minute intraday: 30 days,
+    1D/WEEK/MONTH: up to 5 years). Ranges wider than the cap are rejected
+    with HTTP 400.
 
     Supported values: ONE_MINUTE, THREE_MINUTE, FIVE_MINUTE, TEN_MINUTE,
     FIFTEEN_MINUTE, THIRTY_MINUTE, ONE_HOUR, ONE_DAY, WEEK, MONTH.
@@ -48,8 +50,10 @@ Bucket alignment:
     intervals keep their calendar boundaries.
 
 toDate behaviour:
-    If `toDate` is omitted, every available candle from `fromDate` onward is
-    returned (still capped at the 800-candle response limit).
+    If `toDate` is omitted, the range is implicitly capped to the interval's
+    resolution-based maximum and the first candles in that range are returned.
+    If supplied, the range must be within the interval's cap or the request is
+    rejected with HTTP 400.
 
 Authentication:
     An `X-Authentication` header is declared as an OpenAPI security scheme

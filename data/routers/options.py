@@ -35,7 +35,9 @@ def options_candles(
     )),
 ):
     """
-    Fetch aggregated option OHLCV candles for a contract, capped at 800 buckets.
+    Fetch aggregated option OHLCV candles for a contract, bounded by
+    resolution-based request-range caps (ONE_MINUTE: 7 days, multi-minute
+    intraday: 30 days, 1D/WEEK/MONTH: up to 5 years).
     """
     return get_options_candles(
         strike,

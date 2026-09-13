@@ -20,6 +20,9 @@ data/staging/
 data/market_data.duckdb
 breeze_data_output/
 *.zip
+_tmp_*
+*.csv
+*.txt
 
 # == Logs & runtime artifacts ==
 logs
