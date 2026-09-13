@@ -16,6 +16,7 @@ RVOL_MODE (§9, v1.1):
   never the current unclosed bar). VWAP itself remains session-only (§7).
 """
 from __future__ import annotations
+from datetime import time
 
 import json
 import urllib.request
@@ -328,6 +329,17 @@ class VWAPORBRunner:
         if self.position_active:
             self._close_position(candle := candles[-1], "END_OF_SESSION")
         self.session_sm.transition("SESSION_COMPLETE")
+        # FIX: roll current session volumes into cross-session history
+        if hasattr(self, '_prior_session_volumes'):
+            # Append today's session_volumes to rolling history (keep last ~5)
+            today_vols = list(self.vol_acc.session_volumes) if hasattr(self.vol_acc, 'session_volumes') else []
+            if today_vols:
+                self._prior_session_volumes.append(today_vols)
+                if len(self._prior_session_volumes) > 5:
+                    self._prior_session_volumes = self._prior_session_volumes[-5:]
+        # Rebuild vol_acc cross-session for next day from updated history
+        if hasattr(self, '_prior_session_volumes') and self._prior_session_volumes:
+            self.vol_acc.build_cross_session_window(self._prior_session_volumes[-5:])
 
     def fetch_and_run(
         self,
@@ -400,8 +412,13 @@ class VWAPORBRunner:
         self.vwap_acc = VWAPAccumulator()
         self.vol_acc = VolumeAccumulator(self.rvol_lookback)
         # Restore cross-session volumes (they persist across days for RVOL)
+        # FIX: build from updated rolling history; rebuild from last 5 sessions
+        if hasattr(self, '_prior_session_volumes') and self._prior_session_volumes:
+            self.vol_acc.build_cross_session_window(self._prior_session_volumes[-5:])
+        else:
+            self.vol_acc.cross_session_volumes = []
         self.or_high = 0.0
-        self.or_low = 0.0
+        self.or_low = float("inf")
         self.or_range = 0.0
         self.or_mid = 0.0
         self.orb_complete = False
@@ -414,6 +431,7 @@ class VWAPORBRunner:
         self.position_entry_time = datetime.min
         self.position_mae = 0.0
         self.position_mfe = 0.0
+        self.entry_risk_per_share = 0.0  # FIX 8b reset
         self.trades_today = 0
         self.daily_loss_reached = False
         self.current_equity = self.starting_equity
@@ -423,13 +441,13 @@ class VWAPORBRunner:
         current_state = self.session_sm.state
 
         # ── State transition logic ──
-        if current_state == "PRE_SESSION":
+        if self.session_sm.state == "PRE_SESSION":
             if candle.timestamp.hour >= 9 and candle.timestamp.minute >= 15:
                 self.session_sm.transition("OR_BUILDING")
 
         if current_state == "OR_BUILDING":
             # OR construction: bars 09:15-09:29 only (per §5)
-            if candle.timestamp.hour == 9 and candle.timestamp.minute < 30:
+            if candle.timestamp.time() < time(9, 30):
                 if candle.high > self.or_high:
                     self.or_high = candle.high
                 if candle.low < self.or_low:
@@ -438,7 +456,7 @@ class VWAPORBRunner:
                     self.or_range = self.or_high - self.or_low
                     self.or_mid = (self.or_high + self.or_low) / 2
             # OR locks at 09:30 (excludes 09:30 bar itself)
-            if candle.timestamp.hour >= 9 and candle.timestamp.minute >= 30:
+            if candle.timestamp.time() >= time(9, 30):
                 if self.session_sm.transition("OR_LOCKED"):
                     self.orb_complete = True
 
@@ -607,6 +625,7 @@ class VWAPORBRunner:
         self.position_direction = "LONG"
         self.position_entry_price = entry_price
         self.position_stop = stop_price
+        self.entry_risk_per_share = abs(entry_price - stop_price)  # FIX 8b: fix denominator at entry
         self.position_target = target_price
         self.position_quantity = quantity
         self.position_entry_time = candle.timestamp
@@ -644,6 +663,7 @@ class VWAPORBRunner:
         self.position_direction = "SHORT"
         self.position_entry_price = entry_price
         self.position_stop = stop_price
+        self.entry_risk_per_share = abs(entry_price - stop_price)  # FIX 8b
         self.position_target = target_price
         self.position_quantity = quantity
         self.position_entry_time = candle.timestamp
@@ -726,7 +746,15 @@ class VWAPORBRunner:
         if not self.position_active:
             return
 
-        exit_price = self._round_tick(candle.close)
+        # FIX 8: exit_price recorded per fill assumption (spec §17)
+        # STOP_LOSS -> fill at stop_price (guaranteed level); TAKE_PROFIT -> fill at target_price;
+        # FORCE_EXIT / END_OF_SESSION -> candle.close (time-based, real fill).
+        if reason == "STOP_LOSS":
+            exit_price = self._round_tick(self.position_stop)
+        elif reason == "TAKE_PROFIT":
+            exit_price = self._round_tick(self.position_target)
+        else:
+            exit_price = self._round_tick(candle.close)
         direction = self.position_direction
         entry_price = self.position_entry_price
         quantity = self.position_quantity
@@ -736,6 +764,8 @@ class VWAPORBRunner:
         else:  # SHORT
             gross_pnl = (entry_price - exit_price) * quantity
 
+        risk_amount = self.entry_risk_per_share * quantity  # FIX 8b: fixed at entry, no close-time re-read
+        r_multiple = gross_pnl / risk_amount if risk_amount > 0 else 0.0
         trade = TradeResult(
             symbol=candle.symbol,
             entry_timestamp=self.position_entry_time,
@@ -746,6 +776,7 @@ class VWAPORBRunner:
             direction=direction,
             quantity=quantity,
             gross_pnl=gross_pnl, mae=self.position_mae, mfe=self.position_mfe,
+            r_multiple=r_multiple,
         )
         self.trades.append(trade)
 
@@ -763,6 +794,7 @@ class VWAPORBRunner:
         self.position_entry_time = datetime.min
         self.position_mae = 0.0
         self.position_mfe = 0.0
+        self.entry_risk_per_share = 0.0  # FIX 8b reset
         if hasattr(self, '_position_peak_value'):
             delattr(self, '_position_peak_value')
 
