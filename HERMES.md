@@ -54,7 +54,7 @@ GET /meta/holidays
 
 Supported intervals: `ONE_MINUTE`, `THREE_MINUTE`, `FIVE_MINUTE`, `TEN_MINUTE`, `FIFTEEN_MINUTE`, `THIRTY_MINUTE`, `ONE_HOUR`, `ONE_DAY`, `WEEK`, `MONTH`.
 
-OHLCV rules: `open` is first open, `high` is maximum high, `low` is minimum low, `close` is last close, and `volume` is summed. Intraday buckets start at `09:15`; responses are ascending and capped at 800 buckets.
+OHLCV rules: `open` is first open, `high` is maximum high, `low` is minimum low, `close` is last close, and `volume` is summed. Intraday buckets start at `09:15`; responses are ascending and bounded by resolution-based request-range caps (`ONE_MINUTE`: 7 days, multi-minute intraday: 30 days, daily/weekly/monthly: up to 5 years). Over-cap ranges are rejected with HTTP 400.
 
 NIFTY spot example:
 
@@ -92,7 +92,7 @@ curl "http://localhost:8000/options?strike=24000&expiry=2026-09-30&optionType=CE
 
 Options use `close` as the source price column; never query or document `price`. Before `2026-08-03`, the final one-minute options candle is `15:29`; from `2026-08-03`, it is `15:39`.
 
-With `toDate`, return the latest available 800 buckets in range. Without it, return the first available 800 from `fromDate`. Daily, weekly, and monthly results are trading-data-only and must not contain synthetic weekend, holiday, or empty-period candles.
+With `toDate`, return all buckets within the (resolution-capped) range. Without it, return the first buckets from `fromDate` within the interval's resolution cap. Daily, weekly, and monthly results are trading-data-only and must not contain synthetic weekend, holiday, or empty-period candles.
 
 ## Change checklist
 

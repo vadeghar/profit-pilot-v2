@@ -28,7 +28,9 @@ def vix_candles(
     )),
 ):
     """
-    Fetch aggregated VIX OHLCV candles, capped at 800 buckets.
+    Fetch aggregated VIX OHLCV candles, bounded by resolution-based
+    request-range caps (ONE_MINUTE: 7 days, multi-minute intraday: 30 days,
+    1D/WEEK/MONTH: up to 5 years).
     """
     return get_vix_candles(
         fromDate.isoformat(),

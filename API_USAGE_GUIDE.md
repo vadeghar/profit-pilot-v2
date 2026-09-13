@@ -23,8 +23,10 @@ uvicorn data.api:app --host 0.0.0.0 --port 8000 --reload
 ## 1. Interval aggregation (`?interval=…`)
 
 All four data endpoints aggregate the raw **1-minute** candles into OHLCV
-buckets using the **required** `interval` query parameter. Each response is
-capped to the **800 most recent** aggregated buckets.
+buckets using the **required** `interval` query parameter. Each request range
+is capped by **resolution** (see §4): `ONE_MINUTE` = 7 days, multi-minute
+intraday = 30 days, `ONE_DAY`/`WEEK`/`MONTH` = up to 5 years. Over-cap
+requests are rejected with HTTP `400`.
 
 | `interval` value   | Aggregation                    |
 | ------------------ | ------------------------------ |
@@ -115,12 +117,12 @@ X-Authentication: <empty>
 | Param      | Type   | Required | Description                                        |
 | ---------- | ------ | -------- | -------------------------------------------------- |
 | `fromDate` | date   | Yes      | Start date (YYYY-MM-DD)                           |
-| `toDate`   | date   | No       | End date (YYYY-MM-DD). **When omitted, the first 800 candles from `fromDate` are returned (ascending order).** |
+| `toDate`   | date   | No       | End date (YYYY-MM-DD). Range is capped per resolution (§4). |
 | `interval` | string | Yes      | Aggregation interval (see table in §1)            |
 
 > **toDate behavior:**
-> - **With `toDate`:** Returns the most recent 800 candles within the date range, with gap-filling for a continuous time series.
-> - **Without `toDate`:** Returns the first 800 candles starting from `fromDate` (ascending order). No gap-filling is applied.
+> - **With `toDate`:** All buckets within the date range are returned (with gap-filling), provided the range is within the interval's resolution-based cap.
+> - **Without `toDate`:** The range is implicitly capped to the interval's maximum and the first candles from `fromDate` are returned (ascending order). No gap-filling is applied.
 > - To request a single day, set `toDate` equal to `fromDate`.
 
 ### 2.1 System / Metadata (unchanged)
@@ -170,7 +172,7 @@ GET /options?strike=24000&expiry=2026-09-30&optionType=CE&fromDate=2026-09-09&to
 | `expiry`     | date   | Yes      | Contract expiry date (YYYY-MM-DD)               |
 | `optionType` | string | No       | **Query parameter** — `CE`, `PE` or `FUT`. **Default is `CE` & `PE`** |
 | `fromDate`   | date   | Yes      | Start date (YYYY-MM-DD)                         |
-| `toDate`     | date   | No       | End date (YYYY-MM-DD). **When omitted, the first 800 candles from `fromDate` are returned (ascending order).** |
+| `toDate`     | date   | No       | End date (YYYY-MM-DD). Range is capped per resolution (§4). |
 | `interval`   | string | Yes      | Aggregation interval                            |
 
 **Response fields:** `option_type`, `trade_time`, `open`, `high`, `low`,
@@ -188,8 +190,8 @@ GET /options?strike=24000&expiry=2026-09-30&optionType=CE&fromDate=2026-09-09&to
 > `option_type` is `"CE"`, `"PE"` or `"FUT"` — the option contract type the
 > bucket belongs to. When both types are requested (no `optionType` param),
 > the response contains interleaved CE and PE buckets, each with its own
-> complete, independently gap-filled time grid (the 800-bucket cap applies
-> per series).
+> complete, independently gap-filled time grid (the resolution-based range
+> cap applies per series).
 
 > **Note:** `optionType` must be sent as a **query parameter**, not in the
 > request body. Unknown or misspelled query parameters (e.g. `opttionType`)
@@ -216,7 +218,7 @@ GET /equity?symbol=RELIANCE&fromDate=2025-08-01&toDate=2025-08-05&interval=ONE_H
 | --------- | ------ | -------- | ------------------------------------------------ |
 | `symbol`  | string | Yes      | One of the supported 8 equities (below)         |
 | `fromDate`| date   | Yes      | Start date (YYYY-MM-DD)                         |
-| `toDate`  | date   | No       | End date (YYYY-MM-DD). **When omitted, the first 800 candles from `fromDate` are returned (ascending order).** |
+| `toDate`  | date   | No       | End date (YYYY-MM-DD). Range is capped per resolution (§4). |
 | `interval`| string | Yes      | Aggregation interval                            |
 
 **Currently supported symbols (8):**
@@ -226,12 +228,32 @@ GET /equity?symbol=RELIANCE&fromDate=2025-08-01&toDate=2025-08-05&interval=ONE_H
 
 ---
 
-## 4. Response cap
+## 4. Resolution-based caps
 
-Each data endpoint returns **at most 800** aggregation buckets, always in
-ascending time order.
+Every data endpoint returns fully ascending time series bounded by the
+interval's **maximum request range** (calendar days). A range wider than the
+cap is rejected with HTTP `400` and a descriptive error. The old flat
+800-candle response limit has been removed — an allowed range may return up
+to ~2,625 one-minute buckets (7 days), 30 days worth of multi-minute intraday
+buckets, or up to 5 years of daily/weekly/monthly buckets.
 
-- **With `toDate`:** The most recent 800 buckets within the date range are
+| Resolution                          | Max request range                   | Approx. max response       |
+| ----------------------------------- | ----------------------------------- | -------------------------- |
+| `ONE_MINUTE`                        | 7 calendar days                     | ~2,625 candles / symbol    |
+| `THREE_MINUTE` .. `FIFTEEN_MINUTE`  | 30 calendar days                    | 30 days of intraday        |
+| `THIRTY_MINUTE`, `ONE_HOUR`         | 30 calendar days                    | 30 days of intraday        |
+| `ONE_DAY`, `WEEK`, `MONTH`          | up to 5 years (1,825 calendar days) | up to 5 years of candles   |
+
+- **With `toDate`:** All buckets within the (validated) date range are
   returned, with gap-filling for a continuous time series.
-- **Without `toDate`:** The first 800 buckets starting from `fromDate` are
-  returned (ascending order). No gap-filling is applied.
+- **Without `toDate`:** The range is implicitly capped to the interval's
+  maximum and the first buckets from `fromDate` are returned (ascending
+  order). No gap-filling is applied.
+- **Inverted / over-cap ranges:** A request whose `fromDate`→`toDate` span
+  exceeds the interval's cap, or whose `toDate` precedes `fromDate`, is
+  rejected with HTTP `400` listing the allowed caps.
+
+> `THREE_MINUTE`, `THIRTY_MINUTE`, `ONE_HOUR`, `WEEK` and `MONTH` are not part
+> of the stated resolution spec; their caps are inferred in
+> `ohlcv_service.py` (`INTERVAL_MAX_RANGE_DAYS`) and can be adjusted in a
+> single place.
