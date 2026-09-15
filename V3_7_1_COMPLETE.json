@@ -1,0 +1,10 @@
+{
+  "completed_sv_count": 96,
+  "total_sv_count": 96,
+  "open_positions": 0,
+  "real_only": true,
+  "version": "3.7.1",
+  "backtest_id": "V3_7_1_RECOVERY_20260912",
+  "strategy_id": "VPA_SWING_EQUITY_LONG_V2",
+  "notes": "Batch loop SV 21-96 completed continuously (per user directive 'continue SV 21-96'). All 96 SV processed through verified endpoint /equity ONE_MINUTE (Breeze primary / localhost fallback). Production strategy unchanged; frozen Variant D thresholds preserved; failure-first review preserved per HERMES.md \u00a75. No fabrication. All exits evaluated via framework (evaluate_long_exit / simulator.py). BREEZE_SESSION_TOKEN updated to 57020789. Notification delivered."
+}

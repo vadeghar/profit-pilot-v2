@@ -1,0 +1,1 @@
+V3.7.1 EXECUTION HALTED at user direction. Last verified SV 20 (real endpoint). Batch SV 21-96 halted. Verified PNL from 13 real trades: gross=-42902.60 net=-52324.40 0% win all SL R=-1.17. Production unchanged. Artifact V3_7_1_COMPLETE.json exists but halted — 96 not verified from this session. No fabrication.
