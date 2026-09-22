@@ -1,0 +1,287 @@
+<!DOCTYPE html><html><head><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>
+	Idirect Web API Registration
+</title><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.3.0/font/bootstrap-icons.css"><link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-1BmE4kWBq78iYhFldvKuhfTAU6auU8tT94WrHftjDbrCEXSU1oBoqyl2QvZ6jIW3" crossorigin="anonymous"><link type="text/css" rel="Stylesheet" href="Styles/bootstrap.css"><link type="text/css" rel="Stylesheet" href="Styles/style.css">    
+    <script type="text/javascript" src="scripts/jquery.min.js"></script>
+    <script type="text/javascript" src="scripts/jscomm.js"></script>
+    <script type="text/javascript" src="scripts/bootstrap.min.js"></script>
+    <style>
+         .navbar {
+            background: linear-gradient(0deg, #BE2A2A 5.9%, #EF7F1A 94.28%);
+            position: sticky;
+            top: 0;
+            z-index: 99;
+            padding: 0;
+        }
+
+    </style>
+    
+    </head>
+<body>    
+    <header>	                  
+         <nav class="navbar box-shadow-navbar ">
+        <div class="container-fluid">
+                <div class="w-100">
+                    <div class="d-flex gap-3 align-items-center justify-content-between">
+                        <div>
+                            <div class="d-flex">
+                                <a href="https://secure.icicidirect.com">
+                                    <img src="https://api.icicidirect.com/apiuser/images/ICICI-logo-white.svg" alt="ICICI Direct Breeze" class="img-fluid navbar-logo d-md-block d-none" style="height: 52px;">
+                                </a><a href="https://secure.icicidirect.com">
+                                    <img src="https://api.icicidirect.com/apiuser/images/ICICI-logo-mob.svg" alt="ICICI Direct Breeze" class="img-fluid navbar-logo d-block d-md-none" style="height: 34px; width: 75px">
+                                </a>
+                            </div>
+                        </div>                       
+                    </div>
+                </div>
+            </div>
+             </nav>
+        <div id="dvHome" class="container border">
+           <div class="text-right">
+                
+            </div>
+        </div>
+    </header> 
+    <form method="post" action="tradelogin" id="form1">
+<div class="aspNetHidden">
+
+</div>
+
+   
+        
+
+    <div id="pnlLogmain">
+	
+
+
+ <script type="text/javascript" src="https://api.icicidirect.com/apiuser/scripts/jsecrpt.js"></script>
+<script type="text/javascript">
+    let timerId ='';
+    let timeLeft =30;
+    $(document).keypress(function (event) {
+        var keycode = (event.keyCode ? event.keyCode : event.which);
+        if (keycode == '13') {
+            if($('#dvgetotp').is(':visible') )
+            {}
+            else
+            {
+                submitform();
+            }
+            
+        }
+    });
+    $(document).ready(function () {
+        $('#btnhome').hide();
+    });
+    </script>
+    <script type="text/javascript">
+        ////$(document).ready(function () {
+        ////    rsaE = $('#hidenc').val().split('~')[0];
+        ////    rsaM = $('#hidenc').val().split('~')[1];
+        ////});
+        function submitform() {
+            debugger;
+            if (!CheckFormValidation($('#pnlLogmain'))) { return false; }
+            
+                if(!$('#chkssTnc').is(':checked')){
+                    alert('Please select Terms and Conditons checkbox.');
+                    return false;
+                }
+          
+           //// $('#hidp').val(cmdEncrypt($.trim($('#txtPass').val())));
+            ////$('#hiddob').val(cmdEncrypt($.trim($('#txtdob').val())));
+            var _pval = $('#txtPass').val();
+            var encv = new JSEncrypt();
+            encv.setPublicKey($('#hidpv').val());
+            var enctext = encv.encrypt(_pval);
+            $('#hidp').val(enctext);
+            
+            $('#txtPass').val('************');
+            $('#txtdob').val('************');
+            /////PostForm("https://api.icicidirect.com/apiuser/tradelogin/validateuser", $('#form1'), $('#pnlLogmain'));
+            PostForm("https://api.icicidirect.com/apiuser/tradelogin/getotp", $('#form1'), $('#dvgetotp'));
+        }
+
+        function submitotp() {
+            let _obj = $('#pnlOTP').find('input[tg-nm=otp]');
+            let _opt = '';
+                for(var i=0; i<_obj.length;i++)
+                {
+                    _opt += $(_obj[i]).val();
+                }
+                if(_opt == "")
+                {
+                    Show_Err(null, 'Please enter OTP' ,true,$('#otperr'));
+                    $(_f).find('input[tg-nm=otp]:first').focus();
+                    return false;
+                }
+                else
+                {
+                    if(_opt.length != 6 )
+                    {
+                        Show_Err(null, 'Please enter OTP' ,true,$('#otperr'));
+                        $(_f).find('input[tg-nm=otp]:last').focus();
+                        return false;
+                    }
+                }
+           $('#hiotp').val(_opt) ;
+            PostForm("https://api.icicidirect.com/apiuser/tradelogin/validateuser", $('#form1'), $('#pnlLogmain'));
+            
+        }
+      
+      function regenotp()
+      {
+         PostForm("https://api.icicidirect.com/apiuser/tradelogin/regenotp", $('#form1'), $('#dvgetotp'));
+      }
+
+      function goforotp()
+      {
+          $('#hiforotp').val('Y');
+          PostForm("https://api.icicidirect.com/apiuser/tradelogin/goforotp", $('#form1'), $('#dvgetotp'));
+      }
+
+      function seteye()
+        {
+            let _o = $(event.target).parent('.password-group'); 
+            if($(_o).find('input').attr("type") == "text")
+            {
+                $(_o).find('input').attr("type" ,"password");
+                $(_o).find('i').addClass("bi-eye-slash");
+                $(_o).find('i').removeClass("bi-eye");
+            }
+            else
+            {
+                $(_o).find('input').attr("type" ,"text");
+                $(_o).find('i').removeClass("bi-eye-slash");
+                $(_o).find('i').addClass("bi-eye");
+            }
+        }
+
+    </script>
+        <style>
+.txt-orange {
+    color: var(--orange);
+}
+.bg-lightgrey-2 {
+    background: #f5f5f5 !important;
+}
+.card {
+    background: var(--white);
+}
+.title-h2 {
+    font-weight: 500;
+    font-size: 16px;
+    line-height: 150%;
+}
+</style>
+<div class="container border">
+    <div class="row mt-3">
+        <div id="dvloginmain" class="col-lg-8  col-xl-6  col-md-12 col-sm-12">
+            <div class="jumbotron p-3 mb-0">
+                <h5>Login<!--/h5--> 
+            </h5></div>
+            <div class="border p-3">
+                <div class="mt-4 p-2">
+                     <div class="form-group_log">
+                        <input type="text" id="txtuid" autocomplete="off" maxlength="50" fieldname="User/Login Id" validationchk="EmptyCheck validateUserId" invalidmsg="User Id contains invalid characters. Please re-enter the User Id" style="">
+                        <label for="input" class="control-label">User Id</label>
+                        <i class="bar"></i> 
+                     </div>
+                     <div class="m-1">&nbsp;</div>
+                     <div class="form-group_log ">
+                      <div class="input-field  password-group">
+                        <input type="password" id="txtPass" autocomplete="off" maxlength="16" fieldname="Password" validationchk="EmptyCheck " style="display: inline-block; width: 95%;">
+                         <i class="bi bi-eye-slash" onclick="seteye()" id="togglePassword" style="position:absolute;top:5px;float:right;"></i>                       
+                        <label for="input" class="control-label">Password / PIN</label>
+                        <i class="bar"></i> 
+                        </div>
+                        <input type="hidden" id="hidp" style="">
+                     </div>
+                     
+                    <div class="form-group_log">
+                        <div id="html_element"></div>
+                    </div>
+                     <div id="pnlSenSibullTnC" class="form-group">
+		
+                        <div class="checkbox">
+                            <input type="checkbox" id="chkssTnc" value="Y" style="">
+                            <label for="chkssTnc">I agree to the <a href="javascript://" onclick="window.open('https://www.icicidirect.com/mailimages/TNCAPIservices.htm','API TnC','toolbar=no,scrollbars=yes,resizable=yes,top=500,left=500,width=600,height=600')" style="text-decoration:underline">terms and conditions </a></label>
+                        </div> 
+                     
+	</div>
+                     <div class="form-group pb-2 text-center">
+                            <input type="button" id="btnSubmit" value="Login" onclick="submitform()" class="btn btn-theme " style="">
+                            <input type="hidden" name="ctl00$ContentPlaceHolder1$hidenc" id="hidenc" style="">
+                            <input type="hidden" name="ctl00$ContentPlaceHolder1$hidplk" id="hidplk" value="CQ82Cg21kz7smfFjOy3i1ifVqd4NdGiR5w+yjSHS6eSM0BPNp+PjNA==" style="">
+                            <input type="hidden" name="ctl00$ContentPlaceHolder1$hidredurl" id="hidredurl" value="YUynirSu91KoL8awuIiL2wM23roy2zLY" style="">
+                            <input type="hidden" name="ctl00$ContentPlaceHolder1$hidslk" id="hidslk" style="">
+                             <input type="hidden" name="ctl00$ContentPlaceHolder1$hidPATH" id="hidPATH" style="">
+                             <input type="hidden" name="ctl00$ContentPlaceHolder1$hidPARAM" id="hidPARAM" style="">
+                              <input type="hidden" name="ctl00$ContentPlaceHolder1$hidpaths" id="hidpaths" style="">
+                             <input type="hidden" name="ctl00$ContentPlaceHolder1$hidparams" id="hidparams" style="">
+                             <input type="hidden" id="hiddob" value="" style="">
+                            <input type="hidden" name="ctl00$ContentPlaceHolder1$hidiscap" id="hidiscap" style="">
+                            <input type="hidden" name="ctl00$ContentPlaceHolder1$validateusercap" id="validateusercap" style="">
+                            <input type="hidden" name="ctl00$ContentPlaceHolder1$hidpv" id="hidpv" value="-----BEGIN PUBLIC KEY-----
+MIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEAywb4fQAs11JS04yK7Qco
+klw+ajnHq+ARC+h1k/n9rpVxLUHW6RlCS25I4TxSYB/h0rbp0LDwj/U67PWtmgyb
+BQzKbJ/piY5rANI5UT3dYqcQ0e4wV3HikBSyAvwYy3SyvjmSGATMUBayIKM4zln+
+s0I8np+Pufizw9RwdXtW0ifsJSdmLtL7qtN0vA4R0G0bBSftXHPOIRY4e5LFo/bG
+JqTxm1H2AS1WwTe+R+9NSVBbqR4lrpn8mvmxMJyOGJ2+klljxJJkXAtiCXfWchIm
+R447NFfYnk8V8gpy2dAYgmDglbUKE0CWdfEss1d+zhye/4ZGtm7dSufp1uffyneT
+LjEanD4S7kwfKsS70wLL5O/l32l3LwugIdYbskmrWKoUihQcicgl66vWLosvhV2U
+74rsKdL9otkcqD1CCcqK8Hy/9zaBlUv4A5RDLCGqyIeFeclbKI/P/eLHt7FLXR0j
+1kCE6sXiFJvVg7hbYblfdYm8M3VoUzs7z6Bbj5n953Ie/s7eJKaD/HfQjOavcxxo
+p5SmAZgXUioYnu+fQoegGdGR3nOnVhOnH6jcZ8w/76WYxQujZUxTYwO4dMp+Yf3i
+QVRANQWjgtSq3V5wLdSEfkSixng15l+kyRI+6LPiuQIKMIUykPZr7IWU3Gnz7qqq
+4f+X6QbeU8WIp/3xcj9vDdkCAwEAAQ==
+-----END PUBLIC KEY-----
+" style="">
+                      </div>
+
+                </div>                
+            </div>
+            <div class="pb-3"></div>
+        </div> 
+        <div id="dvgetotp" class="col-lg-8  col-xl-6  col-md-12 col-sm-12" style="display:none;"></div>
+        <div class="col-xl-6">
+                          <div class="card border-0 bg-lightgrey-2">
+                              <div class="card-body">
+                                 <div class="title-h2 mb-3"> 
+                                     As per SEBI regulations and the new framework, the use of a static IP for API-based trading is to be made mandatory from 1st April 2026.</div>
+                                  <p class="txt-gray">To help you implement this quickly, please find below step-by-step guides to obtain a static IP from major cloud providers. Few examples are mentioned below:</p>
+                          
+                                  <ul class="disc-listing txt-gray">
+                                      <li><a href="https://www.icicidirect.com/mailcontent/static%20ip%20from%20google%20cloud.pdf" target="_blank" class="txt-orange">Google Cloud</a></li>
+                                      <li><a href="https://www.icicidirect.com/mailcontent/static%20ip%20from%20aws.pdf" target="_blank" class="txt-orange">AWS</a></li>
+                                      <li><a href="https://www.icicidirect.com/mailcontent/static%20ip%20from%20microsoft%20azure.pdf" target="_blank" class="txt-orange">Microsoft Azure</a></li>
+                                  </ul>
+                                  <p class="txt-gray">
+                                  Kindly ensure static IP is obtained on priority and the same is used for availing API based trading facility to avoid any service interruption. For more details, please refer to the FAQs:</p>
+                                  <p class="txt-gray"><a href="https://www.icicidirect.com/faqs/fno/what-is-a-static-ip" target="_blank" class="txt-orange">https://www.icicidirect.com/faqs/fno/what-is-a-static-ip</a></p>
+                              </div>
+                          </div>
+                          </div>
+    </div>
+</div>
+
+
+</div>
+
+
+
+
+
+
+
+
+
+    
+  
+<div class="aspNetHidden">
+
+
+
+</div></form>
+
+
+</body></html>

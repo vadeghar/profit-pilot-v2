@@ -1,0 +1,57 @@
+# Trading Strategy Execution Platform - Configuration (Architecture v2)
+system:
+  dataDir: "data"
+  logLevel: "INFO"
+  ipcSocketPath: "/tmp/trading_platform.sock"
+  heartbeat:
+    intervalSeconds: 30
+    stallThresholdSeconds: 120
+  marketData:
+    staleThresholdSeconds: 10
+    reconnectAttempts: 5
+    reconnectBackoffSeconds: 2
+
+broker:
+  active: "mock" # "mock" | "angel_one" | "icici"
+  angel_one:
+    api_key: "YOUR_SMARTAPI_KEY"
+    client_id: "YOUR_CLIENT_ID"
+    password: "YOUR_PASSWORD"
+    totp_secret: "YOUR_BASE32_TOTP_SECRET"
+  icici:
+    api_key: "YOUR_BREEZE_API_KEY"
+    user_id: "YOUR_USER_ID"
+    password: "YOUR_PASSWORD"
+    session_key: "YOUR_DAILY_SESSION_KEY"
+
+execution:
+  orderRetryAttempts: 3
+  orderRetryDelaySeconds: 2
+  partialFillTimeoutSeconds: 30
+  partialFillBehavior: "ROLLBACK" # "ROLLBACK" | "FREEZE"
+  maxOrderValueInr: 500000.0
+  maxDailyLossInr: 25000.0
+
+persistence:
+  journalEnabled: true
+  snapshotIntervalSeconds: 300
+  maxJournalFiles: 100
+
+notifications:
+  telegram:
+    enabled: false
+    botToken: "YOUR_TELEGRAM_BOT_TOKEN"
+    chatId: "YOUR_TELEGRAM_CHAT_ID"
+    rateLimitPerMinute: 20
+    coalesceWindowSeconds: 10
+
+monitoring:
+  mode: "TICK" # "TICK" | "CANDLE"
+  candleTimeframe: "1m"
+
+backtest:
+  execution:
+    fillModel: "TICK" # "INSTANT" | "TICK" | "CANDLE_CLOSE"
+    slippagePercent: 0.05
+    commissionPercent: 0.03
+    assumeVolume: "INFINITE"

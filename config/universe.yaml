@@ -1,0 +1,197 @@
+# =============================================================================
+# Global Trading Universe Configuration
+# =============================================================================
+# Single source of truth for all index/spot and equity symbols.
+# 
+# RULES:
+# - Indices and equities are defined HERE. No hardcoded symbols in strategies.
+# - Futures & Options (FUT/OPT) are EXCLUDED from this file — they derive from
+#   expiry calendars, strike selection, etc., and remain in their respective
+#   strategy/specification modules.
+# - Add/remove stocks here and every strategy's symbol dropdown reflects changes.
+# - The "top 8" equities below are the global universe used across all strategies.
+# =============================================================================
+
+version: 1.0.0
+
+# ---------------------------------------------------------------------------
+# Indices / Spot — searchable in dropdowns, usable as benchmark or tradable
+# ---------------------------------------------------------------------------
+indices:
+  - symbol: NSE:NIFTY
+    label: "NIFTY 50 Index"
+    exchange: NSE
+    type: index
+    description: "NIFTY 50 — top 50 large-cap Indian equities benchmark"
+
+  - symbol: NSE:BANKNIFTY
+    label: "BANK NIFTY Index"
+    exchange: NSE
+    type: index
+    description: "BANKNIFTY — banking sector index"
+
+  - symbol: NSE:SENSEX
+    label: "SENSEX Index"
+    exchange: BSE
+    type: index
+    description: "SENSEX — Bombay Stock Exchange 30-stock benchmark"
+
+# ---------------------------------------------------------------------------
+# Equities — top 8 global universe across all strategies
+# ---------------------------------------------------------------------------
+# These 8 stocks appear in every strategy's symbol dropdown by default.
+# Add more or remove existing — changes propagate everywhere automatically.
+# ---------------------------------------------------------------------------
+equities:
+  - symbol: NSE:RELIANCE
+    label: "Reliance Industries"
+    exchange: NSE
+    type: equity
+    description: "Reliance Industries Ltd — energy, telecom, retail"
+
+  - symbol: NSE:HDFCBANK
+    label: "HDFC Bank Ltd"
+    exchange: NSE
+    type: equity
+    description: "HDFC Bank — private sector banking"
+
+  - symbol: NSE:ICICIBANK
+    label: "ICICI Bank Ltd"
+    exchange: NSE
+    type: equity
+    description: "ICICI Bank — private sector banking"
+
+  - symbol: NSE:TCS
+    label: "Tata Consultancy Services"
+    exchange: NSE
+    type: equity
+    description: "TCS — IT services, Tata Group"
+
+  - symbol: NSE:INFY
+    label: "Infosys Ltd"
+    exchange: NSE
+    type: equity
+    description: "Infosys — IT services"
+
+  - symbol: NSE:ITC
+    label: "ITC Ltd"
+    exchange: NSE
+    type: equity
+    description: "ITC — FMCG, hospitality, agri-business"
+
+  - symbol: NSE:SBIN
+    label: "State Bank of India"
+    exchange: NSE
+    type: equity
+    description: "SBI — public sector banking"
+
+  - symbol: NSE:TATASTEEL
+    label: "Tata Steel Ltd"
+    exchange: NSE
+    type: equity
+    description: "Tata Steel —steel manufacturing"
+
+  - symbol: NSE:TATAMOTORS
+    label: "Tata Motors Ltd"
+    exchange: NSE
+    type: equity
+    description: "Tata Motors — automotive, JLR"
+
+  - symbol: NSE:HINDUNILVR
+    label: "Hindustan Unilever Ltd"
+    exchange: NSE
+    type: equity
+    description: "HUL — FMCG, consumer goods"
+
+  - symbol: NSE:HCLTECH
+    label: "HCL Technologies Ltd"
+    exchange: NSE
+    type: equity
+    description: "HCLTech — IT services"
+
+  - symbol: NSE:WIPRO
+    label: "Wipro Ltd"
+    exchange: NSE
+    type: equity
+    description: "Wipro — IT services"
+
+  - symbol: NSE:TATACONSUM
+    label: "Tata Consumer Products"
+    exchange: NSE
+    type: equity
+    description: "Tata Consumer — tea, salt, pulses, water"
+
+  - symbol: NSE:ADANIGREEN
+    label: "Adani Green Energy"
+    exchange: NSE
+    type: equity
+    description: "Adani Green — renewable energy"
+
+  - symbol: NSE:BHARTIARTL
+    label: "Bharti Airtel Ltd"
+    exchange: NSE
+    type: equity
+    description: "Bharti Airtel — telecommunications"
+
+  - symbol: NSE:LT
+    label: "Larsen & Toubro Ltd"
+    exchange: NSE
+    type: equity
+    description: "L&T — engineering, construction, manufacturing"
+
+# ---------------------------------------------------------------------------
+# Per-strategy defaults — which instruments each strategy prefers
+# ---------------------------------------------------------------------------
+# These are the DEFAULT instruments when no --instrument is specified.
+# Override via CLI --instrument or web UI symbol selector.
+# ---------------------------------------------------------------------------
+strategy_defaults:
+  ema_crossover:
+    instruments:
+      - NSE:NIFTY
+    description: "Default benchmark index for EMA crossover"
+
+  rsi:
+    instruments:
+      - NSE:NIFTY
+    description: "Default benchmark index for RSI strategy"
+
+  breakout:
+    instruments:
+      - NSE:NIFTY
+    description: "Default benchmark index for breakout strategy"
+
+  equity_swing_vcp:
+    instruments:
+      - NSE:RELIANCE
+      - NSE:HDFCBANK
+      - NSE:ICICIBANK
+      - NSE:SBIN
+      - NSE:TCS
+      - NSE:ITC
+      - NSE:TATASTEEL
+      - NSE:TATAMOTORS
+      - NSE:INFY
+    description: "Top equities universe for VCP swing trading"
+
+  lorentzian_ml:
+    instruments:
+      - NSE:NIFTY
+    description: "Default benchmark for Lorentzian ML classification"
+
+  mcx_trend_rider:
+    # MCX commodities are NOT in this YAML — they use their own spec file
+    # (strategies/mcx_trend_rider.py → COMMODITY_SPECS)
+    instruments:
+      - MCX:CRUDEOIL
+      - MCX:GOLD
+      - MCX:SILVER
+    description: "MCX commodities — see COMMODITY_SPECS in strategy file"
+
+  index_oi_momentum:
+    # Index options strategy — indices only, F&O derived at runtime
+    instruments:
+      - NSE:NIFTY
+      - NSE:BANKNIFTY
+      - NSE:SENSEX
+    description: "Index OI momentum — indices only, derivatives derived at runtime"
