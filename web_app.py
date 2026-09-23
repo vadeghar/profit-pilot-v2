@@ -2366,35 +2366,35 @@ trading-platform status</pre>
       } catch (err) {
         console.error('Failed to load strategy catalog:', err);
       }
+    }
 
-      function syncDeployStrategyCatalog() {
-        const strategySelect = document.getElementById('deploy-strat-name');
-        if (!strategySelect || !catalog.length) return;
-        strategySelect.innerHTML = catalog
-          .filter(s => !s.paper_only_live)
-          .map(s => `<option value="${s.id}">${s.id} (${s.asset_class || s.name})</option>`)
-          .join('');
-        syncDeployStrategyForm();
-      }
+    function syncDeployStrategyCatalog() {
+      const strategySelect = document.getElementById('deploy-strat-name');
+      if (!strategySelect || !catalog.length) return;
+      strategySelect.innerHTML = catalog
+        .filter(s => !s.paper_only_live)
+        .map(s => `<option value="${s.id}">${s.name || s.id}</option>`)
+        .join('');
+      syncDeployStrategyForm();
+    }
 
-      function syncDeployStrategyForm() {
-        const strategyId = document.getElementById('deploy-strat-name')?.value;
-        const strategy = catalog.find(s => s.id === strategyId);
-        const instrumentSelect = document.getElementById('deploy-strat-inst');
-        const idInput = document.getElementById('deploy-strat-id');
-        if (!strategy || !instrumentSelect) return;
-        const symbols = Array.isArray(strategy.allowed_symbols) && strategy.allowed_symbols.length
-          ? strategy.allowed_symbols
-          : (window.GLOBAL_UNIVERSE || []);
-        instrumentSelect.innerHTML = symbols
-          .slice()
-          .sort((a, b) => String(a.label || a.value).localeCompare(String(b.label || b.value)))
-          .map(s => `<option value="${s.value}">${s.label || s.value} (${s.value})</option>`)
-          .join('');
-        if (idInput && (!idInput.value.trim() || idInput.dataset.generated === 'true')) {
-          idInput.value = `${strategy.id}_live_01`;
-          idInput.dataset.generated = 'true';
-        }
+    function syncDeployStrategyForm() {
+      const strategyId = document.getElementById('deploy-strat-name')?.value;
+      const strategy = catalog.find(s => s.id === strategyId);
+      const instrumentSelect = document.getElementById('deploy-strat-inst');
+      const idInput = document.getElementById('deploy-strat-id');
+      if (!strategy || !instrumentSelect) return;
+      const symbols = Array.isArray(strategy.allowed_symbols) && strategy.allowed_symbols.length
+        ? strategy.allowed_symbols
+        : (window.GLOBAL_UNIVERSE || []);
+      instrumentSelect.innerHTML = symbols
+        .slice()
+        .sort((a, b) => String(a.label || a.value).localeCompare(String(b.label || b.value)))
+        .map(s => `<option value="${s.value}">${s.label || s.value}</option>`)
+        .join('');
+      if (idInput && (!idInput.value.trim() || idInput.dataset.generated === 'true')) {
+        idInput.value = `${strategy.id}_live_01`;
+        idInput.dataset.generated = 'true';
       }
     }
 
