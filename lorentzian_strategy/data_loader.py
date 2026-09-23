@@ -76,9 +76,22 @@ def fetch_yfinance(ticker: str, timeframe: str, max_bars_back: int, period: str 
     interval = "1h" if timeframe == "4h" else timeframe  # yfinance has no 4h; resample below
     if interval not in YF_VALID_INTERVALS:
         raise ValueError(f"yfinance does not support interval {interval!r}")
+    intraday_limit = YF_INTRADAY_LIMIT_DAYS.get(interval)
+    if intraday_limit and period not in (None, ""):
+        import re
+        match = re.fullmatch(r"(\d+)(d|mo|y)", str(period).strip().lower())
+        if match:
+            amount, unit = int(match.group(1)), match.group(2)
+            requested_days = amount * {"d": 1, "mo": 30, "y": 365}[unit]
+            if requested_days > intraday_limit:
+                raise ValueError(
+                    f"yfinance {interval} data is available only for the last "
+                    f"{intraday_limit} days; requested period {period!r} is too old. "
+                    "Use a recent period or daily (1d) candles."
+                )
     if period is None:
-        if interval in YF_INTRADAY_LIMIT_DAYS:
-            period = f"{YF_INTRADAY_LIMIT_DAYS[interval]}d"
+        if intraday_limit:
+            period = f"{intraday_limit}d"
         elif timeframe == "1d":
             period = "10y"
         else:

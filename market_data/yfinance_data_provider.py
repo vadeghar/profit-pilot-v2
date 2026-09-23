@@ -9,7 +9,7 @@ from .normalize import (
     candles_from_dataframe,
     normalize_timeframe,
 )
-from utils.timezone import IST
+from utils.timezone import IST, ensure_ist, now_ist
 
 class YFinanceDataProvider(HistoricalDataProvider):
     """yfinance adapter — returns normalized candles only."""
@@ -44,9 +44,20 @@ class YFinanceDataProvider(HistoricalDataProvider):
     def _download(self, symbol: str, interval: str,
                   start: datetime, end: datetime) -> pd.DataFrame:
         """Download a range, chunking intervals subject to Yahoo's limits."""
+        start = ensure_ist(start)
+        end = ensure_ist(end)
         max_days = {
             "5m": 59, "15m": 59, "30m": 59, "1h": 729,
         }.get(interval, 3650)
+        earliest = now_ist() - timedelta(days=max_days)
+        if start < earliest:
+            raise ValueError(
+                f"yfinance {interval} data for {symbol} is available only for "
+                f"the last {max_days} days. Requested range starts "
+                f"{start:%Y-%m-%d}; choose a date on or after "
+                f"{earliest:%Y-%m-%d}, use daily (1d) candles, or provide "
+                "a local cache covering the older range."
+            )
         frames = []
         cursor = start
         while cursor <= end:
