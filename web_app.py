@@ -3021,6 +3021,7 @@ trading-platform status</pre>
         <td class="py-2 px-2 text-gray-400">${formatTradeDateTime(trade.timestamp)}</td>
         <td class="py-2 px-2 text-right text-emerald-400">₹${trade.entry_price.toFixed(2)}</td>
         <td class="py-2 px-2 text-right text-gray-500">-</td>
+        <td class="py-2 px-2 text-right text-gray-500">-</td>
         <td class="py-2 px-2 text-right"><span class="text-yellow-400 text-[10px]"><i class="fa-solid fa-spinner fa-spin"></i> OPEN</span></td>
       `;
       
@@ -3042,7 +3043,6 @@ trading-platform status</pre>
       
       const exitTimeCell = row.cells[6];
       const exitCell = row.cells[7];
-      const pnlCell = row.cells[8];
       const pnlCell = row.cells[8];
       
       if (exitTimeCell) {
