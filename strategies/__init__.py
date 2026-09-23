@@ -9,6 +9,13 @@ from core.models import (
     Signal, OrderSide, OrderType, Candle, Tick, Quote
 )
 from utils import Logger
+from platform_config import get_indices
+
+
+# Safety-net instrument for strategies driven without an explicit symbol.
+# The backtest engine always stamps `candle.instrument`, and per-strategy
+# defaults come from platform_config/universe.yaml — this is only a fallback.
+_DEFAULT_INSTRUMENT = get_indices()[0]["symbol"]
 
 
 class StrategyBase(ABC):
@@ -232,7 +239,7 @@ class EMACrossover(StrategyBase):
         return self._check_crossover()
     
     def on_candle(self, candle: Candle) -> Optional[Signal]:
-        self._current_instrument = getattr(candle, 'instrument', self.params.get('instrument', _DEFAULT_NIFTY))
+        self._current_instrument = getattr(candle, 'instrument', self.params.get('instrument', _DEFAULT_INSTRUMENT))
         self._price_history.append(candle.close)
         return self._check_crossover()
     
@@ -252,7 +259,7 @@ class EMACrossover(StrategyBase):
             prev_fast = self._price_history[-2] if len(self._price_history) >= 2 else self._fast_ema
             prev_slow = self._price_history[-2] if len(self._price_history) >= 2 else self._slow_ema
             
-            inst = getattr(self, '_current_instrument', self.params.get('instrument', _DEFAULT_NIFTY))
+            inst = getattr(self, '_current_instrument', self.params.get('instrument', _DEFAULT_INSTRUMENT))
             if prev_fast <= prev_slow and self._fast_ema > self._slow_ema:
                 # Golden cross - BUY
                 return Signal(
@@ -291,7 +298,7 @@ class RSIStrategy(StrategyBase):
         return self._check_rsi()
     
     def on_candle(self, candle: Candle) -> Optional[Signal]:
-        self._current_instrument = getattr(candle, 'instrument', self.params.get('instrument', _DEFAULT_RSI))
+        self._current_instrument = getattr(candle, 'instrument', self.params.get('instrument', _DEFAULT_INSTRUMENT))
         self._price_history.append(candle.close)
         return self._check_rsi()
     
@@ -302,7 +309,7 @@ class RSIStrategy(StrategyBase):
         
         self.store_indicator('rsi', rsi)
         
-        inst = getattr(self, '_current_instrument', self.params.get('instrument', _DEFAULT_RSI))
+        inst = getattr(self, '_current_instrument', self.params.get('instrument', _DEFAULT_INSTRUMENT))
         if rsi < self.oversold:
             return Signal(
                 strategy_id=self.strategy_id,
@@ -350,7 +357,7 @@ class BreakoutStrategy(StrategyBase):
         self.store_indicator('highest', highest)
         self.store_indicator('lowest', lowest)
         
-        inst = getattr(candle, 'instrument', self.params.get('instrument', _DEFAULT_BREAKOUT))
+        inst = getattr(candle, 'instrument', self.params.get('instrument', _DEFAULT_INSTRUMENT))
         if candle.close > highest:
             return Signal(
                 strategy_id=self.strategy_id,

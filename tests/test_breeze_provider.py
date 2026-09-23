@@ -118,6 +118,80 @@ def test_load_breeze_env_missing_credentials(tmp_path):
         connect_breeze(env_path=str(env_file))
 
 
+def test_resolve_breeze_stock_code_uses_scrip_master_short_name(monkeypatch):
+    """Breeze historical data is keyed by the scrip master's *ShortName*.
+
+    Passing the raw NSE ticker (RELIANCE) answers HTTP 200 with `Success: []`
+    for every equity whose ShortName differs from its NSE symbol, so the ticker
+    must be translated before calling get_historical_data_v2.
+    """
+    import io
+    import sys
+    import types
+    from lorentzian_strategy import data_loader as dl
+
+    nse_csv = (
+        'Token, "ShortName", "Series", "CompanyName", "ExchangeCode"\n'
+        '1, "RELIND", "EQ", "RELIANCE INDUSTRIES", "RELIANCE"\n'
+        '2, "TCS", "EQ", "TATA CONSULTANCY SERVICES", "TCS"\n'
+        '3, "HDFBAN", "EQ", "HDFC BANK", "HDFCBANK"\n'
+        '4, "NIFTY", "0", "NIFTY 50", "NIFTY 50"\n'
+    )
+    bse_csv = (
+        "Token,ShortName,ScripID,ScripCode\n"
+        "1,RELIND,RELIANCE,500325\n"
+        "2,TCS,TCS,532540\n"
+    )
+
+    class FakeZip:
+        def namelist(self):
+            return ["NSEScripMaster.txt", "BSEScripMaster.txt"]
+
+        def open(self, name):
+            return io.BytesIO((nse_csv if name.startswith("NSE") else bse_csv)
+                              .encode("utf-8"))
+
+    fake_sdk = types.ModuleType("breeze_connect.breeze_connect")
+    fake_sdk.zip = FakeZip()
+    monkeypatch.setitem(sys.modules, "breeze_connect.breeze_connect", fake_sdk)
+    monkeypatch.setattr(dl, "_BREEZE_SHORTNAME_MAPS", {})
+
+    names = dl.breeze_scrip_short_names("NSE")
+    assert names["RELIANCE"] == "RELIND"
+    assert names["HDFCBANK"] == "HDFBAN"
+    assert names["TCS"] == "TCS"          # ShortName == NSE symbol
+    assert names["NIFTY"] == "NIFTY"      # already a ShortName (ExchangeCode is "NIFTY 50")
+
+    assert dl.resolve_breeze_stock_code("RELIANCE", "NSE") == "RELIND"
+    assert dl.resolve_breeze_stock_code("HDFCBANK", "NSE") == "HDFBAN"
+    assert dl.resolve_breeze_stock_code("TCS", "NSE") == "TCS"
+    assert dl.resolve_breeze_stock_code("NIFTY", "NSE") == "NIFTY"
+    # already-translated codes must pass through unchanged
+    assert dl.resolve_breeze_stock_code("RELIND", "NSE") == "RELIND"
+    # no master entry (BANKNIFTY is an index absent from the scrip master) -> unchanged
+    assert dl.resolve_breeze_stock_code("BANKNIFTY", "NSE") == "BANKNIFTY"
+    # other exchanges have no master entry -> unchanged
+    assert dl.resolve_breeze_stock_code("CRUDEOIL", "MCX") == "CRUDEOIL"
+    # BSE resolves through ScripID the same way
+    assert dl.resolve_breeze_stock_code("RELIANCE", "BSE") == "RELIND"
+
+
+def test_resolve_breeze_stock_code_without_master_passes_through(monkeypatch):
+    """Security master unavailable -> symbol unchanged and no exception raised."""
+    import sys
+    from lorentzian_strategy import data_loader as dl
+
+    monkeypatch.delitem(sys.modules, "breeze_connect.breeze_connect", raising=False)
+    monkeypatch.setattr(dl, "_BREEZE_SHORTNAME_MAPS", {})
+
+    # SDK not loaded: empty map, and the miss must NOT be cached — a later call
+    # after connect_breeze() has to still be able to resolve.
+    assert dl.breeze_scrip_short_names("NSE") == {}
+    assert dl._BREEZE_SHORTNAME_MAPS == {}
+    assert dl.resolve_breeze_stock_code("RELIANCE", "NSE") == "RELIANCE"
+    assert dl.resolve_breeze_stock_code(None, "NSE") is None
+
+
 def test_breeze_platform_provider_with_mock(tmp_path):
     """market_data.BreezeHistoricalDataProvider end-to-end with a mocked client.
 

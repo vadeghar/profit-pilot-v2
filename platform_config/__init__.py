@@ -128,3 +128,29 @@ def set_config(config: Config) -> None:
     """Set global config instance"""
     global _config
     _config = config
+
+
+# ---------------------------------------------------------------------------
+# Universe helpers (platform_config/universe.py) — re-exported so callers use
+# `from platform_config import get_all_instruments` etc.
+#
+# NOTE: these used to live in a top-level `config/` package, which shadowed the
+# `config` module imported internally by the breeze_connect SDK and broke every
+# Breeze connection ("module 'config' has no attribute 'SECURITY_MASTER_URL'").
+# ---------------------------------------------------------------------------
+from .universe import (  # noqa: E402,F401  (re-export, kept at the bottom)
+    UNIVERSE_PATH,
+    build_dropdown_list,
+    get_all_instruments,
+    get_equities,
+    get_indices,
+    get_instrument,
+    get_strategy_defaults,
+    get_strategy_instruments,
+    label_for_dropdown,
+    load_universe,
+    reset_cache,
+    resolve_provider_symbol,
+    symbol_to_label,
+)
+

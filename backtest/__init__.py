@@ -353,7 +353,7 @@ class BacktestEngine:
             self._emit("trade_entry", {
                 "instrument": signal.instrument,
                 "side": "BUY",
-                "price": fill_price,
+                "entry_price": fill_price,
                 "quantity": signal.quantity,
                 "reason": "strategy_signal",
                 "timestamp": candle.timestamp.isoformat()
@@ -376,7 +376,7 @@ class BacktestEngine:
             self._emit("trade_entry", {
                 "instrument": signal.instrument,
                 "side": "SELL",
-                "price": fill_price,
+                "entry_price": fill_price,
                 "quantity": signal.quantity,
                 "reason": "strategy_signal",
                 "timestamp": candle.timestamp.isoformat()

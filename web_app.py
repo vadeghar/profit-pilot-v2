@@ -33,7 +33,7 @@ from market_data import MarketDataManager, ProviderFactory
 from utils import format_inr
 import platform_config
 from backtest.job_manager import job_manager
-from config import (
+from platform_config import (
     get_all_instruments,
     get_strategy_instruments,
     build_dropdown_list,
@@ -52,8 +52,13 @@ execution_engine = ExecutionEngine(mock_broker, {'orderRetryAttempts': 3})
 active_strategies: Dict[str, Any] = {}
 recent_backtests: List[Dict[str, Any]] = []
 
-# Dropdown list shown on every multi-symbol strategy card (indices + equities).
+# Dropdown list shown on spot/equity strategy cards from universe.yaml.
 GLOBAL_UNIVERSE: list[dict[str, str]] = build_dropdown_list()
+EQUITY_UNIVERSE: list[dict[str, str]] = [
+  {"label": item["label"], "value": item["symbol"]}
+  for item in get_all_instruments()
+]
+EQUITY_SYMBOLS = ", ".join(item["value"] for item in EQUITY_UNIVERSE)
 STRATEGY_CATALOG = {
     "mcx_trend_rider": {
         "id": "mcx_trend_rider",
@@ -73,8 +78,8 @@ STRATEGY_CATALOG = {
         ],
         "default_timeframe": "1d",
         "default_capital": 2000000.0,
-        "default_start_date": "2024-01-01",
-        "default_end_date": "2026-09-16",
+        "default_start_date": "2026-01-01",
+        "default_end_date": "2026-09-23",
         "default_params": {
             "capital": 2000000.0,
             "risk_pct": 0.01,
@@ -103,12 +108,13 @@ STRATEGY_CATALOG = {
         "description": "Fast & Slow Exponential Moving Average crossover system with ATR stop and trailing risk management.",
         "asset_class": "NSE Equities / Indices",
         "data_provider": "Breeze",
-        "default_symbols": ", ".join(get_strategy_instruments("ema_crossover")),
-        "allowed_symbols": build_dropdown_list(get_strategy_instruments("ema_crossover")),
+        "default_symbols": EQUITY_SYMBOLS,
+        "use_global_universe": True,
+        "allowed_symbols": EQUITY_UNIVERSE,
         "default_timeframe": "1d",
         "default_capital": 100000.0,
-        "default_start_date": "2024-01-01",
-        "default_end_date": "2026-09-16",
+        "default_start_date": "2026-01-01",
+        "default_end_date": "2026-09-23",
         "default_params": {
             "fast_period": 9,
             "slow_period": 21,
@@ -135,12 +141,13 @@ STRATEGY_CATALOG = {
         "description": "Exploits extreme overbought/oversold swings in oscillator range with trailing breakeven protection.",
         "asset_class": "NSE Equities / Indices",
         "data_provider": "Breeze",
-        "default_symbols": ", ".join(get_strategy_instruments("rsi")),
-        "allowed_symbols": build_dropdown_list(get_strategy_instruments("rsi")),
+        "default_symbols": EQUITY_SYMBOLS,
+        "use_global_universe": True,
+        "allowed_symbols": EQUITY_UNIVERSE,
         "default_timeframe": "1d",
         "default_capital": 100000.0,
-        "default_start_date": "2024-01-01",
-        "default_end_date": "2026-09-16",
+        "default_start_date": "2026-01-01",
+        "default_end_date": "2026-09-23",
         "default_params": {
             "period": 14,
             "oversold": 30.0,
@@ -169,12 +176,13 @@ STRATEGY_CATALOG = {
         "description": "Pure Donchian 20-period price channel breakout taking positions on new periodic high/low closes.",
         "asset_class": "NSE Equities / Multi-Asset",
         "data_provider": "Breeze",
-        "default_symbols": ", ".join(get_strategy_instruments("breakout")),
-        "allowed_symbols": build_dropdown_list(get_strategy_instruments("breakout")),
+        "default_symbols": EQUITY_SYMBOLS,
+        "use_global_universe": True,
+        "allowed_symbols": EQUITY_UNIVERSE,
         "default_timeframe": "1d",
         "default_capital": 100000.0,
-        "default_start_date": "2024-01-01",
-        "default_end_date": "2026-09-16",
+        "default_start_date": "2026-01-01",
+        "default_end_date": "2026-09-23",
         "default_params": {
             "lookback": 20,
             "quantity": 1
@@ -207,8 +215,8 @@ STRATEGY_CATALOG = {
         ],
         "default_timeframe": "tick",
         "default_capital": 500000.0,
-        "default_start_date": "2026-06-01",
-        "default_end_date": "2026-09-16",
+        "default_start_date": "2026-01-01",
+        "default_end_date": "2026-09-23",
         "default_params": {
             "capital": 500000.0,
             "k": 4.0,
@@ -230,7 +238,14 @@ STRATEGY_CATALOG = {
             "win_rate": "30-40% target",
             "max_dd": "Capped -3%/day",
             "sharpe": "Intraday"
-        }
+        },
+        # Auto-start on app startup during market hours (09:15-15:30 IST)
+        "auto_start_enabled": True,
+        "auto_start_symbols": ["NIFTY", "BANKNIFTY", "SENSEX"],
+        "auto_start_variants": ["base", "expiry"],
+        "auto_start_capital": 500000.0,
+        # Paper-only live strategy - no traditional backtest button in modal
+        "paper_only_live": True
     },
     "equity_swing_vcp": {
         "id": "equity_swing_vcp",
@@ -241,12 +256,13 @@ STRATEGY_CATALOG = {
         "description": "Mark Minervini 8-Point Trend Template + Volatility Contraction Pattern (VCP) with volume breakout confirmation and staged 21 EMA trailing stop.",
         "asset_class": "NSE Equities (Positional 1-3m)",
         "data_provider": "Breeze",
-        "default_symbols": ", ".join(get_strategy_instruments("equity_swing_vcp")),
-        "allowed_symbols": build_dropdown_list(get_strategy_instruments("equity_swing_vcp")),
+        "default_symbols": EQUITY_SYMBOLS,
+        "use_global_universe": True,
+        "allowed_symbols": EQUITY_UNIVERSE,
         "default_timeframe": "1d",
         "default_capital": 1000000.0,
-        "default_start_date": "2023-01-01",
-        "default_end_date": "2026-09-16",
+        "default_start_date": "2026-01-01",
+        "default_end_date": "2026-09-23",
         "default_params": {
             "capital": 1000000.0,
             "risk_pct": 0.0125,
@@ -275,13 +291,13 @@ STRATEGY_CATALOG = {
         "description": "Approximate nearest-neighbor classifier with Lorentzian distance over normalized RSI/WaveTrend/CCI/ADX features, Kalman-regime + volatility filters, and Nadaraya-Watson kernel exits. Fed by Breeze OHLC.",
         "asset_class": "NSE Equities / Indices",
         "data_provider": "Breeze",
-        "use_global_universe": "True",
-        "default_symbols": ", ".join(get_strategy_instruments("lorentzian_ml")),
-        "allowed_symbols": build_dropdown_list(get_strategy_instruments("lorentzian_ml")),
+        "use_global_universe": True,
+        "default_symbols": EQUITY_SYMBOLS,
+        "allowed_symbols": EQUITY_UNIVERSE,
         "default_timeframe": "1d",
         "default_capital": 500000.0,
-        "default_start_date": "2024-01-01",
-        "default_end_date": "2026-09-16",
+        "default_start_date": "2026-01-01",
+        "default_end_date": "2026-09-23",
         "default_params": {
             "timeframe": "1d",
             "ticker": "NSE:NIFTY",
@@ -373,12 +389,12 @@ def get_strategy_catalog():
 
 @app.get("/api/universe")
 def get_universe():
-    """Return the global symbol universe from config/universe.yaml.
+    """Return the global symbol universe from platform_config/universe.yaml.
     
     The frontend uses this to populate symbol dropdowns. No hardcoded symbols
     anywhere — all changes go through universe.yaml and are reflected here.
     """
-    from config import get_all_instruments
+    from platform_config import get_all_instruments
     return {"universe": get_all_instruments()}
 
 
@@ -1078,6 +1094,7 @@ class OIPaperSession:
                     if r == "oi_momentum_entry":
                         self._open[key] = {"entry": _paper_safe_float(sig.metadata.get("entry")),
                                            "qty": int(sig.quantity or 0), "mode": m,
+                                           "side": str(sig.metadata.get("side") or ""),
                                            "time": now_ist().isoformat()}
                     elif r.startswith("exit_") and key in self._open:
                         op = self._open.pop(key)
@@ -1392,6 +1409,32 @@ class OIPaperSession:
                         "ticks": int(hh.get('ticks', 0)), "tick_age_s": _age}
         return out
 
+    def _open_position_details(self, live_px: Optional[Dict[str, Dict[str, Any]]] = None) -> List[Dict[str, Any]]:
+        """Snapshot of in-progress paper positions: entry, qty, option side, entry time
+        plus mark-to-market (unrealized) PnL from the latest WS tick prices."""
+        lp = live_px if live_px is not None else self.live_prices()
+        out: List[Dict[str, Any]] = []
+        for key, pos in self._open.items():
+            if ":" in key:
+                variant, idx = key.split(":", 1)
+            else:
+                variant, idx = "base", key
+            side = str(pos.get("side") or "").upper()
+            entry = _paper_safe_float(pos.get("entry"))
+            qty = int(pos.get("qty") or 0)
+            mark = None
+            try:
+                leg = (lp.get(idx) or {}).get("ce" if side == "CE" else "pe") if side in ("CE", "PE") else None
+                if leg:
+                    mark = round(float(leg), 2)
+            except Exception:
+                mark = None
+            unreal = round((mark - entry) * qty, 2) if (mark and entry) else None
+            out.append({"key": key, "index": idx, "variant": variant or "base", "side": side,
+                        "entry": entry, "qty": qty, "entry_time": pos.get("time"),
+                        "mark": mark, "unrealized_pnl": unreal})
+        return out
+
     def status(self) -> Dict[str, Any]:
         feed_ticks = getattr(self._feed, 'ticks_seen', 0) if self._feed else 0
         for _fe in (getattr(self._feed, 'errors', []) or [])[-5:]:
@@ -1400,6 +1443,7 @@ class OIPaperSession:
                 self.errors.append(_m)
         if getattr(self._feed, 'connected_at', None) and not getattr(self, 'ws_connected_at', None):
             self.ws_connected_at = self._feed.connected_at
+        live_px = self.live_prices()  # single pass; reused for the payload + open-position marking
         return {"session_id": self.id, "running": self.running,
                 "strategy_id": "index_oi_momentum",
                 "feed_source": "Angel One WebSocket2 (SNAP_QUOTE mode=3)",
@@ -1409,12 +1453,13 @@ class OIPaperSession:
                 "ws_connected_at": getattr(self, 'ws_connected_at', None),
                 "last_tick_at": getattr(self, 'last_tick_at', None),
                 "ws_ticks": feed_ticks,
-                "live_prices": self.live_prices(),
+                "live_prices": live_px,
                 "indices": self.indices, "variants": self.modes,
                 "expiry_today": self.expiry_flags, "capital": self.capital,
                 "ticks_seen": self.ticks_seen, "paper_trades": self.paper_trades[-50:],
                 "paper_trades_count": len(self.paper_trades),
                 "open_paper_positions": list(self._open.keys()),
+                "open_paper_position_details": self._open_position_details(live_px),
                 "live_trading": False, "live_order_placed": False,
                 "errors": self.errors[-10:], "created_at": self.created_at,
                 "stop_at_ist": _ist_str(self.stop_at), "stop_reason": self.stop_reason,
@@ -1465,6 +1510,78 @@ def paper_stop(session_id: str):
     return {"status": "STOPPED", **sess.status()}
 
 
+def _is_market_hours_ist() -> bool:
+    """Check if current time is within market hours (09:15 - 15:30 IST)."""
+    from utils.timezone import now_ist, EQUITY_OPEN_MIN, EQUITY_CLOSE_MIN
+    ist_now = now_ist()
+    minutes = ist_now.hour * 60 + ist_now.minute
+    return EQUITY_OPEN_MIN <= minutes < EQUITY_CLOSE_MIN
+
+
+def _get_auto_start_config() -> Optional[Dict[str, Any]]:
+    """Get auto-start configuration for index_oi_momentum strategy."""
+    strat_config = STRATEGY_CATALOG.get("index_oi_momentum")
+    if not strat_config or not strat_config.get("auto_start_enabled"):
+        return None
+    return {
+        "indices": strat_config.get("auto_start_symbols", ["NIFTY", "BANKNIFTY", "SENSEX"]),
+        "variants": strat_config.get("auto_start_variants", ["base", "expiry"]),
+        "capital": strat_config.get("auto_start_capital", 500000.0),
+        "params": strat_config.get("default_params", {})
+    }
+
+
+def start_auto_paper_session():
+    """Start OI paper session automatically on app startup if market is open."""
+    if not _is_market_hours_ist():
+        return None
+    
+    config = _get_auto_start_config()
+    if not config:
+        return None
+    
+    # Check if there's already an active session
+    if OI_PAPER_SESSIONS:
+        return None
+    
+    try:
+        sess = OIPaperSession(
+            indices=config["indices"],
+            modes=config["variants"],
+            capital=config["capital"],
+            params=config["params"]
+        )
+        OI_PAPER_SESSIONS[sess.id] = sess
+        sess.start()
+        return sess.status()
+    except Exception as e:
+        print(f"Auto-start failed: {e}")
+        return None
+
+
+@app.post("/api/paper/oi-momentum/auto-start")
+def trigger_auto_start():
+    """Manually trigger auto-start (useful for testing)."""
+    return start_auto_paper_session()
+
+
+@app.get("/api/paper/oi-momentum/auto-start/config")
+def get_auto_start_config():
+    """Get auto-start configuration for index_oi_momentum."""
+    config = _get_auto_start_config()
+    if not config:
+        return {"enabled": False}
+    return {"enabled": True, **config}
+
+
+@app.on_event("startup")
+async def startup_event():
+    """Start OI paper session automatically on app startup if market is open."""
+    # Run in a thread pool since start() is blocking
+    loop = asyncio.get_event_loop()
+    await loop.run_in_executor(None, lambda: start_auto_paper_session())
+
+
 @app.get("/api/forward-test/status/{strategy_id}")
 def get_forward_test_status(strategy_id: str):
     """Get status of registered forward test for a strategy"""
@@ -1479,8 +1596,16 @@ def get_forward_test_status(strategy_id: str):
 
 @app.get("/", response_class=HTMLResponse)
 def index_page():
-    """Interactive Web Dashboard HTML"""
-    return DASHBOARD_HTML
+    """Interactive Web Dashboard HTML.
+
+    The global symbol universe (platform_config/universe.yaml) is injected as
+    ``window.__GLOBAL_UNIVERSE__`` so checkbox dropdowns of strategies that use
+    the global universe are populated without an extra round-trip.
+    """
+    return DASHBOARD_HTML.replace(
+        "window.__GLOBAL_UNIVERSE__ || []",
+        json.dumps(GLOBAL_UNIVERSE),
+    )
 
 
 DASHBOARD_HTML = """<!DOCTYPE html>
@@ -1797,13 +1922,13 @@ trading-platform status</pre>
           <!-- Start Date -->
           <div>
             <label class="block text-gray-400 mb-1 font-medium">Start Date</label>
-            <input type="date" id="modal-start-date" value="2024-01-01" class="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white font-mono text-xs focus:outline-none focus:border-cyan-500">
+            <input type="date" id="modal-start-date" value="2026-01-01" class="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white font-mono text-xs focus:outline-none focus:border-cyan-500">
           </div>
 
           <!-- End Date -->
           <div>
             <label class="block text-gray-400 mb-1 font-medium">End Date</label>
-            <input type="date" id="modal-end-date" value="2026-09-16" class="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white font-mono text-xs focus:outline-none focus:border-cyan-500">
+            <input type="date" id="modal-end-date" value="2026-09-23" class="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white font-mono text-xs focus:outline-none focus:border-cyan-500">
           </div>
 
           <!-- Initial Capital -->
@@ -2093,7 +2218,7 @@ trading-platform status</pre>
                   <th class="py-2 px-3">Entry Px</th>
                   <th class="py-2 px-3">Exit Time</th>
                   <th class="py-2 px-3">Exit Px</th>
-                  <th class="py-2 px-3 text-right">Realized PnL (₹)</th>
+                  <th class="py-2 px-3 text-right" id="modal-pnl-th">Realized PnL (₹)</th>
                 </tr>
               </thead>
               <tbody id="modal-trades-tbody" class="divide-y divide-gray-800/60 text-gray-300">
@@ -2153,9 +2278,20 @@ trading-platform status</pre>
         const data = await res.json();
         catalog = data.catalog;
         window._oiRunning = window._oiRunning || {};
-        // Expose global universe for multi-symbol checkbox dropdowns
-        // Sourced from config/universe.yaml via the /api/universe endpoint.
+        // Expose global universe for multi-symbol checkbox dropdowns.
+        // Server-injected from platform_config/universe.yaml (window.__GLOBAL_UNIVERSE__);
+        // the /api/universe fetch is the fallback for pages served without the
+        // injection (e.g. mocked/test HTML).
         window.GLOBAL_UNIVERSE = window.__GLOBAL_UNIVERSE__ || [];
+        if (!window.GLOBAL_UNIVERSE.length) {
+          try {
+            const ures = await fetch('/api/universe');
+            const udata = await ures.json();
+            window.GLOBAL_UNIVERSE = udata.universe || [];
+          } catch (uerr) {
+            console.warn('Failed to load universe:', uerr);
+          }
+        }
         renderStrategyCards();
         refreshOiRunningState();
         setInterval(refreshOiRunningState, 30000);
@@ -2171,7 +2307,11 @@ trading-platform status</pre>
       catalog.forEach(s => {
         const card = document.createElement('div');
         // Fixed size responsive card with cursor pointer
-        card.className = 'glass-card p-5 rounded-2xl border border-gray-800 hover:border-cyan-500/60 transition-all duration-200 hover:-translate-y-1 cursor-pointer flex flex-col justify-between h-[340px] group';
+        const isOIPaperRunning = !!(window._oiRunning && window._oiRunning[s.id]);
+        const cardBorderClass = isOIPaperRunning ? 'border-emerald-500/60' : 'border-gray-800 hover:border-cyan-500/60';
+        // Card stays clickable while running so the live paper trades can be inspected in the modal.
+        // Only the "Run Paper Live" action is disabled while a session is active.
+        card.className = `glass-card p-5 rounded-2xl border ${cardBorderClass} transition-all duration-200 hover:-translate-y-1 cursor-pointer flex flex-col justify-between h-[340px] group`;
         card.onclick = () => openBacktestModal(s.id);
 
         const badgeBg = s.badge_color === 'emerald' ? 'bg-emerald-950 text-emerald-400 border-emerald-800' :
@@ -2218,7 +2358,8 @@ trading-platform status</pre>
             <div class="text-[11px] font-mono">
               <span class="text-gray-500">Benchmark:</span>
               <span class="font-bold text-emerald-400 ml-1">${s.historical_stats.return_pct}</span>
-              ${(window._oiRunning && window._oiRunning[s.id]) ? '<div class="mt-1 text-[10px] font-bold text-emerald-300 flex items-center space-x-1"><span class="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span><span>RUNNING FORWARD TEST</span></div>' : ''}
+              ${(window._oiRunning && window._oiRunning[s.id]) ? '<div class="mt-1 text-[10px] font-bold text-emerald-300 flex items-center space-x-1"><span class="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span><span>RUNNING</span></div>' : ''}
+               ${(s.paper_only_live && !(window._oiRunning && window._oiRunning[s.id])) ? '<div class="mt-1 text-[9px] text-amber-500">Paper Live Only</div>' : ''}
             </div>
             ${(window._oiRunning && window._oiRunning[s.id])
               ? `<button onclick="event.stopPropagation(); cardStopOiPaper('${s.id}')" class="px-3 py-1 bg-rose-500/20 hover:bg-rose-500 text-rose-300 hover:text-white font-bold text-xs rounded-lg transition flex items-center space-x-1"><i class="fa-solid fa-stop text-[10px]"></i><span>Stop</span></button>`
@@ -2331,7 +2472,51 @@ trading-platform status</pre>
       // Show variant confirm box only for OI momentum (paper live run)
       const _vb = document.getElementById('oi-variant-box');
       if (_vb) { if (s.id === 'index_oi_momentum') _vb.classList.remove('hidden'); else _vb.classList.add('hidden'); }
-      window._oiPaperSessionId = null;
+      // Re-attach to a running paper session so the trades table keeps streaming after the modal reopen
+      window._oiPaperSessionId = (window._oiRunning && window._oiRunning[s.id]) || null;
+      if (window._oiPaperSessionId) { setTimeout(pollOiPaperStatus, 300); }
+
+      // For paper-only strategies (index_oi_momentum), hide the Run Backtest button
+      // and show appropriate status. For other strategies, ensure the button is visible.
+      const runBtn = document.getElementById('modal-run-btn');
+      if (runBtn) {
+        if (s.paper_only_live) {
+          // Live tick-based paper strategy: no backtest in the modal at all (running or not)
+          runBtn.classList.add('hidden');
+        } else {
+          // Every other strategy: guarantee a visible, working RUN BACKTEST button
+          runBtn.classList.remove('hidden');
+          runBtn.disabled = false;
+          runBtn.innerHTML = '<i class="fa-solid fa-play"></i><span>RUN BACKTEST</span>';
+          runBtn.className = 'w-full py-2 bg-gradient-to-r from-cyan-500 to-emerald-500 hover:from-cyan-400 hover:to-emerald-400 text-gray-950 font-bold rounded-lg shadow-lg transition flex items-center justify-center space-x-2';
+        }
+      }
+      const oiVariantBox = document.getElementById('oi-variant-box');
+      if (oiVariantBox) {
+        const isRunning = !!(window._oiRunning && window._oiRunning[s.id]);
+        // Keep "Run Paper Live" disabled for a live session; enabled once stopped
+        syncOiPaperControls(isRunning);
+        const statusEl = oiVariantBox.querySelector('.paper-status');
+        if (isRunning) {
+          if (!statusEl) {
+            const statusDiv = document.createElement('div');
+            statusDiv.className = 'paper-status mt-2 p-2 bg-emerald-950/60 border border-emerald-500/30 rounded-lg text-[11px] space-y-1.5';
+              statusDiv.innerHTML = `
+                <div class="text-emerald-300 font-bold flex items-center space-x-1.5"><i class="fa-solid fa-circle-check"></i><span>PAPER SESSION RUNNING</span></div>
+                <div class="text-gray-300">Live tick-based testing via Angel One WebSocket2 \u2014 entries, exits and PnL stream into the trades table below (no backtest needed)</div>
+                <button onclick="stopOiPaperSession()" class="w-full py-1.5 mt-1 bg-gradient-to-r from-rose-500 to-rose-600 hover:from-rose-400 hover:to-rose-500 text-gray-950 font-bold rounded-lg shadow transition flex items-center justify-center space-x-2">
+                  <i class="fa-solid fa-stop"></i><span>STOP PAPER SESSION</span>
+                </button>
+                <button onclick="closeBacktestModal()" class="w-full text-[10px] text-gray-400 hover:text-gray-200 underline">Hide this window (session keeps running)</button>
+              `;
+            oiVariantBox.appendChild(statusDiv);
+          }
+        } else {
+          // Remove any existing status element
+          const existingStatus = oiVariantBox.querySelector('.paper-status');
+          if (existingStatus) existingStatus.remove();
+        }
+      }
 
       // Reset Modal Metrics & Forward Test Controls
       document.getElementById('modal-error-banner').classList.add('hidden');
@@ -2346,7 +2531,11 @@ trading-platform status</pre>
       document.getElementById('m-pf').textContent = 'PF: --';
       document.getElementById('m-capital-label').textContent = `Initial: ₹${s.default_capital.toLocaleString('en-IN')}`;
       document.getElementById('modal-trades-count').textContent = '0 records';
-      document.getElementById('modal-trades-tbody').innerHTML = '<tr><td colspan="8" class="text-center py-6 text-gray-500">Click "Run Backtest" above to execute the simulation.</td></tr>';
+      const _pnlTh = document.getElementById('modal-pnl-th');
+      if (_pnlTh) _pnlTh.textContent = 'Realized PnL (₹)';
+      document.getElementById('modal-trades-tbody').innerHTML = s.paper_only_live
+        ? '<tr><td colspan="8" class="text-center py-6 text-gray-500">Waiting for live paper trades \u2014 entries, exits and PnL stream in here from Angel One WebSocket2 ticks.</td></tr>'
+        : '<tr><td colspan="8" class="text-center py-6 text-gray-500">Click "Run Backtest" above to execute the simulation.</td></tr>';
       document.getElementById('modal-progress-container').classList.add('hidden');
 
       if (modalEquityChart) {
@@ -2357,6 +2546,17 @@ trading-platform status</pre>
 
       // Show Modal
       document.getElementById('backtest-modal').classList.remove('hidden');
+
+      // A live paper session keeps its WS health panel + Stop control visible
+      // (the reset above hides it for idle/backtest views)
+      if (window._oiPaperSessionId) {
+        document.getElementById('modal-forward-test-bar').classList.remove('hidden');
+        const label = document.getElementById('modal-progress-label');
+        if (label) label.innerHTML = '<i class="fa-solid fa-satellite-dish fa-spin text-cyan-400"></i><span>Reconnected to live PAPER session \u2014 loading ticks & trades...</span>';
+        const pc = document.getElementById('modal-progress-container');
+        if (pc) pc.classList.remove('hidden');
+        renderPaperTradesTable({ paper_trades: [], open_paper_position_details: [] });
+      }
     }
 
     function closeBacktestModal() {
@@ -2371,6 +2571,8 @@ trading-platform status</pre>
       try {
         await fetch(`/api/paper/oi-momentum/stop/${sid}`, { method: 'POST' });
         if (window._oiPaperSessionId === sid) window._oiPaperSessionId = null;
+        if (window._oiRunning) delete window._oiRunning[strategyId];
+        syncOiPaperControls(false);  // re-enable "Run Paper Live" after stop
         refreshOiRunningState();
       } catch (e) { alert('Stop failed: ' + (e.message || e)); }
     }
@@ -2953,8 +3155,33 @@ trading-platform status</pre>
       });
     }
 
+    // "Run Paper Live" is disabled while this strategy has an active paper session
+    // (one live session at a time) and re-enabled as soon as it is stopped.
+    function syncOiPaperControls(isRunning) {
+      const btn = document.getElementById('btn-oi-paper');
+      if (btn) {
+        btn.disabled = !!isRunning;
+        btn.className = isRunning
+          ? 'w-full py-1.5 mt-1 bg-gray-700 text-gray-400 font-bold rounded-lg shadow transition flex items-center justify-center space-x-2 cursor-not-allowed'
+          : 'w-full py-1.5 mt-1 bg-gradient-to-r from-amber-500 to-rose-500 hover:from-amber-400 hover:to-rose-400 text-gray-950 font-bold rounded-lg shadow transition flex items-center justify-center space-x-2';
+        btn.innerHTML = isRunning
+          ? '<i class="fa-solid fa-circle-check"></i><span>SESSION RUNNING \u2014 STOP TO RESTART</span>'
+          : '<i class="fa-solid fa-satellite-dish"></i><span>RUN PAPER LIVE (confirm)</span>';
+      }
+      // Variants define the running session's subscriptions, so lock them while live
+      document.querySelectorAll('input[name="oi-variant"]').forEach(cb => { cb.disabled = !!isRunning; });
+    }
+
     async function startOiPaperSession() {
       if (!currentModalStrat) return;
+      
+      // Check if already running
+      const isAlreadyRunning = !!(window._oiRunning && window._oiRunning[currentModalStrat.id]);
+      if (isAlreadyRunning) {
+        showModalError('Already Running', 'This strategy is already running in paper live mode. Please stop it first before starting a new session.');
+        return;
+      }
+      
       const boxes = Array.from(document.querySelectorAll('input[name="oi-variant"]:checked')).map(c => c.value);
       if (boxes.length === 0) { showModalError('Confirm Variants', 'Check at least one variant: Regular (base) and/or Expiry-only.'); return; }
       const ok = confirm(`Start PAPER-ONLY live monitoring for ${currentModalStrat.name} on [${getSelectedSymbols().join(', ')}] with variant(s) [${boxes.join(', ')}]?\n\nSTRICTLY PAPER TRADES — no real orders will be placed.`);
@@ -2985,11 +3212,20 @@ trading-platform status</pre>
           alert.classList.remove('hidden');
         }
         window._oiPaperSessionId = data.session_id;
+        window._oiRunning = window._oiRunning || {};
+        window._oiRunning[currentModalStrat.id] = data.session_id;
+        syncOiPaperControls(true);
         pollOiPaperStatus();
+        setTimeout(refreshOiRunningState, 1000);
       } catch (err) {
         showModalError('Paper Session Error', err.message || err);
       } finally {
-        if (btn) { btn.innerHTML = orig; btn.disabled = false; }
+        // Restore the idle label only when no session ended up running
+        if (btn && !(window._oiRunning && window._oiRunning[currentModalStrat.id])) {
+          btn.innerHTML = orig;
+          btn.disabled = false;
+          syncOiPaperControls(false);
+        }
       }
     }
 
@@ -3053,6 +3289,8 @@ trading-platform status</pre>
         const res = await fetch(`/api/paper/oi-momentum/stop/${sid}`, { method: 'POST' });
         await res.json();
         window._oiPaperSessionId = null;
+        if (window._oiRunning) delete window._oiRunning['index_oi_momentum'];
+        syncOiPaperControls(false);  // re-enable "Run Paper Live" after stop
         const label = document.getElementById('modal-progress-label');
         if (label) label.innerHTML = '<span class="text-gray-400">Paper session stopped by user.</span>';
         const dot = document.getElementById('oi-ws-dot');
@@ -3095,7 +3333,10 @@ trading-platform status</pre>
           if (/fail|error|reject|no tokens|skipped|unavailable/i.test(last)) showModalError('Paper Session Error (live, paper-only)', last);
         }
         if (data.running) {
+          syncOiPaperControls(true);
           setTimeout(pollOiPaperStatus, 3000);
+          // Render paper trades in the modal trades table (entries, exits, PnL)
+          renderPaperTradesTable(data);
         } else {
           // Session ended (manual stop or 15:30 IST auto square-off) -- report why
           const endLabel = document.getElementById('modal-progress-label');
@@ -3110,6 +3351,10 @@ trading-platform status</pre>
           const endDot = document.getElementById('oi-ws-dot');
           if (endDot) endDot.className = 'inline-block w-2 h-2 rounded-full bg-rose-500';
           window._oiPaperSessionId = null;
+          syncOiPaperControls(false);
+          // Session over: drop the stale "running" panel so the modal shows idle state
+          const staleStatus = document.querySelector('#oi-variant-box .paper-status');
+          if (staleStatus) staleStatus.remove();
           refreshOiRunningState();
         }
       } catch (e) { /* silent: session view only */ }
@@ -3122,6 +3367,78 @@ trading-platform status</pre>
           const cache = window._oiLegCache || {};
           Object.values(cache).forEach(c => { if (typeof c.tick_age_s === 'number') c.tick_age_s += 1; });
         }, 1000); }
+    }
+
+    // Format an ISO (IST) timestamp for the trades table (HH:MM:SS)
+    function fmtPaperTime(iso) {
+      if (!iso) return '--';
+      try {
+        const d = new Date(iso);
+        if (isNaN(d.getTime())) return String(iso).slice(11, 19) || String(iso);
+        return d.toLocaleTimeString('en-IN', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'Asia/Kolkata' });
+      } catch (e) { return String(iso); }
+    }
+
+    // Live paper trades: in-progress positions first (entry + mark-to-market PnL),
+    // then closed trades with realized PnL. Fed by pollOiPaperStatus() every 3s.
+    function renderPaperTradesTable(data) {
+      const tbody = document.getElementById('modal-trades-tbody');
+      if (!tbody) return;
+      const trades = data.paper_trades || [];
+      const opens = data.open_paper_position_details || [];
+      const countEl = document.getElementById('modal-trades-count');
+      if (countEl) countEl.textContent = `${trades.length} closed | ${opens.length} open`;
+      // The column carries unrealized marks on in-progress rows, so relabel it for live sessions
+      const pnlTh = document.getElementById('modal-pnl-th');
+      if (pnlTh) pnlTh.textContent = 'PnL (₹)';
+
+      // ₹ formatter that keeps the sign *before* the currency symbol (-₹300, not ₹-300)
+      const inr = (v) => {
+        const n = Number(v || 0);
+        const body = Math.abs(n).toLocaleString('en-IN', { maximumFractionDigits: 2 });
+        return (n < 0 ? '-\u20B9' : '\u20B9') + body;
+      };
+      const rows = [];
+
+      // Trades in progress: entry known, exit pending, unrealized PnL marked from live ticks
+      opens.forEach(op => {
+        const unreal = (op.unrealized_pnl === null || op.unrealized_pnl === undefined) ? null : Number(op.unrealized_pnl);
+        const pnlCell = (unreal === null)
+          ? '<span class="text-amber-300">marking...</span>'
+          : `<span class="${unreal >= 0 ? 'text-emerald-400' : 'text-rose-400'}">${unreal >= 0 ? '+' : ''}${inr(unreal)}</span> <span class="text-amber-400 text-[10px]">(unrealized)</span>`;
+        rows.push(`<tr class="hover:bg-gray-800/40 transition bg-amber-950/20">
+          <td class="py-1.5 px-3 text-amber-300 font-bold">OPEN</td>
+          <td class="py-1.5 px-3">${op.index || '--'} <span class="text-cyan-400">${op.side || ''}</span> <span class="text-gray-500">(${op.variant || 'base'})</span></td>
+          <td class="py-1.5 px-3">${op.qty ?? '--'}</td>
+          <td class="py-1.5 px-3">${fmtPaperTime(op.entry_time)}</td>
+          <td class="py-1.5 px-3">${op.entry ? inr(op.entry) : '--'}</td>
+          <td class="py-1.5 px-3 text-amber-400">IN PROGRESS</td>
+          <td class="py-1.5 px-3">${op.mark ? inr(op.mark) : '--'}</td>
+          <td class="py-1.5 px-3 text-right">${pnlCell}</td>
+        </tr>`);
+      });
+
+      // Closed paper trades with realized PnL
+      trades.forEach(t => {
+        const pnl = Number(t.paper_pnl || 0);
+        rows.push(`<tr class="hover:bg-gray-800/40 transition">
+          <td class="py-1.5 px-3 text-cyan-300">${t.paper_id || t.trade_id || '--'}</td>
+          <td class="py-1.5 px-3">${t.index || '--'} <span class="text-gray-500">(${t.variant || 'base'})</span></td>
+          <td class="py-1.5 px-3">${t.qty ?? '--'}</td>
+          <td class="py-1.5 px-3">${fmtPaperTime(t.entry_time)}</td>
+          <td class="py-1.5 px-3">${t.entry ? inr(t.entry) : '--'}</td>
+          <td class="py-1.5 px-3">${fmtPaperTime(t.exit_time)}</td>
+          <td class="py-1.5 px-3">${t.exit ? inr(t.exit) : '--'}</td>
+          <td class="py-1.5 px-3 text-right font-bold ${pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}">${pnl >= 0 ? '+' : ''}${inr(pnl)}<div class="text-[9px] text-gray-500">${t.reason || ''}</div></td>
+        </tr>`);
+      });
+
+      tbody.innerHTML = rows.length
+        ? rows.join('')
+        : '<tr><td colspan="8" class="text-center py-6 text-gray-500">No paper trades yet. Waiting for OI momentum signals on live Angel One WebSocket2 ticks...</td></tr>';
+
+      const scrollBox = tbody.closest('.overflow-x-auto');
+      if (scrollBox) scrollBox.scrollTop = scrollBox.scrollHeight;
     }
 
     async function promoteToForwardTest() {

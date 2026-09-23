@@ -16,6 +16,7 @@ from core.models import Candle, OrderSide, OrderType, Signal
 from lorentzian_strategy.config import Settings
 from lorentzian_strategy.main import run_pipeline
 from lorentzian_strategy.data_loader import resample_ohlcv
+from platform_config import get_indices
 
 
 class LorentzianMLStrategy(StrategyBase):
@@ -56,7 +57,7 @@ class LorentzianMLStrategy(StrategyBase):
             lag=int(params.get("kernel_lag", 2)),
             timeframe=params.get("timeframe", "1d"),
             data_provider="breeze",
-            ticker=params.get("ticker", "NSE:NIFTY"),
+            ticker=params.get("ticker", get_indices()[0]["symbol"]),
             use_bollinger_bands=False,
         )
         settings.validate()

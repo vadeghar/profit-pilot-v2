@@ -46,6 +46,10 @@ class YFinanceDataProvider(HistoricalDataProvider):
         Convert generic symbol to yfinance format.
         Example: 'NSE:RELIANCE' -> 'RELIANCE.NS', 'NSE:NIFTY' -> '^NSEI'
         """
+        from platform_config import resolve_provider_symbol
+        mapped = resolve_provider_symbol(symbol, self.name)
+        if mapped:
+            return mapped["provider_symbol"]
         if ":" in symbol:
             exchange, ticker = symbol.split(":", 1)
             exchange = exchange.upper()

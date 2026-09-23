@@ -1,0 +1,174 @@
+version: 1.0.0
+
+indices:
+  - symbol: NSE:NIFTY
+    sym_yfinance: "^NSEI"
+    sym_breeze: "NIFTY"
+    sym_angel: "99926000"   # 26000 (NSE index token, verify via OpenAPIScripMaster.json)
+    label: "NIFTY 50 Index"
+    exchange: NSE
+    type: index
+    description: "NIFTY 50 — top 50 large-cap Indian equities benchmark"
+
+  - symbol: NSE:BANKNIFTY
+    sym_yfinance: "^NSEBANK"
+    sym_breeze: "CNXBAN"
+    sym_angel: "99926009"   # 26009, verify
+    label: "BANK NIFTY Index"
+    exchange: NSE
+    type: index
+    description: "BANKNIFTY — banking sector index"
+
+  - symbol: NSE:SENSEX
+    sym_yfinance: "^BSESN"
+    sym_breeze: "BSE:BSESEN"
+    sym_angel: "99919000"   # 1 (BSE index token, verify)
+    label: "SENSEX Index"
+    exchange: BSE
+    type: index
+    description: "SENSEX — Bombay Stock Exchange 30-stock benchmark"
+
+equities:
+  - symbol: NSE:RELIANCE
+    sym_yfinance: "RELIANCE.NS"
+    sym_breeze: "RELIND"
+    sym_angel: "2885"
+    label: "Reliance Industries"
+    exchange: NSE
+    type: equity
+    description: "Reliance Industries Ltd — energy, telecom, retail"
+
+  - symbol: NSE:HDFCBANK
+    sym_yfinance: "HDFCBANK.NS"
+    sym_breeze: "HDFBAN"
+    sym_angel: "1333"
+    label: "HDFC Bank Ltd"
+    exchange: NSE
+    type: equity
+    description: "HDFC Bank — private sector banking"
+
+  - symbol: NSE:ICICIBANK
+    sym_yfinance: "ICICIBANK.NS"
+    sym_breeze: "ICIBAN"
+    sym_angel: "4963"
+    label: "ICICI Bank Ltd"
+    exchange: NSE
+    type: equity
+    description: "ICICI Bank — private sector banking"
+
+  - symbol: NSE:TCS
+    sym_yfinance: "TCS.NS"
+    sym_breeze: "TCS"
+    sym_angel: "11536"
+    label: "Tata Consultancy Services"
+    exchange: NSE
+    type: equity
+    description: "TCS — IT services, Tata Group"
+
+  - symbol: NSE:INFY
+    sym_yfinance: "INFY.NS"
+    sym_breeze: "INFTEC"
+    sym_angel: "1594"
+    label: "Infosys Ltd"
+    exchange: NSE
+    type: equity
+    description: "Infosys — IT services"
+
+  - symbol: NSE:ITC
+    sym_yfinance: "ITC.NS"
+    sym_breeze: "ITC"
+    sym_angel: "1660"
+    label: "ITC Ltd"
+    exchange: NSE
+    type: equity
+    description: "ITC — FMCG, hospitality, agri-business"
+
+  - symbol: NSE:SBIN
+    sym_yfinance: "SBIN.NS"
+    sym_breeze: "STABAN"
+    sym_angel: "3045"
+    label: "State Bank of India"
+    exchange: NSE
+    type: equity
+    description: "SBI — public sector banking"
+
+  - symbol: NSE:TATASTEEL
+    sym_yfinance: "TATASTEEL.NS"
+    sym_breeze: "TATSTE"
+    sym_angel: "3499"
+    label: "Tata Steel Ltd"
+    exchange: NSE
+    type: equity
+    description: "Tata Steel —steel manufacturing"
+
+  - symbol: NSE:TATAMOTORS
+    sym_yfinance: "TMPV.NS"
+    sym_breeze: "TATMOT"
+    sym_angel: "3456"
+    label: "Tata Motors Ltd"
+    exchange: NSE
+    type: equity
+    description: "Tata Motors — automotive, JLR"
+
+  - symbol: NSE:HINDUNILVR
+    sym_yfinance: "HINDUNILVR.NS"
+    sym_breeze: "HINLEV"
+    sym_angel: "1394"
+    label: "Hindustan Unilever Ltd"
+    exchange: NSE
+    type: equity
+    description: "HUL — FMCG, consumer goods"
+
+  - symbol: NSE:HCLTECH
+    sym_yfinance: "HCLTECH.NS"
+    sym_breeze: "HCLTEC"
+    sym_angel: "7229"
+    label: "HCL Technologies Ltd"
+    exchange: NSE
+    type: equity
+    description: "HCLTech — IT services"
+
+  - symbol: NSE:WIPRO
+    sym_yfinance: "WIPRO.NS"
+    sym_breeze: "WIPRO"
+    sym_angel: "3787"
+    label: "Wipro Ltd"
+    exchange: NSE
+    type: equity
+    description: "Wipro — IT services"
+
+  - symbol: NSE:TATACONSUM
+    sym_yfinance: "TATACONSUM.NS"
+    sym_breeze: "TATGLO"
+    sym_angel: "3432"
+    label: "Tata Consumer Products"
+    exchange: NSE
+    type: equity
+    description: "Tata Consumer — tea, salt, pulses, water"
+
+  - symbol: NSE:ADANIGREEN
+    sym_yfinance: "ADANIGREEN.NS"
+    sym_breeze: "ADAGRE"
+    sym_angel: "3563"
+    label: "Adani Green Energy"
+    exchange: NSE
+    type: equity
+    description: "Adani Green — renewable energy"
+
+  - symbol: NSE:BHARTIARTL
+    sym_yfinance: "BHARTIARTL.NS"
+    sym_breeze: "BHAAIR"
+    sym_angel: "10604"
+    label: "Bharti Airtel Ltd"
+    exchange: NSE
+    type: equity
+    description: "Bharti Airtel — telecommunications"
+
+  - symbol: NSE:LT
+    sym_yfinance: "LT.NS"
+    sym_breeze: "LARTOU"
+    sym_angel: "11483"
+    label: "Larsen & Toubro Ltd"
+    exchange: NSE
+    type: equity
+    description: "L&T — engineering, construction, manufacturing"

@@ -1,18 +1,26 @@
-"""Central configuration loader — universe, strategy defaults, paths."""
+"""Central configuration loader — universe, strategy defaults, paths.
+
+Lives inside ``platform_config`` (not a top-level ``config`` package) on
+purpose: ``breeze_connect`` does ``sys.path.insert(1, <sdk dir>); import config``
+at import time, so *any* top-level ``config`` module/package on ``sys.path``
+(cwd, PYTHONPATH, ...) shadows the SDK's own ``config.py`` and breaks the
+Breeze connection with::
+
+    AttributeError: module 'config' has no attribute 'SECURITY_MASTER_URL'
+"""
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import yaml
 
 # ---------------------------------------------------------------------------
-# Project root — this file is config/__init__.py → parent is project root
+# Paths — this file is platform_config/universe.py → parent is platform_config/
 # ---------------------------------------------------------------------------
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-UNIVERSE_PATH = PROJECT_ROOT / "config" / "universe.yaml"
+UNIVERSE_PATH = PROJECT_ROOT / "platform_config" / "universe.yaml"
 
 
 def _load_yaml(path: Path) -> dict:
@@ -32,7 +40,7 @@ def load_universe() -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Cached helpers — import these directly from config wherever needed
+# Cached helpers — import these directly from platform_config wherever needed
 # ---------------------------------------------------------------------------
 
 _universe_cache: Optional[dict] = None
@@ -58,6 +66,34 @@ def get_equities() -> List[dict]:
 def get_all_instruments() -> List[dict]:
     """Return indices + equities combined (the global dropdown universe)."""
     return get_indices() + get_equities()
+
+
+def get_instrument(symbol: str) -> Optional[dict]:
+    """Return the YAML instrument entry for a canonical symbol."""
+    wanted = symbol.upper().strip()
+    for entry in get_all_instruments():
+        if entry.get("symbol", "").upper() == wanted:
+            return entry
+    return None
+
+
+def resolve_provider_symbol(symbol: str, provider: str) -> Optional[dict]:
+    """Return the YAML mapping for a canonical symbol and provider.
+
+    Non-universe instruments intentionally return None so FNO/MCX callers keep
+    their existing provider-specific resolution paths.
+    """
+    entry = get_instrument(symbol)
+    if not entry:
+        return None
+    field = {
+        "angel": "sym_angel",
+        "breeze": "sym_breeze",
+        "yfinance": "sym_yfinance",
+    }.get(provider.lower())
+    if not field or not entry.get(field):
+        return None
+    return {**entry, "provider_symbol": entry[field]}
 
 
 def get_strategy_defaults(strategy_id: str) -> Dict[str, Any]:

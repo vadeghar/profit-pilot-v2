@@ -15,22 +15,17 @@ def _load_breeze_connect():
 
     ``breeze_connect`` performs a network call (security-master download) at
     import time, so we only load it when an ICICI connection is actually
-    requested. Our platform configuration package is named ``platform_config``
-    (not ``config``) precisely so it does not shadow ``breeze_connect``'s own
-    top-level ``config`` module.
+    requested. Import goes through ``utils.breeze_sdk.import_breeze_connect``,
+    which pins the SDK's internal ``config`` module resolution — a top-level
+    ``config`` module elsewhere on ``sys.path`` would otherwise shadow it and
+    fail with "module 'config' has no attribute 'SECURITY_MASTER_URL'". That
+    helper also points OpenSSL at certifi's CA bundle (the python.org build's
+    bundle misses the newer GlobalSign roots used by api.icicidirect.com)
+    before the SDK's import-time download runs.
     """
-    # Python's default OpenSSL CA bundle (python.org framework build) is
-    # missing the newer GlobalSign roots used by api.icicidirect.com; certifi
-    # has them. Set before the SDK import triggers its download.
     try:
-        import certifi
-        os.environ.setdefault("SSL_CERT_FILE", certifi.where())
-        os.environ.setdefault("REQUESTS_CA_BUNDLE", certifi.where())
-    except ImportError:
-        pass
-    try:
-        from breeze_connect import BreezeConnect as _BreezeConnect
-        return _BreezeConnect
+        from utils.breeze_sdk import import_breeze_connect
+        return import_breeze_connect()
     except Exception:  # noqa: BLE001 - SDK may fail for network/OS reasons
         return None
 
@@ -202,8 +197,11 @@ class ICICIBroker(BrokerBase):
             interval_map = {"1m": "1minute", "5m": "5minute", "1d": "1day"}
             interval = interval_map.get(timeframe, "1day")
             from utils.timezone import breeze_utc_window_for_ist_day_chunk, ensure_ist
+            from lorentzian_strategy.data_loader import resolve_breeze_stock_code
             from_str, to_str = breeze_utc_window_for_ist_day_chunk(
                 ensure_ist(from_date), ensure_ist(to_date))
+            # historical data is keyed by the scrip master's ShortName (RELIANCE -> RELIND)
+            stock = resolve_breeze_stock_code(stock, "NSE")
             res = self.breeze.get_historical_data_v2(
                 interval=interval,
                 from_date=from_str,

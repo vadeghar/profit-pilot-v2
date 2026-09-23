@@ -472,7 +472,8 @@ class BreezeLoginAutomator:
         print("AUTHENTICATING TO BREEZE WITH NEW SESSION TOKEN")
         print("="*60)
         try:
-            from breeze_connect import BreezeConnect
+            from utils.breeze_sdk import import_breeze_connect
+            BreezeConnect = import_breeze_connect()
             breeze = BreezeConnect(api_key=api_key)
             breeze.generate_session(api_secret=api_secret, session_token=self.session_token)
             details = breeze.get_customer_details(api_session=self.session_token)

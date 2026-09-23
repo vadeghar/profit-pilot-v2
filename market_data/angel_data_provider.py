@@ -34,6 +34,7 @@ class AngelHistoricalDataProvider(HistoricalDataProvider):
 
     def __init__(self, broker=None, cache_dir: Optional[str] = None):
         self.broker = broker
+        self._session_verified = broker is not None
         self.cache_dir = cache_dir or str(platform_config.HISTORICAL_DATA_DIR)
         self.logger = Logger("data_provider.angel_one")
         os.makedirs(self.cache_dir, exist_ok=True)
@@ -75,10 +76,15 @@ class AngelHistoricalDataProvider(HistoricalDataProvider):
     def ensure_authenticated(self) -> None:
         """Authenticate the Angel One SmartAPI session (fail fast, never None).
 
-        Verifies cached session tokens if present, else connects from the
-        .env ANGEL_* credentials. Raises RuntimeError on missing credentials
-        or failed login — the caller (web_app / backtest gate) must abort.
+        Verifies the session once per provider instance: Angel One rate-limits
+        logins ("Access denied because of exceeding access rate") and this gate
+        is invoked by the web layer, the backtest engine *and* every fetch, so
+        re-logging in per call would exhaust the limit inside a single backtest.
+        Raises RuntimeError on missing credentials or failed login — the caller
+        (web_app / backtest gate) must abort.
         """
+        if self.broker is not None and self._session_verified:
+            return
         broker = self._connect_from_env()
         if broker is None or getattr(broker, "client", None) is None:
             raise RuntimeError(
@@ -95,6 +101,8 @@ class AngelHistoricalDataProvider(HistoricalDataProvider):
             raise
         except Exception as e:
             raise RuntimeError(f"Angel One session verification failed: {e}") from e
+        self.broker = broker
+        self._session_verified = True
 
     def get_historical_candles(
         self,
@@ -126,7 +134,17 @@ class AngelHistoricalDataProvider(HistoricalDataProvider):
                 with open(cache_path, 'r') as f:
                     cache_data = json.load(f)
                     candles_raw = cache_data.get('candles', [])
-                    return self._parse_angel_candles(instrument, timeframe, candles_raw, start_date, end_date)
+                    # Provenance for cached bars (mirrors _resolve_instrument).
+                    inst_info = self.mcx_token_map.get(clean_key) or {
+                        "symbol": cache_data.get("symbol"),
+                        "token": cache_data.get("token"),
+                        "exchange": (instrument.split(":", 1)[0].upper()
+                                     if ":" in instrument else "NSE"),
+                    }
+                    return self._parse_angel_candles(
+                        instrument, timeframe, candles_raw, inst_info,
+                        start_date, end_date,
+                    )
             except Exception as e:
                 self.logger.warning(f"Error reading cache for {clean_key}: {e}. Will fetch live.")
 
@@ -233,6 +251,13 @@ class AngelHistoricalDataProvider(HistoricalDataProvider):
             return self.mcx_token_map[clean]
         if instrument in self.mcx_token_map:
             return self.mcx_token_map[instrument]
+        mapped = platform_config.resolve_provider_symbol(instrument, self.name)
+        if mapped:
+            return {
+                "exchange": mapped["exchange"],
+                "token": str(mapped["sym_angel"]),
+                "symbol": mapped["provider_symbol"],
+            }
         if ":" in instrument:
             exchange, ticker = instrument.split(":", 1)
             exchange, ticker = exchange.upper(), ticker.upper()
@@ -280,13 +305,20 @@ class AngelHistoricalDataProvider(HistoricalDataProvider):
                 "close": row[4],
                 "volume": row[5] if len(row) > 5 else 0,
             })
-        return candles_from_rows(
+        candles = candles_from_rows(
             rows,
             instrument=instrument,
             timeframe=timeframe,
             provider=self.name,
             source_symbol=inst_info.get("symbol"),
             exchange=inst_info.get("exchange"),
-            start_date=start_date,
-            end_date=end_date,
         )
+        # candles_from_rows() has no date bounds — filter in IST here
+        # (mirrors BreezeHistoricalDataProvider._parse_rows).
+        if start_date:
+            start_bound = ensure_ist(start_date)
+            candles = [c for c in candles if c.timestamp >= start_bound]
+        if end_date:
+            end_bound = ensure_ist(end_date)
+            candles = [c for c in candles if c.timestamp <= end_bound]
+        return candles

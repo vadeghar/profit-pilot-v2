@@ -49,6 +49,12 @@ class BreezeHistoricalDataProvider(HistoricalDataProvider):
         self.logger = Logger("data_provider.breeze")
         os.makedirs(self.cache_dir, exist_ok=True)
 
+    def _session_token(self) -> Optional[str]:
+        """BREEZE_SESSION_TOKEN from the configured .env (used for verification)."""
+        from lorentzian_strategy.data_loader import load_breeze_env
+        env = load_breeze_env(self.env_path or str(platform_config.ENV_FILE))
+        return env.get("BREEZE_SESSION_TOKEN")
+
     def ensure_authenticated(self) -> None:
         """Authenticate the Breeze session (no silent fallback tolerated).
 
@@ -62,19 +68,40 @@ class BreezeHistoricalDataProvider(HistoricalDataProvider):
                 raise RuntimeError(
                     f"Breeze authentication failed: {e}"
                 ) from e
-        # Verify the session is alive (identify the account holder).
+        # Verify the session is alive (identify the account holder). The SDK's
+        # get_customer_details() must receive the api_session token explicitly —
+        # called bare it answers {'Status': 500, 'Error': 'API Session cannot be
+        # empty'} *without raising*, which would let a dead/expired session pass
+        # this gate silently.
+        token = self._session_token()
         try:
-            self.client.get_customer_details()
+            try:
+                details = self.client.get_customer_details(api_session=token or "")
+            except TypeError:
+                # Stub/fake clients taking no argument (unit tests).
+                details = self.client.get_customer_details()
         except Exception as e:
             self.client = None
             raise RuntimeError(
                 f"Breeze session verification failed for "
                 f"{self.env_path or platform_config.ENV_FILE}: {e}"
             ) from e
+        if not (isinstance(details, dict) and details.get("Status") == 200):
+            err = details.get("Error") if isinstance(details, dict) else details
+            self.client = None
+            raise RuntimeError(
+                f"Breeze session verification failed for "
+                f"{self.env_path or platform_config.ENV_FILE}: {err or 'no response'} "
+                f"— refresh BREEZE_SESSION_TOKEN via tools/breeze/breeze_auto_login.py."
+            )
 
     def normalize_symbol(self, symbol: str) -> str:
         """Convert a generic symbol ('NSE:NIFTY', 'RELIANCE') to Breeze's
         native 'stock_code' using the shared ticker parser."""
+        from platform_config import resolve_provider_symbol
+        mapped = resolve_provider_symbol(symbol, self.name)
+        if mapped:
+            return mapped["provider_symbol"]
         try:
             from lorentzian_strategy.data_loader import parse_breeze_ticker
             stock_code, exchange_code, product_type = parse_breeze_ticker(symbol)
@@ -148,8 +175,18 @@ class BreezeHistoricalDataProvider(HistoricalDataProvider):
             raise ValueError(f"Unsupported Breeze timeframe {timeframe!r}; "
                              f"supported: {sorted(BREEZE_INTERVAL_MAP)}")
         interval = BREEZE_INTERVAL_MAP[timeframe][0]
-        from lorentzian_strategy.data_loader import parse_breeze_ticker
-        stock_code, exchange_code, product_type = parse_breeze_ticker(instrument)
+        from lorentzian_strategy.data_loader import parse_breeze_ticker, resolve_breeze_stock_code
+        mapped = platform_config.resolve_provider_symbol(instrument, self.name)
+        source_instrument = mapped["provider_symbol"] if mapped else instrument
+        stock_code, exchange_code, product_type = parse_breeze_ticker(source_instrument)
+        # Historical data is served under the scrip master's ShortName
+        # (RELIANCE -> RELIND); the raw NSE ticker yields `Success: []`.
+        raw_code = stock_code
+        stock_code = resolve_breeze_stock_code(stock_code, exchange_code)
+        if stock_code != raw_code:
+            self.logger.info(
+                f"Resolved {raw_code} -> {stock_code} ({exchange_code}) via scrip master"
+            )
 
         end_dt = ensure_ist(end_date) if end_date else now_ist()
         if start_date:

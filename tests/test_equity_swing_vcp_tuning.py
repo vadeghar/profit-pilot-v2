@@ -6,7 +6,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from datetime import datetime, timezone
 from market_data.angel_data_provider import AngelHistoricalDataProvider
 from backtest import BacktestEngine, BacktestConfig
-from config import get_strategy_instruments
+from platform_config import get_strategy_instruments
 
 dp = AngelHistoricalDataProvider()
 universe = get_strategy_instruments("equity_swing_vcp")  # top equities from universe.yaml

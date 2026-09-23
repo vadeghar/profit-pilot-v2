@@ -44,7 +44,8 @@ def ensure_dir(path: str) -> Path:
 
 def get_data_dir() -> Path:
     """Get platform data directory"""
-    config = __import__('config', fromlist=['get_config']).get_config()
+    import platform_config
+    config = platform_config.get_config()
     data_dir = config.get('system.dataDir', 'data')
     return ensure_dir(data_dir)
 

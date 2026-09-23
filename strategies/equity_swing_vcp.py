@@ -1,3 +1,6 @@
+from platform_config import get_indices
+
+_BENCHMARK_SYMBOL = get_indices()[0]["symbol"].upper()
 """
 Equity Swing Strategy — Mark Minervini Volatility Contraction Pattern (VCP) + 8-Point Trend Template
 Asset Class: NSE Equities | Holding Period: 1-3 months | Direction: Long-only
@@ -107,7 +110,7 @@ class EquitySwingVCPStrategy(StrategyBase):
         instrument = candle.instrument
 
         # If this is the benchmark index, store and do not trade
-        if "NIFTY" in instrument.upper() and ("NIFTY 50" in instrument.upper() or instrument.upper() in ["NSE:NIFTY", "NIFTY"]):
+        if instrument.upper() in {_BENCHMARK_SYMBOL, _BENCHMARK_SYMBOL.split(":", 1)[-1]}:
             self.register_index_candle(candle)
             return None
 

@@ -42,6 +42,10 @@ def main():
                 r.fulfill(content_type='text/html', body=web_app.DASHBOARD_HTML)
             elif path == '/api/catalog':
                 r.fulfill(json=web_app.get_strategy_catalog())
+            elif path == '/api/universe':
+                # Populates window.GLOBAL_UNIVERSE for strategies that use the
+                # global universe (e.g. lorentzian_ml) in the mocked page.
+                r.fulfill(json={'universe': web_app.GLOBAL_UNIVERSE})
             elif path == '/api/backtest':
                 payload = r.request.post_data_json
                 payloads.append(payload)

@@ -5,9 +5,11 @@ from dataclasses import dataclass, field, asdict
 from typing import Optional
 
 # Pull default ticker from the global universe yaml when available.
-# Falls back to NSE:NIFTY if config/universe.yaml is unavailable.
+# The universe helpers live in platform_config (a top-level `config` package
+# would shadow the `config` module used internally by breeze_connect).
+# Falls back to NSE:NIFTY if platform_config/universe.yaml is unavailable.
 try:
-    from config import get_strategy_instruments
+    from platform_config import get_strategy_instruments
     _DEFAULT_TICKER = get_strategy_instruments("lorentzian_ml")[0]
 except Exception:
     _DEFAULT_TICKER = "NSE:NIFTY"
