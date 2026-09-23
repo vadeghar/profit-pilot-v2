@@ -33,7 +33,12 @@ def resample_ohlcv(df: pd.DataFrame, timeframe: str) -> pd.DataFrame:
     if timeframe not in PANDAS_FREQ_MAP:
         raise ValueError(f"Unsupported timeframe {timeframe!r}; choose from {TIMEFRAMES}")
     freq = PANDAS_FREQ_MAP[timeframe]
-    return df.resample(freq).agg(
+    resample_kwargs = {}
+    if timeframe in {"10m", "15m", "30m", "1h", "4h"} and any(
+        ts.hour == 9 and ts.minute == 15 for ts in df.index[:10]
+    ):
+        resample_kwargs = {"origin": "start_day", "offset": "9h15min"}
+    return df.resample(freq, **resample_kwargs).agg(
         {"open": "first", "high": "max", "low": "min", "close": "last"}
     ).dropna()
 

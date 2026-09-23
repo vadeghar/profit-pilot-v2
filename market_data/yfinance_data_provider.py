@@ -123,7 +123,9 @@ class YFinanceDataProvider(HistoricalDataProvider):
 
         if canonical_tf in {"10m", "4h"}:
             rule = {"10m": "10min", "4h": "4h"}[canonical_tf]
-            df = df.resample(rule, origin="start_day").agg({
+            # NSE/BSE sessions open at 09:15 IST. Without this offset pandas
+            # anchors 4-hour bins at midnight, producing labels such as 08:00.
+            df = df.resample(rule, origin="start_day", offset="9h15min").agg({
                 "open": "first", "high": "max", "low": "min",
                 "close": "last", "volume": "sum",
             }).dropna(subset=["open", "high", "low", "close"])

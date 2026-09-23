@@ -374,9 +374,18 @@ def resample_normalized_candles(candles: List[NormalizedCandle],
     out: List[NormalizedCandle] = []
     cur = None
     bucket = -1
+    session_open = timedelta(hours=9, minutes=15)
+    session_minutes = 9 * 60 + 15
     for c in candles:
         ts = ensure_ist(c.timestamp)
-        b = (int(ts.timestamp()) // 60 // tgt_min) * tgt_min
+        if tgt_min < 1440:
+            day_start = ts.replace(hour=0, minute=0, second=0, microsecond=0)
+            elapsed = (ts - day_start).total_seconds() / 60 - session_minutes
+            bucket_minutes = int(elapsed // tgt_min) * tgt_min
+            bucket_ts = day_start + session_open + timedelta(minutes=bucket_minutes)
+            b = int(bucket_ts.timestamp() // 60)
+        else:
+            b = (int(ts.timestamp()) // 60 // tgt_min) * tgt_min
         if b != bucket:
             if cur is not None:
                 out.append(cur)
