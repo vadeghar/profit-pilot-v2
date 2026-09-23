@@ -2,6 +2,7 @@
 
 import os
 import time
+import math
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Dict, List, Optional
 from dataclasses import dataclass, field
@@ -16,6 +17,20 @@ from persistence.journal import StateStore
 from market_data.normalize import ensure_normalized_candles
 from utils import Logger, get_timestamp
 from market_data.normalize import normalize_timeframe
+
+
+def _format_indian_currency(value: int) -> str:
+    """Format a whole-rupee amount using the Indian comma grouping."""
+    text = str(int(value))
+    if len(text) <= 3:
+        return text
+    last = text[-3:]
+    prefix = text[:-3]
+    groups = []
+    while prefix:
+        groups.insert(0, prefix[-2:])
+        prefix = prefix[:-2]
+    return ",".join(groups + [last])
 
 
 @dataclass
@@ -258,10 +273,14 @@ class BacktestEngine:
     def _execute_signal(self, signal, candle: Candle) -> None:
         """Execute trading signal with Long and Short derivative support"""
         from strategies.mcx_trend_rider import COMMODITY_SPECS
+        from platform_config import get_index_lot_size, get_instrument
 
         # Get point value multiplier
         spec = COMMODITY_SPECS.get(signal.instrument, {'point_value': 1, 'lot_size': 1})
         point_multiplier = spec.get('point_value', 1)
+        instrument_config = get_instrument(signal.instrument)
+        is_index = bool(instrument_config and instrument_config.get("type") == "index")
+        index_lot_size = get_index_lot_size(signal.instrument) if is_index else 1
 
         # Simulated fill price
         if signal.price > 0:
@@ -301,10 +320,20 @@ class BacktestEngine:
                  self.config.slippage_percent) / 100
             )
             affordable = int(self._capital // unit_cost) if unit_cost > 0 else 0
-            if point_multiplier == 1:
+            if is_index:
+                affordable = (affordable // index_lot_size) * index_lot_size
+            elif point_multiplier == 1:
                 affordable = (affordable // 5) * 5
             signal.quantity = affordable
             if signal.quantity <= 0:
+                required_capital = unit_cost * index_lot_size if is_index else unit_cost
+                rounded_required = math.ceil(required_capital / 5000) * 5000
+                if is_index:
+                    raise RuntimeError(
+                        f"Minimum capital for {signal.instrument} required is "
+                        f"{_format_indian_currency(rounded_required)} "
+                        f"for one lot ({index_lot_size} units)"
+                    )
                 self.logger.warning(
                     f"Skipping {signal.action.value} {signal.instrument}: "
                     f"insufficient available capital for one trade unit"
