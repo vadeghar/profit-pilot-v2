@@ -44,7 +44,7 @@ class BacktestConfig:
     end_date: datetime = field(default_factory=lambda: __import__('utils.timezone', fromlist=['now_ist']).now_ist())
     initial_capital: float = 100000.0
     timeframe: str = "1d"
-    fill_model: str = "INSTANT"  # INSTANT, TICK, CANDLE_CLOSE
+    fill_model: str = "CANDLE_CLOSE"
     slippage_percent: float = 0.05
     commission_percent: float = 0.05  # Broker commission
     exchange_fee_percent: float = 0.001  # Exchange transaction fee
@@ -285,13 +285,10 @@ class BacktestEngine:
         is_index = bool(instrument_config and instrument_config.get("type") == "index")
         index_lot_size = get_index_lot_size(signal.instrument) if is_index else 1
 
-        # Simulated fill price
-        if signal.price > 0:
-            fill_price = signal.price
-        else:
-            fill_price = self._get_fill_price(candle)
-        if signal.metadata and 'exit_price' in signal.metadata:
-            fill_price = float(signal.metadata['exit_price'])
+        # Signals are generated after this candle is complete. Backtests
+        # therefore execute every entry and exit at that candle's close;
+        # strategy-provided trigger/stop prices are conditions, not fills.
+        fill_price = candle.close
 
         trade_val = fill_price * signal.quantity * point_multiplier
         commission = trade_val * (self.config.commission_percent / 100)
@@ -473,14 +470,7 @@ class BacktestEngine:
             return
     
     def _get_fill_price(self, candle: Candle) -> float:
-        """Get fill price based on fill model"""
-        if self.config.fill_model == "INSTANT":
-            return candle.close
-        elif self.config.fill_model == "CANDLE_CLOSE":
-            return candle.close
-        elif self.config.fill_model == "TICK":
-            # Use candle open with some slippage
-            return candle.open * (1 + self.config.slippage_percent / 100)
+        """Return the completed candle close used for every backtest fill."""
         return candle.close
     
     def _close_all_positions(self) -> None:
