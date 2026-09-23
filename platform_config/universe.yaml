@@ -8,6 +8,7 @@ indices:
     label: "NIFTY 50 Index"
     exchange: NSE
     type: index
+    lot_size: 65
     description: "NIFTY 50 — top 50 large-cap Indian equities benchmark"
 
   - symbol: NSE:BANKNIFTY
@@ -17,6 +18,7 @@ indices:
     label: "BANK NIFTY Index"
     exchange: NSE
     type: index
+    lot_size: 30
     description: "BANKNIFTY — banking sector index"
 
   - symbol: NSE:SENSEX
@@ -26,6 +28,7 @@ indices:
     label: "SENSEX Index"
     exchange: BSE
     type: index
+    lot_size: 20
     description: "SENSEX — Bombay Stock Exchange 30-stock benchmark"
 
 equities:

@@ -80,7 +80,7 @@ class MCXTrendRiderStrategy(StrategyBase):
         self.use_sma_filter = self.params.get('use_sma_filter', True)
         self.use_loser_filter = self.params.get('use_loser_filter', True)
         self.risk_pct = self.params.get('risk_pct', 0.01) # 1% risk per trade
-        self.capital = self.params.get('capital', 1000000.0) # default ₹10 Lakhs
+        self.capital = self.params.get('capital', 100000.0)
 
         # Instrument state tracking: instrument -> state dict
         self._state: Dict[str, Dict[str, Any]] = {}
@@ -107,6 +107,9 @@ class MCXTrendRiderStrategy(StrategyBase):
                 'trades_history': []
             }
         return self._state[instrument]
+
+    def on_entry_fill(self, instrument: str, quantity: int, price: float) -> None:
+        self._get_state(instrument)['quantity'] = quantity
 
     def on_tick(self, tick: Tick) -> Optional[Signal]:
         # Daily strategy primarily evaluates on candle close

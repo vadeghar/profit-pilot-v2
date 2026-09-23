@@ -89,6 +89,10 @@ class StrategyBase(ABC):
     def clear_signals(self) -> None:
         """Clear all signals"""
         self._signals = []
+
+    def on_entry_fill(self, instrument: str, quantity: int, price: float) -> None:
+        """Synchronize strategy bookkeeping with a backtest's filled quantity."""
+        return None
     
     # Indicator helpers
     def sma(self, period: int, data: List[float]) -> Optional[float]:

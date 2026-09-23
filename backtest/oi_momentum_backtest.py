@@ -79,9 +79,10 @@ def make_tick(index: str, d: Dict[str, Any]) -> Tick:
 
 
 def run_backtest(strategy_cls, index_list: List[str], start: datetime, end: datetime,
-                 params: Dict[str, Any], capital: float = 500000.0,
+                 params: Dict[str, Any], capital: float = 100000.0,
                  seed_base: int = 7, event_days: int = 0) -> Dict[str, Any]:
     from strategies.index_oi_momentum import INDEX_SPECS, is_expiry_day
+    index_list = index_list[:1]
     strat = strategy_cls("index_oi_momentum", "Index OI Momentum",
                          {**params, "capital": capital})
     strat.initialize()
@@ -141,6 +142,7 @@ def run_backtest(strategy_cls, index_list: List[str], start: datetime, end: date
                             base_pnl += net
                             base_trades += 1
                         equity.append(equity[-1] + net)
+                        strat.capital = equity[-1]
                         eq_curve.append({"t": d["ts"].isoformat(), "v": equity[-1]})
                 open_pos.pop(idx, None)  # force flat at close (intraday)
             di += 1

@@ -8,6 +8,7 @@ ENTIRELY within the strategy class implementation rather than simple fixed rules
 from typing import Dict, Any, Optional, List
 from core.models import Signal, OrderSide, OrderType, Candle, Tick
 from strategies import StrategyBase, StrategyRegistry
+from platform_config import get_index_lot_size
 
 
 class NFOOptionsStrategyBase(StrategyBase):
@@ -21,7 +22,10 @@ class NFOOptionsStrategyBase(StrategyBase):
         super().__init__(strategy_id, name, params)
         self.underlying = self.params.get("underlying", "NSE:NIFTY")
         self.strike_step = self.params.get("strike_step", 50)
-        self.lot_size = self.params.get("lot_size", 25)
+        self.lot_size = self.params.get(
+            "lot_size",
+            get_index_lot_size(self.underlying, 1),
+        )
         
         # Internal state for tracking active derivative legs
         self.active_legs: Dict[str, Dict[str, Any]] = {}

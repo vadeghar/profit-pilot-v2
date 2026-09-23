@@ -77,6 +77,22 @@ def get_instrument(symbol: str) -> Optional[dict]:
     return None
 
 
+def get_index_lot_size(symbol: str, default: int = 1) -> int:
+    """Return the configured derivatives lot size for an index symbol."""
+    normalized = symbol.upper().strip().replace(":", "_")
+    if normalized.startswith("NSE_") or normalized.startswith("BSE_"):
+        normalized = normalized.split("_", 1)[1]
+    for entry in get_indices():
+        configured = str(entry.get("symbol", "")).upper().replace(":", "_")
+        if configured.split("_", 1)[-1] == normalized:
+            try:
+                lot_size = int(entry.get("lot_size", default))
+            except (TypeError, ValueError):
+                return default
+            return lot_size if lot_size > 0 else default
+    return default
+
+
 def resolve_provider_symbol(symbol: str, provider: str) -> Optional[dict]:
     """Return the YAML mapping for a canonical symbol and provider.
 

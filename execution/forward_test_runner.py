@@ -37,7 +37,7 @@ def load_env(env_path: Optional[str] = None) -> Dict[str, str]:
 class ForwardTestRunner:
     """Forward Test Runner: Paper trading with real market data feed"""
 
-    def __init__(self, strategy_id: str, instruments: List[str], capital: float = 1000000.0, params: Dict[str, Any] = None):
+    def __init__(self, strategy_id: str, instruments: List[str], capital: float = 100000.0, params: Dict[str, Any] = None):
         self.strategy_id = strategy_id
         self.strategy_name = strategy_id
         self.instruments = instruments
@@ -202,6 +202,6 @@ if __name__ == '__main__':
     runner = ForwardTestRunner(
         strategy_id='mcx_trend_rider',
         instruments=['MCX_GOLDM', 'MCX_SILVERM', 'MCX_CRUDEOIL'],
-        capital=2000000.0
+        capital=100000.0
     )
     runner.run_once()

@@ -9,7 +9,7 @@ import threading
 
 from core.models import (
     BacktestResult, BacktestStatus, Trade, TradeStatus, Order, OrderSide,
-    OrderType, OrderStatus, OrderProductType, Candle, generate_trade_id
+    OrderType, OrderStatus, OrderProductType, Candle, Signal, generate_trade_id
 )
 from strategies import StrategyBase, StrategyRegistry
 from persistence.journal import StateStore
@@ -275,6 +275,45 @@ class BacktestEngine:
 
         existing_pos = self._positions.get(signal.instrument)
 
+        if existing_pos and signal.action != existing_pos['side']:
+            reason = (signal.metadata or {}).get('reason', '')
+            if reason != 'partial_profit_take':
+                signal.quantity = existing_pos['quantity']
+            trade_val = fill_price * signal.quantity * point_multiplier
+            commission = trade_val * (self.config.commission_percent / 100)
+            exchange_fee = trade_val * (self.config.exchange_fee_percent / 100)
+            slippage = trade_val * (self.config.slippage_percent / 100)
+            total_cost = commission + exchange_fee + slippage
+
+        # Strategy-specific risk sizing is useful for live execution, but a
+        # backtest entry must never spend more than the current net cash. For
+        # cash equities, round down to the exchange-friendly nearest five
+        # shares (e.g. 666 becomes 665).
+        if not existing_pos:
+            unit_cost = fill_price * point_multiplier
+            unit_cost += unit_cost * (
+                (self.config.commission_percent +
+                 self.config.exchange_fee_percent +
+                 self.config.slippage_percent) / 100
+            )
+            affordable = int(self._capital // unit_cost) if unit_cost > 0 else 0
+            if point_multiplier == 1:
+                affordable = (affordable // 5) * 5
+            signal.quantity = affordable
+            if signal.quantity <= 0:
+                self.logger.warning(
+                    f"Skipping {signal.action.value} {signal.instrument}: "
+                    f"insufficient available capital for one trade unit"
+                )
+                return
+            if self._strategy is not None:
+                self._strategy.on_entry_fill(signal.instrument, signal.quantity, fill_price)
+            trade_val = fill_price * signal.quantity * point_multiplier
+            commission = trade_val * (self.config.commission_percent / 100)
+            exchange_fee = trade_val * (self.config.exchange_fee_percent / 100)
+            slippage = trade_val * (self.config.slippage_percent / 100)
+            total_cost = commission + exchange_fee + slippage
+
         # 1. Closing an existing Long position
         if existing_pos and existing_pos['side'] == OrderSide.BUY and signal.action == OrderSide.SELL:
             close_qty = min(signal.quantity, existing_pos['quantity'])
@@ -411,21 +450,20 @@ class BacktestEngine:
             candles = self._candle_cache.get(instrument, [])
             if candles:
                 exit_price = candles[-1].close
-                pnl = (exit_price - pos['entry_price']) * pos['quantity']
-                
-                trade = Trade(
-                    trade_id=generate_trade_id(),
-                    strategy_id=self.config.strategy_id,
-                    instrument=instrument,
-                    status=TradeStatus.CLOSED,
-                    entry_time=pos['entry_time'],
-                    exit_time=candles[-1].timestamp,
-                    quantity=pos['quantity'],
-                    entry_price=pos['entry_price'],
-                    exit_price=exit_price,
-                    pnl=pnl
+                action = (OrderSide.SELL if pos['side'] == OrderSide.BUY
+                          else OrderSide.BUY)
+                self._execute_signal(
+                    Signal(
+                        strategy_id=self.config.strategy_id,
+                        instrument=instrument,
+                        action=action,
+                        quantity=pos['quantity'],
+                        order_type=OrderType.MARKET,
+                        price=exit_price,
+                        metadata={'reason': 'backtest_end', 'exit_price': exit_price},
+                    ),
+                    candles[-1],
                 )
-                self._trades.append(trade)
         
         self._positions = {}
     

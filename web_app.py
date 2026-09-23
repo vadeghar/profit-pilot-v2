@@ -77,11 +77,11 @@ STRATEGY_CATALOG = {
             {"label": "Crude Oil Futures (MCX_CRUDEOIL)", "value": "MCX_CRUDEOIL"}
         ],
         "default_timeframe": "1d",
-        "default_capital": 2000000.0,
+        "default_capital": 100000.0,
         "default_start_date": "2026-01-01",
         "default_end_date": "2026-09-23",
         "default_params": {
-            "capital": 2000000.0,
+            "capital": 100000.0,
             "risk_pct": 0.01,
             "use_loser_filter": True,
             "use_sma_filter": False,
@@ -214,11 +214,11 @@ STRATEGY_CATALOG = {
             {"label": "Sensex Options (SENSEX)", "value": "SENSEX"}
         ],
         "default_timeframe": "tick",
-        "default_capital": 500000.0,
+        "default_capital": 100000.0,
         "default_start_date": "2026-01-01",
         "default_end_date": "2026-09-23",
         "default_params": {
-            "capital": 500000.0,
+            "capital": 100000.0,
             "k": 4.0,
             "oi_window_s": 75,
             "risk_pct": 0.0075,
@@ -243,7 +243,7 @@ STRATEGY_CATALOG = {
         "auto_start_enabled": True,
         "auto_start_symbols": ["NIFTY", "BANKNIFTY", "SENSEX"],
         "auto_start_variants": ["base", "expiry"],
-        "auto_start_capital": 500000.0,
+        "auto_start_capital": 100000.0,
         # Paper-only live strategy - no traditional backtest button in modal
         "paper_only_live": True
     },
@@ -260,11 +260,11 @@ STRATEGY_CATALOG = {
         "use_global_universe": True,
         "allowed_symbols": EQUITY_UNIVERSE,
         "default_timeframe": "1d",
-        "default_capital": 1000000.0,
+        "default_capital": 100000.0,
         "default_start_date": "2026-01-01",
         "default_end_date": "2026-09-23",
         "default_params": {
-            "capital": 1000000.0,
+            "capital": 100000.0,
             "risk_pct": 0.0125,
             "stop_pct": 0.07,
             "volume_breakout_mult": 1.3,
@@ -295,7 +295,7 @@ STRATEGY_CATALOG = {
         "default_symbols": EQUITY_SYMBOLS,
         "allowed_symbols": EQUITY_UNIVERSE,
         "default_timeframe": "1d",
-        "default_capital": 500000.0,
+        "default_capital": 100000.0,
         "default_start_date": "2026-01-01",
         "default_end_date": "2026-09-23",
         "default_params": {
@@ -377,7 +377,7 @@ class ManualOrderRequest(BaseModel):
 class ForwardTestRegisterRequest(BaseModel):
     strategy_id: str
     instruments: List[str]
-    capital: float = 1000000.0
+    capital: float = 100000.0
     params: Optional[Dict[str, Any]] = None
 
 
@@ -438,7 +438,7 @@ def get_platform_status():
 
 @app.post("/api/backtest/oi-momentum")
 def run_oi_momentum_backtest_api(req: BacktestRequest):
-    """Tick-level OI-momentum backtest over NIFTY/BANKNIFTY/SENSEX checkbox selection."""
+    """Tick-level OI-momentum backtest over one selected index."""
     from datetime import datetime as _dt
     from utils.timezone import IST as _IST, ensure_ist as _eist, now_ist as _now_ist
     now = _now_ist()
@@ -457,7 +457,9 @@ def run_oi_momentum_backtest_api(req: BacktestRequest):
             if cand in r and cand not in idx_list:
                 idx_list.append(cand)
     if not idx_list:
-        idx_list = ["NIFTY", "BANKNIFTY", "SENSEX"]
+        idx_list = ["NIFTY"]
+    else:
+        idx_list = idx_list[:1]
     from backtest.oi_momentum_backtest import run_backtest as _run_oi
     from strategies.index_oi_momentum import IndexOIMomentumStrategy, is_expiry_day
     try:
@@ -518,9 +520,15 @@ def run_backtest_api(req: BacktestRequest):
     params = {**(req.params or {}), "capital": req.capital}
 
     from market_data.universe import UniverseManager
-    resolved = UniverseManager.resolve_instruments(req.instrument)
+    # A backtest is deliberately single-instrument. This keeps the capital
+    # ledger and compounding semantics unambiguous.
+    requested_instrument = next(
+        (part.strip() for part in req.instrument.replace(";", ",").split(",") if part.strip()),
+        req.instrument,
+    )
+    resolved = UniverseManager.resolve_instruments(requested_instrument)
     if not resolved:
-        resolved = [req.instrument]
+        resolved = [requested_instrument]
 
     bt_config = BacktestConfig(
         strategy_id=req.strategy_id,
@@ -580,7 +588,7 @@ def run_backtest_api(req: BacktestRequest):
     response_data = {
         "strategy_id": req.strategy_id,
         "strategy_name": STRATEGY_CATALOG.get(req.strategy_id, {}).get("name", req.strategy_id),
-        "instrument": req.instrument,
+        "instrument": requested_instrument,
         "timeframe": req.timeframe,
         "period": f"{start.strftime('%Y-%m-%d')} to {end.strftime('%Y-%m-%d')}",
         "status": result.status.value,
@@ -1469,7 +1477,7 @@ class OIPaperSession:
 class OIPaperStartRequest(BaseModel):
     indices: List[str] = ["NIFTY", "BANKNIFTY", "SENSEX"]
     variants: List[str] = ["base", "expiry"]
-    capital: float = 500000.0
+    capital: float = 100000.0
     params: Optional[Dict[str, Any]] = None
 
 
@@ -1526,7 +1534,7 @@ def _get_auto_start_config() -> Optional[Dict[str, Any]]:
     return {
         "indices": strat_config.get("auto_start_symbols", ["NIFTY", "BANKNIFTY", "SENSEX"]),
         "variants": strat_config.get("auto_start_variants", ["base", "expiry"]),
-        "capital": strat_config.get("auto_start_capital", 500000.0),
+        "capital": strat_config.get("auto_start_capital", 100000.0),
         "params": strat_config.get("default_params", {})
     }
 
@@ -1599,13 +1607,18 @@ def index_page():
     """Interactive Web Dashboard HTML.
 
     The global symbol universe (platform_config/universe.yaml) is injected as
-    ``window.__GLOBAL_UNIVERSE__`` so checkbox dropdowns of strategies that use
-    the global universe are populated without an extra round-trip.
+    ``window.__GLOBAL_UNIVERSE__`` so symbol autocomplete lists are populated without
+    an extra round-trip.
     """
-    return DASHBOARD_HTML.replace(
-        "window.__GLOBAL_UNIVERSE__ || []",
-        json.dumps(GLOBAL_UNIVERSE),
+    response = HTMLResponse(
+        DASHBOARD_HTML.replace(
+            "window.__GLOBAL_UNIVERSE__ || []",
+            json.dumps(GLOBAL_UNIVERSE),
+        )
     )
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    return response
 
 
 DASHBOARD_HTML = """<!DOCTYPE html>
@@ -1863,8 +1876,8 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs font-mono">
           <div class="p-4 bg-gray-950/80 rounded-xl border border-gray-800 space-y-2">
             <span class="text-cyan-400 font-semibold text-[11px] uppercase">1. Run Strategy Backtests</span>
-            <pre class="text-gray-300 bg-gray-900 p-2.5 rounded border border-gray-800/80 overflow-x-auto"># Backtest MCX Trend Rider on Commodity Basket
-trading-platform backtest mcx_trend_rider --instrument "MCX_GOLDM, MCX_SILVERM, MCX_CRUDEOIL" --capital 2000000
+            <pre class="text-gray-300 bg-gray-900 p-2.5 rounded border border-gray-800/80 overflow-x-auto"># Backtest MCX Trend Rider on one symbol
+trading-platform backtest mcx_trend_rider --instrument "MCX_GOLDM" --capital 100000
 
 # Backtest EMA Crossover on NIFTY
 trading-platform backtest ema_crossover
@@ -1934,7 +1947,7 @@ trading-platform status</pre>
           <!-- Initial Capital -->
           <div id="modal-capital-wrap">
             <label class="block text-gray-400 mb-1 font-medium">Initial Capital (₹)</label>
-            <input type="number" id="modal-capital" value="500000" min="0.01" required step="any" class="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white font-mono text-xs focus:outline-none focus:border-cyan-500">
+            <input type="number" id="modal-capital" value="100000" min="0.01" required step="any" class="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white font-mono text-xs focus:outline-none focus:border-cyan-500">
           </div>
 
           <!-- Data Provider -->
@@ -1947,28 +1960,21 @@ trading-platform status</pre>
             </select>
           </div>
 
-          <!-- Symbols with Checkbox Options -->
+          <!-- Autocomplete single backtest symbol -->
           <div class="relative">
             <div class="flex items-center justify-between mb-1">
-              <label class="block text-gray-400 font-medium">Select Backtest Symbol(s)</label>
-              <button type="button" onclick="toggleAllSymbols()" class="text-[10px] text-cyan-400 hover:underline">Select All</button>
+              <label class="block text-gray-400 font-medium">Select Backtest Symbol</label>
             </div>
-            <!-- Collapsible Multi-Checkbox Dropdown Container -->
-            <div id="modal-symbols-dropdown-btn" onclick="toggleSymbolsDropdown(event)" class="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white font-mono text-xs flex items-center justify-between cursor-pointer hover:border-cyan-500">
-              <span id="modal-symbols-label" class="truncate max-w-[170px] text-cyan-300">All Backtested Symbols</span>
-              <i class="fa-solid fa-chevron-down text-[10px] text-gray-400 ml-1"></i>
-            </div>
-            <div id="modal-symbols-checkbox-list" onclick="event.stopPropagation()" class="hidden absolute left-0 top-full mt-1 w-72 max-h-60 overflow-y-auto bg-gray-950 border border-gray-700 rounded-xl shadow-2xl p-2.5 z-50 space-y-1">
-              <div class="flex items-center justify-between pb-1.5 mb-1.5 border-b border-gray-800 text-[11px]">
-                <span class="text-gray-400 font-medium">Select Instruments</span>
-                <button type="button" onclick="closeSymbolsDropdown()" class="px-2 py-0.5 rounded bg-cyan-950 hover:bg-cyan-900 text-cyan-300 border border-cyan-800 font-sans text-[10px] font-semibold flex items-center space-x-1">
-                  <span>Done</span>
-                  <i class="fa-solid fa-check text-[9px]"></i>
-                </button>
-              </div>
-              <div id="modal-symbols-checkbox-items" class="space-y-1">
-                <!-- Checkboxes dynamically populated here -->
-              </div>
+            <div class="relative">
+              <input id="modal-symbol-input" type="text" autocomplete="off"
+                placeholder="Type to search symbols..."
+                oninput="filterSymbolOptions(this.value)"
+                onfocus="showSymbolOptions()"
+                onkeydown="handleSymbolInputKeydown(event)"
+                class="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 pr-8 text-white font-mono text-xs focus:outline-none focus:border-cyan-500">
+              <i class="fa-solid fa-magnifying-glass absolute right-3 top-2.5 text-gray-500 text-[10px]"></i>
+              <input id="modal-selected-symbol" type="hidden">
+              <div id="modal-symbol-options" class="hidden absolute left-0 right-0 top-full mt-1 max-h-60 overflow-y-auto bg-gray-950 border border-gray-700 rounded-xl shadow-2xl p-1.5 z-50"></div>
             </div>
           </div>
 
@@ -2260,13 +2266,13 @@ trading-platform status</pre>
       loadCatalog();
       refreshLiveStatus();
 
-      // Close symbols dropdown when clicking anywhere outside it
+      // Close autocomplete suggestions when clicking outside the control.
       document.addEventListener('click', (e) => {
-        const dropdownBtn = document.getElementById('modal-symbols-dropdown-btn');
-        const dropdownList = document.getElementById('modal-symbols-checkbox-list');
-        if (dropdownList && !dropdownList.classList.contains('hidden')) {
-          if (!dropdownBtn.contains(e.target) && !dropdownList.contains(e.target)) {
-            dropdownList.classList.add('hidden');
+        const input = document.getElementById('modal-symbol-input');
+        const options = document.getElementById('modal-symbol-options');
+        if (options && !options.classList.contains('hidden')) {
+          if (!input.contains(e.target) && !options.contains(e.target)) {
+            options.classList.add('hidden');
           }
         }
       });
@@ -2278,7 +2284,7 @@ trading-platform status</pre>
         const data = await res.json();
         catalog = data.catalog;
         window._oiRunning = window._oiRunning || {};
-        // Expose global universe for multi-symbol checkbox dropdowns.
+        // Expose the universe for autocomplete symbol fields.
         // Server-injected from platform_config/universe.yaml (window.__GLOBAL_UNIVERSE__);
         // the /api/universe fetch is the fallback for pages served without the
         // injection (e.g. mocked/test HTML).
@@ -2389,7 +2395,7 @@ trading-platform status</pre>
       // Populate Initial Capital field
       const capField = document.getElementById('modal-capital');
       if (capField) {
-        capField.value = s.default_capital || 500000;
+        capField.value = s.default_capital || 100000;
         capField.step = 50000;
       }
 
@@ -2404,21 +2410,15 @@ trading-platform status</pre>
         }
       }
 
-      // Populate Symbols with Multi-Select Checkboxes
-      closeSymbolsDropdown();
-      const chkItems = document.getElementById('modal-symbols-checkbox-items');
-      chkItems.innerHTML = '';
+      // Populate predefined autocomplete options in ascending order.
       const symbolSource = s.use_global_universe ? (window.GLOBAL_UNIVERSE || []) : (s.allowed_symbols || []);
-      symbolSource.forEach((sym, idx) => {
-        const row = document.createElement('label');
-        row.className = 'flex items-center space-x-2.5 p-1.5 rounded hover:bg-gray-800/80 cursor-pointer text-gray-200 text-xs font-mono';
-        row.innerHTML = `
-          <input type="checkbox" name="symbol-checkbox" value="${sym.value}" checked class="w-3.5 h-3.5 rounded bg-gray-900 border-gray-600 text-cyan-500 focus:ring-0 focus:ring-offset-0 cursor-pointer" onchange="updateSelectedSymbolsLabel()">
-          <span class="truncate">${sym.label}</span>
-        `;
-        chkItems.appendChild(row);
-      });
-      updateSelectedSymbolsLabel();
+      window.modalSymbolOptions = [...symbolSource]
+        .sort((a, b) => String(a.label || a.value).localeCompare(
+          String(b.label || b.value), undefined, { sensitivity: 'base' }
+        ));
+      document.getElementById('modal-symbol-input').value = '';
+      document.getElementById('modal-selected-symbol').value = '';
+      renderSymbolOptions(window.modalSymbolOptions);
 
       // Populate Dynamic Parameters Grid
       const paramsGrid = document.getElementById('modal-params-grid');
@@ -2561,7 +2561,7 @@ trading-platform status</pre>
 
     function closeBacktestModal() {
       document.getElementById('backtest-modal').classList.add('hidden');
-      closeSymbolsDropdown();
+      closeSymbolOptions();
       refreshOiRunningState();
     }
     async function cardStopOiPaper(strategyId) {
@@ -2577,49 +2577,63 @@ trading-platform status</pre>
       } catch (e) { alert('Stop failed: ' + (e.message || e)); }
     }
 
-    function toggleSymbolsDropdown(e) {
-      if (e) e.stopPropagation();
-      const list = document.getElementById('modal-symbols-checkbox-list');
-      list.classList.toggle('hidden');
-    }
-
-    function closeSymbolsDropdown() {
-      const list = document.getElementById('modal-symbols-checkbox-list');
-      if (list && !list.classList.contains('hidden')) {
-        list.classList.add('hidden');
-      }
-    }
-
-    function toggleAllSymbols() {
-      const checkboxes = document.querySelectorAll('input[name="symbol-checkbox"]');
-      const allChecked = Array.from(checkboxes).every(c => c.checked);
-      checkboxes.forEach(c => c.checked = !allChecked);
-      updateSelectedSymbolsLabel();
-    }
-
-    function updateSelectedSymbolsLabel() {
-      const checked = Array.from(document.querySelectorAll('input[name="symbol-checkbox"]:checked'));
-      const total = document.querySelectorAll('input[name="symbol-checkbox"]').length;
-      const label = document.getElementById('modal-symbols-label');
-      if (checked.length === 0) {
-        label.textContent = 'None Selected (Pick 1+)';
-        label.className = 'truncate max-w-[170px] text-rose-400 font-bold';
-      } else if (checked.length === total) {
-        label.textContent = `All (${total} Symbols)`;
-        label.className = 'truncate max-w-[170px] text-cyan-300';
-      } else if (checked.length === 1) {
-        const val = checked[0].value.replace('NSE:', '').replace('MCX:', '').replace('_', ' ');
-        label.textContent = val;
-        label.className = 'truncate max-w-[170px] text-emerald-300';
-      } else {
-        label.textContent = `${checked.length} of ${total} Symbols`;
-        label.className = 'truncate max-w-[170px] text-cyan-300';
-      }
-    }
-
     function getSelectedSymbols() {
-      const checked = Array.from(document.querySelectorAll('input[name="symbol-checkbox"]:checked'));
-      return checked.map(c => c.value);
+      const selected = document.getElementById('modal-selected-symbol').value;
+      return selected ? [selected] : [];
+    }
+
+    function closeSymbolOptions() {
+      const options = document.getElementById('modal-symbol-options');
+      if (options) options.classList.add('hidden');
+    }
+
+    function showSymbolOptions() {
+      filterSymbolOptions(document.getElementById('modal-symbol-input').value);
+    }
+
+    function filterSymbolOptions(query) {
+      const normalized = String(query || '').trim().toLowerCase();
+      const options = (window.modalSymbolOptions || []).filter(sym => {
+        const text = `${sym.label || ''} ${sym.value || ''}`.toLowerCase();
+        return !normalized || text.includes(normalized);
+      });
+      renderSymbolOptions(options);
+    }
+
+    function renderSymbolOptions(options) {
+      const container = document.getElementById('modal-symbol-options');
+      if (!container) return;
+      container.innerHTML = '';
+      options.forEach(sym => {
+        const option = document.createElement('button');
+        option.type = 'button';
+        option.className = 'block w-full text-left px-3 py-2 rounded hover:bg-gray-800 text-gray-200 text-xs font-mono';
+        option.textContent = `${sym.label} (${sym.value})`;
+        option.onclick = () => selectAutocompleteSymbol(sym);
+        container.appendChild(option);
+      });
+      container.classList.toggle('hidden', options.length === 0);
+    }
+
+    function selectAutocompleteSymbol(symbol) {
+      document.getElementById('modal-symbol-input').value = `${symbol.label} (${symbol.value})`;
+      document.getElementById('modal-selected-symbol').value = symbol.value;
+      closeSymbolOptions();
+    }
+
+    function handleSymbolInputKeydown(event) {
+      if (event.key === 'Escape') {
+        closeSymbolOptions();
+      } else if (event.key === 'Enter') {
+        const first = (window.modalSymbolOptions || []).find(sym => {
+          const text = `${sym.label || ''} ${sym.value || ''}`.toLowerCase();
+          return text.includes(event.target.value.trim().toLowerCase());
+        });
+        if (first) {
+          event.preventDefault();
+          selectAutocompleteSymbol(first);
+        }
+      }
     }
 
     function toggleBollingerFields() {
@@ -2653,7 +2667,7 @@ trading-platform status</pre>
       
       const selectedSymbols = getSelectedSymbols();
       if (selectedSymbols.length === 0) {
-        showModalError('Selection Required', 'Please check at least one symbol in the dropdown before running the backtest.');
+        showModalError('Selection Required', 'Choose one symbol from the autocomplete list before running the backtest.');
         runBtn.innerHTML = origText;
         runBtn.disabled = false;
         progressBox.classList.add('hidden');

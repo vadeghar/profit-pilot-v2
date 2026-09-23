@@ -12,6 +12,18 @@ import yaml
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = PROJECT_ROOT / "data"
 ENV_FILE = PROJECT_ROOT / ".env"
+# Worktrees commonly keep one shared credential file in the parent workspace
+# rather than copying secrets into every worktree.
+if not ENV_FILE.exists():
+    shared_workspace = PROJECT_ROOT.parent.parent / PROJECT_ROOT.parent.name.replace(".worktrees", "")
+    for shared_env_file in (
+        PROJECT_ROOT.parent / ".env",
+        PROJECT_ROOT.parent.parent / ".env",
+        shared_workspace / ".env",
+    ):
+        if shared_env_file.exists():
+            ENV_FILE = shared_env_file
+            break
 CACHE_DIR = DATA_DIR / "cache"
 FORWARD_TEST_DIR = DATA_DIR / "forward_test"
 HISTORICAL_DATA_DIR = DATA_DIR / "historical"
@@ -145,6 +157,7 @@ from .universe import (  # noqa: E402,F401  (re-export, kept at the bottom)
     get_equities,
     get_indices,
     get_instrument,
+    get_index_lot_size,
     get_strategy_defaults,
     get_strategy_instruments,
     label_for_dropdown,
@@ -153,4 +166,3 @@ from .universe import (  # noqa: E402,F401  (re-export, kept at the bottom)
     resolve_provider_symbol,
     symbol_to_label,
 )
-

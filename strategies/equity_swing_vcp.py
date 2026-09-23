@@ -59,7 +59,7 @@ class EquitySwingVCPStrategy(StrategyBase):
     def _init_parameters(self) -> None:
         p = self.params or {}
         # Core risk parameters
-        self.capital = float(p.get('capital', 1000000.0))       # ₹10 Lakh default
+        self.capital = float(p.get('capital', 100000.0))
         self.risk_pct = float(p.get('risk_pct', 0.0125))        # 1.25% equity risk per trade
         self.stop_pct = float(p.get('stop_pct', 0.07))          # 7% hard stop loss limit
         self.partial_r = float(p.get('partial_r', 2.0))         # Take 1/3 profit at +2.0R
@@ -98,6 +98,11 @@ class EquitySwingVCPStrategy(StrategyBase):
                 'trades_history': []
             }
         return self._state[instrument]
+
+    def on_entry_fill(self, instrument: str, quantity: int, price: float) -> None:
+        state = self._get_state(instrument)
+        state['shares'] = quantity
+        state['initial_shares'] = quantity
 
     def register_index_candle(self, candle: Candle) -> None:
         """Register benchmark candle (Nifty) for market regime filter"""
@@ -208,7 +213,16 @@ class EquitySwingVCPStrategy(StrategyBase):
                     })
                     state['shares'] -= shares_to_sell
                     state['partial_taken'] = True
-                    # Do not return full SELL signal here; keep tracking remainder
+                    return Signal(
+                        strategy_id=self.strategy_id,
+                        instrument=instrument,
+                        action=OrderSide.SELL,
+                        order_type=OrderType.MARKET,
+                        quantity=shares_to_sell,
+                        price=current_close,
+                        stop_loss=0.0,
+                        metadata={'reason': 'partial_profit_take'}
+                    )
 
             # Trailing Exit on Remainder: Daily Close below 21-day EMA (or 50 SMA)
             trailing_benchmark = ema21 if self.trailing_ma == 'EMA21' else sma50

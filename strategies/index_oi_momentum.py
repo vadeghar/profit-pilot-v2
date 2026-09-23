@@ -15,17 +15,18 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from core.models import Candle, OrderSide, OrderType, Signal, Tick
 from strategies import StrategyBase
+from platform_config import get_index_lot_size
 from utils.timezone import ensure_ist, ist_day_str, ist_minutes, now_ist
 
 
 INDEX_SPECS = {
-    "NIFTY":     {"exchange": "NSE", "lot_size": 65, "strike_interval": 50,
+    "NIFTY":     {"exchange": "NSE", "lot_size": get_index_lot_size("NSE:NIFTY", 65), "strike_interval": 50,
                   "weekly_expiry_weekday": 1, "monthly_expiry": "last_tue",
                   "spread_threshold": 0.01, "spot_ref": 25000.0},
-    "BANKNIFTY": {"exchange": "NSE", "lot_size": 30, "strike_interval": 100,
+    "BANKNIFTY": {"exchange": "NSE", "lot_size": get_index_lot_size("NSE:BANKNIFTY", 30), "strike_interval": 100,
                   "weekly_expiry_weekday": None, "monthly_expiry": "last_tue",
                   "spread_threshold": 0.015, "spot_ref": 56000.0},
-    "SENSEX":    {"exchange": "BSE", "lot_size": 20, "strike_interval": 100,
+    "SENSEX":    {"exchange": "BSE", "lot_size": get_index_lot_size("BSE:SENSEX", 20), "strike_interval": 100,
                   "weekly_expiry_weekday": 3, "monthly_expiry": "last_thu",
                   "spread_threshold": 0.02, "spot_ref": 82000.0},
 }
@@ -79,7 +80,7 @@ class IndexOIMomentumStrategy(StrategyBase):
         self.spread_thr = float(p.get("spread_threshold", 0.012))
         self.max_trades_day = int(p.get("max_trades_day", 7))
         self.max_trades_day_total = int(p.get("max_trades_day_total", 8))
-        self.capital = float(p.get("capital", 500000.0))
+        self.capital = float(p.get("capital", 100000.0))
         self.mode_override = p.get("mode_override")  # "base" | "expiry" | None
         self.max_pain_dist_pct = float(p.get("max_pain_dist_pct", 0.20))
         # per-index state
@@ -240,13 +241,11 @@ class IndexOIMomentumStrategy(StrategyBase):
             mins_left = (15 * 60 + 0) - hhmm  # to 15:00 IST
             if dist < self.max_pain_dist_pct and mins_left < 90:
                 return None
-        # size in Rs risk terms
-        risk_amt = min(risk_pct * self.capital, 0.02 * self.capital)
-        per_unit_risk = lp * sl_pct
-        units = int(risk_amt / per_unit_risk) if per_unit_risk > 0 else 0
-        lots = max(1, units // lot)
-        if weak:
-            lots = max(1, lots // 2)
+        # Allocate the current available capital to whole option lots. The
+        # premium (not the underlying spot) is the cash requirement.
+        lots = int(self.capital // (ask * lot)) if ask > 0 else 0
+        if lots <= 0:
+            return None
         qty_units = lots * lot
         # record position (entry assumed at ask)
         entry = ask
