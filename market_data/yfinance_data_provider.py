@@ -79,7 +79,7 @@ class YFinanceDataProvider(HistoricalDataProvider):
 
         # Check cache first
         clean_key = yf_symbol.replace(".", "_").replace("^", "_")
-        cache_path = os.path.join(self.cache_dir, f"{clean_key}_{yf_interval}.csv")
+        cache_path = os.path.join(self.cache_dir, f"{clean_key}_{canonical_tf}.csv")
         if os.path.exists(cache_path):
             df = pd.read_csv(cache_path, index_col=0, parse_dates=True)
             # The cached index is tz-aware (IST) but callers may pass tz-naive
@@ -95,10 +95,12 @@ class YFinanceDataProvider(HistoricalDataProvider):
             df = df.loc[start_bound:(end_bound + pd.Timedelta(days=1) - pd.Timedelta(seconds=1))]
         else:
             # Fetch from yfinance
+            # Yahoo's end bound is exclusive; include the requested end date.
+            fetch_end_dt = end_dt + pd.Timedelta(days=1)
             df = yf.download(
                 yf_symbol,
                 start=start_dt.strftime("%Y-%m-%d"),
-                end=end_dt.strftime("%Y-%m-%d"),
+                end=fetch_end_dt.strftime("%Y-%m-%d"),
                 interval=yf_interval,
                 auto_adjust=False,
                 progress=False,
@@ -116,7 +118,14 @@ class YFinanceDataProvider(HistoricalDataProvider):
 
             # Clean columns
             df.columns = [c.lower() for c in df.columns]
-            df = df[['open', 'high', 'low', 'close', 'volume']]
+            required_columns = ['open', 'high', 'low', 'close', 'volume']
+            missing = [column for column in required_columns if column not in df.columns]
+            if missing:
+                raise ValueError(
+                    f"yfinance returned incomplete data for {yf_symbol}; "
+                    f"missing columns: {missing}"
+                )
+            df = df[required_columns]
 
             # Save to cache
             df.to_csv(cache_path)
@@ -129,6 +138,13 @@ class YFinanceDataProvider(HistoricalDataProvider):
                 "open": "first", "high": "max", "low": "min",
                 "close": "last", "volume": "sum",
             }).dropna(subset=["open", "high", "low", "close"])
+
+        if df.empty:
+            raise ValueError(
+                f"No data found for {yf_symbol} on yfinance for "
+                f"{start_dt:%Y-%m-%d} to {end_dt:%Y-%m-%d}. "
+                "Check the symbol mapping and selected date range."
+            )
 
         candles = candles_from_dataframe(
             df, instrument=symbol, timeframe=canonical_tf,
