@@ -3090,7 +3090,7 @@ trading-platform status</pre>
       return date.toLocaleString('en-IN', {
         day: '2-digit', month: '2-digit', year: 'numeric',
         hour: '2-digit', minute: '2-digit', second: '2-digit',
-        hour12: false
+        hour12: false, timeZone: 'Asia/Kolkata'
       });
     }
 
@@ -3198,10 +3198,28 @@ trading-platform status</pre>
         modalEquityChart.destroy();
       }
 
-      const labels = curve.map((pt, i) => i + 1);
+      const labels = curve.map(pt => pt.timestamp || pt.t || '');
       const values = curve.map(pt => (pt.total_equity !== undefined ? pt.total_equity : pt.value));
+      const crosshairPlugin = {
+        id: 'modalEquityCrosshair',
+        afterDraw(chart) {
+          if (chart._activeCrosshairX === undefined) return;
+          const {ctx, chartArea} = chart;
+          if (!chartArea) return;
+          ctx.save();
+          ctx.strokeStyle = 'rgba(148, 163, 184, 0.8)';
+          ctx.lineWidth = 1;
+          ctx.setLineDash([4, 4]);
+          ctx.beginPath();
+          ctx.moveTo(chart._activeCrosshairX, chartArea.top);
+          ctx.lineTo(chart._activeCrosshairX, chartArea.bottom);
+          ctx.stroke();
+          ctx.restore();
+        }
+      };
 
       modalEquityChart = new Chart(ctx, {
+        plugins: [crosshairPlugin],
         type: 'line',
         data: {
           labels: labels,
@@ -3220,16 +3238,42 @@ trading-platform status</pre>
           responsive: true,
           maintainAspectRatio: false,
           animation: false,
+          interaction: {
+            mode: 'index',
+            intersect: false
+          },
+          onHover(event, active) {
+            const chart = event.chart;
+            chart._activeCrosshairX = active.length ? active[0].element.x : undefined;
+            chart.draw();
+          },
           plugins: {
             legend: { display: false },
             tooltip: {
+              mode: 'index',
+              intersect: false,
               callbacks: {
+                title: (items) => items.length ? formatTradeDateTime(items[0].label) : '',
                 label: (ctx) => `Equity: ₹${ctx.parsed.y.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`
               }
             }
           },
           scales: {
-            x: { display: false },
+            x: {
+              display: true,
+              ticks: {
+                color: '#94a3b8',
+                maxTicksLimit: 8,
+                maxRotation: 0,
+                callback: (value, index) => {
+                  const label = labels[index];
+                  if (!label) return '';
+                  const date = new Date(label);
+                  return Number.isNaN(date.getTime()) ? label : formatTradeDateTime(label);
+                }
+              },
+              grid: { color: 'rgba(255, 255, 255, 0.05)' }
+            },
             y: {
               grid: { color: 'rgba(255, 255, 255, 0.05)' },
               ticks: {
