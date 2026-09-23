@@ -1,7 +1,7 @@
 import os
 import pandas as pd
 import yfinance as yf
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Optional
 from .base import HistoricalDataProvider
 from .normalize import (
@@ -40,6 +40,50 @@ class YFinanceDataProvider(HistoricalDataProvider):
     @property
     def supported_timeframes(self) -> List[str]:
         return list(self._INTERVAL_MAP)
+
+    def _download(self, symbol: str, interval: str,
+                  start: datetime, end: datetime) -> pd.DataFrame:
+        """Download a range, chunking intervals subject to Yahoo's limits."""
+        max_days = {
+            "5m": 59, "15m": 59, "30m": 59, "1h": 729,
+        }.get(interval, 3650)
+        frames = []
+        cursor = start
+        while cursor <= end:
+            chunk_end = min(cursor + timedelta(days=max_days), end)
+            frame = yf.download(
+                symbol,
+                start=cursor.strftime("%Y-%m-%d"),
+                end=(chunk_end + timedelta(days=1)).strftime("%Y-%m-%d"),
+                interval=interval,
+                auto_adjust=False,
+                progress=False,
+                multi_level_index=False,
+            )
+            if not frame.empty:
+                frames.append(frame)
+            cursor = chunk_end + timedelta(days=1)
+        if not frames:
+            return pd.DataFrame()
+        combined = pd.concat(frames).sort_index()
+        return combined[~combined.index.duplicated(keep="last")]
+
+    @staticmethod
+    def _clean_download(df: pd.DataFrame, symbol: str) -> pd.DataFrame:
+        if df.empty:
+            return df
+        if df.index.tz is None:
+            df.index = df.index.tz_localize("UTC").tz_convert(IST)
+        else:
+            df.index = df.index.tz_convert(IST)
+        df.columns = [c.lower() for c in df.columns]
+        required = ["open", "high", "low", "close", "volume"]
+        missing = [column for column in required if column not in df.columns]
+        if missing:
+            raise ValueError(
+                f"yfinance returned incomplete data for {symbol}; missing columns: {missing}"
+            )
+        return df[required]
 
     def normalize_symbol(self, symbol: str) -> str:
         """
@@ -80,6 +124,7 @@ class YFinanceDataProvider(HistoricalDataProvider):
         # Check cache first
         clean_key = yf_symbol.replace(".", "_").replace("^", "_")
         cache_path = os.path.join(self.cache_dir, f"{clean_key}_{canonical_tf}.csv")
+        cached_range = False
         if os.path.exists(cache_path):
             df = pd.read_csv(cache_path, index_col=0, parse_dates=True)
             # The cached index is tz-aware (IST) but callers may pass tz-naive
@@ -93,41 +138,19 @@ class YFinanceDataProvider(HistoricalDataProvider):
                     end_bound = end_bound.tz_localize(df.index.tz)
             # Filter by date range (inclusive of the whole end day)
             df = df.loc[start_bound:(end_bound + pd.Timedelta(days=1) - pd.Timedelta(seconds=1))]
-        else:
-            # Fetch from yfinance
-            # Yahoo's end bound is exclusive; include the requested end date.
-            fetch_end_dt = end_dt + pd.Timedelta(days=1)
-            df = yf.download(
+            cached_range = not df.empty
+
+        if not cached_range:
+            # Refresh whenever the cache has no usable rows for this request.
+            df = self._clean_download(
+                self._download(yf_symbol, yf_interval, start_dt, end_dt),
                 yf_symbol,
-                start=start_dt.strftime("%Y-%m-%d"),
-                end=fetch_end_dt.strftime("%Y-%m-%d"),
-                interval=yf_interval,
-                auto_adjust=False,
-                progress=False,
-                multi_level_index=False
             )
-
             if df.empty:
-                raise ValueError(f"No data found for {yf_symbol} on yfinance.")
-
-            # Normalize index to IST
-            if df.index.tz is None:
-                df.index = df.index.tz_localize("UTC").tz_convert(IST)
-            else:
-                df.index = df.index.tz_convert(IST)
-
-            # Clean columns
-            df.columns = [c.lower() for c in df.columns]
-            required_columns = ['open', 'high', 'low', 'close', 'volume']
-            missing = [column for column in required_columns if column not in df.columns]
-            if missing:
                 raise ValueError(
-                    f"yfinance returned incomplete data for {yf_symbol}; "
-                    f"missing columns: {missing}"
+                    f"No data found for {yf_symbol} on yfinance for "
+                    f"{start_dt:%Y-%m-%d} to {end_dt:%Y-%m-%d}."
                 )
-            df = df[required_columns]
-
-            # Save to cache
             df.to_csv(cache_path)
 
         if canonical_tf in {"10m", "4h"}:
