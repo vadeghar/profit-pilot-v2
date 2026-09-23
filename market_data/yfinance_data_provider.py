@@ -33,8 +33,8 @@ class YFinanceDataProvider(HistoricalDataProvider):
 
     # canonical timeframe -> yfinance interval
     _INTERVAL_MAP = {
-        "1m": "1m", "2m": "2m", "3m": "3m", "5m": "5m", "15m": "15m", "30m": "30m",
-        "90m": "90m", "1h": "1h", "1d": "1d", "1w": "1wk",
+        "5m": "5m", "10m": "5m", "15m": "15m", "30m": "30m",
+        "1h": "1h", "4h": "1h", "1d": "1d", "1mo": "1mo",
     }
 
     @property
@@ -121,6 +121,13 @@ class YFinanceDataProvider(HistoricalDataProvider):
             # Save to cache
             df.to_csv(cache_path)
 
+        if canonical_tf in {"10m", "4h"}:
+            rule = {"10m": "10min", "4h": "4h"}[canonical_tf]
+            df = df.resample(rule, origin="start_day").agg({
+                "open": "first", "high": "max", "low": "min",
+                "close": "last", "volume": "sum",
+            }).dropna(subset=["open", "high", "low", "close"])
+
         candles = candles_from_dataframe(
             df, instrument=symbol, timeframe=canonical_tf,
             provider=self.name, source_symbol=yf_symbol,
@@ -132,4 +139,3 @@ class YFinanceDataProvider(HistoricalDataProvider):
                 f"({start_dt:%Y-%m-%d}..{end_dt:%Y-%m-%d})."
             )
         return candles
-

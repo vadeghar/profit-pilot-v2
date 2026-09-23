@@ -517,7 +517,7 @@ def run_backtest_api(req: BacktestRequest):
         end = now
 
     # Starting cash and capital-based position sizing share one authoritative value.
-    params = {**(req.params or {}), "capital": req.capital}
+    params = {**(req.params or {}), "capital": req.capital, "timeframe": req.timeframe}
 
     from market_data.universe import UniverseManager
     # A backtest is deliberately single-instrument. This keeps the capital
@@ -654,7 +654,7 @@ def start_backtest_stream(req: BacktestRequest, background_tasks: BackgroundTask
     else:
         end = now
 
-    params = {**(req.params or {}), "capital": req.capital}
+    params = {**(req.params or {}), "capital": req.capital, "timeframe": req.timeframe}
     
     from market_data.universe import UniverseManager
     resolved = UniverseManager.resolve_instruments(req.instrument)
@@ -1950,6 +1950,21 @@ trading-platform status</pre>
             <input type="number" id="modal-capital" value="100000" min="0.01" required step="any" class="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white font-mono text-xs focus:outline-none focus:border-cyan-500">
           </div>
 
+          <!-- Backtest Timeframe -->
+          <div>
+            <label class="block text-gray-400 mb-1 font-medium">Timeframe</label>
+            <select id="modal-timeframe" class="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white font-mono text-xs focus:outline-none focus:border-cyan-500">
+              <option value="5m">5 Minutes</option>
+              <option value="10m">10 Minutes</option>
+              <option value="15m">15 Minutes</option>
+              <option value="30m">30 Minutes</option>
+              <option value="1h">1 Hour</option>
+              <option value="4h">4 Hours</option>
+              <option value="1d" selected>Daily</option>
+              <option value="1mo">Monthly</option>
+            </select>
+          </div>
+
           <!-- Data Provider -->
           <div id="modal-provider-wrap">
             <label class="block text-gray-400 mb-1 font-medium">Data Provider</label>
@@ -2391,6 +2406,7 @@ trading-platform status</pre>
       // Populate Inputs
       document.getElementById('modal-start-date').value = s.default_start_date;
       document.getElementById('modal-end-date').value = s.default_end_date;
+      document.getElementById('modal-timeframe').value = s.default_timeframe || '1d';
 
       // Populate Initial Capital field
       const capField = document.getElementById('modal-capital');
@@ -2717,6 +2733,7 @@ trading-platform status</pre>
 
       // Get data provider
       const dataProvider = document.getElementById('modal-data-provider')?.value || 'yfinance';
+      const timeframe = document.getElementById('modal-timeframe')?.value || '1d';
 
       // Decide whether to use streaming or legacy endpoint
       const useStreaming = currentModalStrat.id !== 'index_oi_momentum'; // Streaming for all non-tick strategies
@@ -2731,7 +2748,7 @@ trading-platform status</pre>
             body: JSON.stringify({
               strategy_id: currentModalStrat.id,
               instrument: instrument,
-              timeframe: params.timeframe || currentModalStrat.default_timeframe,
+              timeframe: timeframe,
               capital: capital,
               start_date: startDate,
               end_date: endDate,
@@ -2912,7 +2929,7 @@ trading-platform status</pre>
             body: JSON.stringify({
               strategy_id: currentModalStrat.id,
               instrument: instrument,
-              timeframe: params.timeframe || currentModalStrat.default_timeframe,
+              timeframe: timeframe,
               capital: capital,
               start_date: startDate,
               end_date: endDate,

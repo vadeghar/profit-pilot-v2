@@ -14,15 +14,15 @@ try:
 except Exception:
     _DEFAULT_TICKER = "NSE:NIFTY"
 
-TIMEFRAMES = ["1m", "5m", "15m", "30m", "1h", "4h", "1d", "1wk"]
+TIMEFRAMES = ["1m", "5m", "10m", "15m", "30m", "1h", "4h", "1d", "1wk", "1mo"]
 DATA_PROVIDERS = ["breeze", "yfinance", "ccxt", "csv"]
 FEATURE_INDICATORS = ["RSI", "WT", "CCI", "ADX"]
 SOURCES = ["open", "high", "low", "close", "hlc3", "ohlc4"]
 MA_TYPES = ["WMA"]  # extensible enum (§15.3)
 
 PANDAS_FREQ_MAP = {
-    "1m": "1min", "5m": "5min", "15m": "15min", "30m": "30min",
-    "1h": "1h", "4h": "4h", "1d": "1D", "1wk": "1W",
+    "1m": "1min", "5m": "5min", "10m": "10min", "15m": "15min", "30m": "30min",
+    "1h": "1h", "4h": "4h", "1d": "1D", "1wk": "1W", "1mo": "1MS",
 }
 
 

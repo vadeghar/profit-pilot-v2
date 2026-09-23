@@ -99,12 +99,13 @@ BREEZE_INDEX_SYMBOLS = {"NIFTY", "BANKNIFTY", "SENSEX", "FINNIFTY", "MIDCPNIFTY"
 BREEZE_INTERVAL_MAP = {
     "1m": ("1minute", None),
     "5m": ("5minute", None),
+    "10m": ("5minute", "10min"),
     "15m": ("5minute", "15min"),
     "30m": ("30minute", None),
     "1h": ("30minute", "1h"),
     "4h": ("30minute", "4h"),
     "1d": ("1day", None),
-    "1wk": ("1day", "1W"),
+    "1mo": ("1day", "1M"),
 }
 # Approximate tradeable bars per IST trading day (NSE ~09:15-15:30) for lookback sizing
 BREEZE_BARS_PER_DAY = {"1minute": 375, "5minute": 75, "30minute": 13, "1day": 1}

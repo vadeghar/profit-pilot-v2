@@ -10,7 +10,10 @@ from datetime import datetime, timedelta
 from typing import List, Optional
 
 from .base import HistoricalDataProvider
-from .normalize import NormalizedCandle, candles_from_rows, normalize_timeframe
+from .normalize import (
+    NormalizedCandle, candles_from_rows, normalize_timeframe,
+    resample_normalized_candles,
+)
 from utils import Logger
 from utils.timezone import (
     IST, breeze_utc_window_for_ist_day_chunk, ensure_ist, now_ist,
@@ -232,11 +235,17 @@ class BreezeHistoricalDataProvider(HistoricalDataProvider):
                     start_date: Optional[datetime], end_date: Optional[datetime]) -> List[NormalizedCandle]:
         """Rows are [timestamp, open, high, low, close, volume] arrays (or dicts
         from legacy disk cache) -> normalized IST candles."""
+        fetch_interval, resample_to = BREEZE_INTERVAL_MAP[timeframe]
+        source_timeframe = {
+            "1minute": "1m", "5minute": "5m", "30minute": "30m", "1day": "1d",
+        }[fetch_interval]
         candles = candles_from_rows(
-            rows, instrument=instrument, timeframe=timeframe,
+            rows, instrument=instrument, timeframe=source_timeframe,
             provider=self.name, source_symbol=self.normalize_symbol(instrument),
             exchange="NSE",
         )
+        if resample_to:
+            candles = resample_normalized_candles(candles, timeframe)
         if start_date:
             start_bound = ensure_ist(start_date)
             candles = [c for c in candles if c.timestamp >= start_bound]

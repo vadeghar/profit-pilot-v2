@@ -15,6 +15,7 @@ from strategies import StrategyBase, StrategyRegistry
 from persistence.journal import StateStore
 from market_data.normalize import ensure_normalized_candles
 from utils import Logger, get_timestamp
+from market_data.normalize import normalize_timeframe
 
 
 @dataclass
@@ -32,6 +33,9 @@ class BacktestConfig:
     slippage_percent: float = 0.05
     commission_percent: float = 0.05  # Broker commission
     exchange_fee_percent: float = 0.001  # Exchange transaction fee
+
+    def __post_init__(self) -> None:
+        self.timeframe = normalize_timeframe(self.timeframe)
 
 
 class BacktestEngine:

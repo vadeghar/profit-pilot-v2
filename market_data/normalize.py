@@ -42,7 +42,7 @@ __all__ = [
 CANONICAL_TIMEFRAMES: Dict[str, int] = {
     "1m": 1, "2m": 2, "3m": 3, "5m": 5, "10m": 10, "15m": 15,
     "30m": 30, "45m": 45, "1h": 60, "2h": 120, "3h": 180,
-    "4h": 240, "90m": 90, "1d": 1440, "1w": 10080,
+    "4h": 240, "90m": 90, "1d": 1440, "1w": 10080, "1mo": 43200,
 }
 
 # common alias -> canonical
@@ -63,6 +63,7 @@ TIMEFRAME_ALIASES.update({
     "4hour": "4h", "4hr": "4h", "4H": "4h", "240min": "4h",
     "1day": "1d", "day": "1d", "daily": "1d", "1D": "1d",
     "1week": "1w", "1wk": "1w", "week": "1w", "weekly": "1w", "1W": "1w",
+    "1month": "1mo", "month": "1mo", "monthly": "1mo", "1M": "1mo",
 })
 
 _TF_RE = re.compile(
@@ -471,7 +472,6 @@ def resample_candles(df: pd.DataFrame, target_timeframe: str) -> pd.DataFrame:
     if "open_interest" in df.columns:
         resampled["open_interest"] = df["open_interest"].resample(freq).last()
     return resampled
-
 
 
 
