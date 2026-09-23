@@ -16,7 +16,7 @@ from pathlib import Path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from fastapi import FastAPI, HTTPException, BackgroundTasks, Request
-from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 import asyncio
@@ -51,6 +51,28 @@ execution_engine = ExecutionEngine(mock_broker, {'orderRetryAttempts': 3})
 # Running active strategy instances
 active_strategies: Dict[str, Any] = {}
 recent_backtests: List[Dict[str, Any]] = []
+
+
+@app.get("/.well-known/appspecific/com.chrome.devtools.json")
+def chrome_devtools_config():
+    """Return an empty config for Chrome DevTools' optional discovery request."""
+    return JSONResponse(content={})
+
+
+@app.get("/favicon.ico")
+def favicon():
+    """Serve a small dashboard favicon without requiring a separate asset file."""
+    return Response(
+        content=(
+            '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">'
+            '<rect width="64" height="64" rx="12" fill="#0f172a"/>'
+            '<path d="M12 44 24 31l9 7 17-20" fill="none" stroke="#22d3ee" '
+            'stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>'
+            '<circle cx="50" cy="18" r="4" fill="#34d399"/>'
+            '</svg>'
+        ).encode("utf-8"),
+        media_type="image/svg+xml",
+    )
 
 # Dropdown list shown on spot/equity strategy cards from universe.yaml.
 GLOBAL_UNIVERSE: list[dict[str, str]] = build_dropdown_list()
