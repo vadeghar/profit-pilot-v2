@@ -429,7 +429,8 @@ def get_strategies():
             {
                 "id": sid,
                 "name": strat.name,
-                "instrument": getattr(strat, "instrument", "NSE:NIFTY"),
+                "instrument": getattr(strat, "instrument", None)
+                              or strat.params.get("instrument", "NSE:NIFTY"),
                 "is_running": strat.is_running,
                 "signals_count": len(strat.get_signals()),
                 "indicators": strat._indicators
@@ -827,22 +828,47 @@ def cancel_backtest_stream(job_id: str):
 @app.post("/api/strategy/start")
 def start_strategy(req: StrategyStartRequest):
     """Start an interactive strategy in the live mock engine"""
+    catalog_entry = STRATEGY_CATALOG.get(req.strategy_name)
+    if not catalog_entry:
+        raise HTTPException(status_code=400, detail=f"Unknown strategy {req.strategy_name}")
+    if req.strategy_id.strip() == "":
+        raise HTTPException(status_code=400, detail="Strategy instance ID is required")
+    instrument = req.instrument.strip()
+    allowed = {item["value"] for item in catalog_entry.get("allowed_symbols", [])}
+    if allowed and instrument not in allowed:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Instrument {instrument} is not allowed for {req.strategy_name}",
+        )
     if req.strategy_id in active_strategies:
         raise HTTPException(status_code=400, detail=f"Strategy {req.strategy_id} already running")
     
-    params = req.params or {}
-    params["instrument"] = req.instrument
+    params = dict(req.params or {})
+    params["instrument"] = instrument
     
     try:
-        strat = StrategyRegistry.create(req.strategy_name, req.strategy_id, params)
+        defaults = dict(catalog_entry.get("default_params") or {})
+        defaults.update(params)
+        strat = StrategyRegistry.create(req.strategy_name, req.strategy_id, defaults)
         strat.initialize()
         strat.start()
+        def on_tick(tick):
+            signal = strat.on_tick(tick)
+            if signal is None:
+                return
+            strat.add_signal(signal)
+            result = execution_engine.execute_signal(signal)
+            if not result.success:
+                strat.logger.error(f"Live signal execution failed: {result.error}")
+
+        market_data.subscribe(instrument, on_tick)
+        strat._live_callback = on_tick
+        strat._live_instrument = instrument
         active_strategies[req.strategy_id] = strat
-        
-        # Subscribe mock market data
-        market_data.subscribe(req.instrument, strat.on_tick)
         return {"status": "SUCCESS", "message": f"Strategy {req.strategy_id} started successfully"}
     except Exception as e:
+        if 'strat' in locals():
+            strat.stop()
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -854,6 +880,10 @@ def stop_strategy(strategy_id: str):
     
     strat = active_strategies[strategy_id]
     strat.stop()
+    instrument = getattr(strat, "_live_instrument", None)
+    callback = getattr(strat, "_live_callback", None)
+    if instrument and callback:
+        market_data.unsubscribe(instrument, callback)
     del active_strategies[strategy_id]
     return {"status": "SUCCESS", "message": f"Strategy {strategy_id} stopped"}
 
@@ -1607,6 +1637,7 @@ def get_auto_start_config():
 @app.on_event("startup")
 async def startup_event():
     """Start OI paper session automatically on app startup if market is open."""
+    market_data.start()
     # Run in a thread pool since start() is blocking
     loop = asyncio.get_event_loop()
     await loop.run_in_executor(None, lambda: start_auto_paper_session())
@@ -1783,26 +1814,18 @@ DASHBOARD_HTML = """<!DOCTYPE html>
           <div class="space-y-3 text-xs">
             <div>
               <label class="block text-gray-400 mb-1">Strategy Name</label>
-              <select id="deploy-strat-name" class="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white font-mono text-xs">
-                <option value="mcx_trend_rider">mcx_trend_rider (MCX Futures)</option>
-                <option value="ema_crossover">ema_crossover (NSE)</option>
-                <option value="rsi">rsi (NSE)</option>
-                <option value="breakout">breakout (NSE)</option>
-                <option value="equity_swing_vcp">equity_swing_vcp (NSE Equities)</option>
-                <option value="index_oi_momentum">index_oi_momentum (NSE/BSE Index Options)</option>
+              <select id="deploy-strat-name" onchange="syncDeployStrategyForm()" class="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white font-mono text-xs">
+                <option value="">Loading strategies...</option>
               </select>
             </div>
             <div>
               <label class="block text-gray-400 mb-1">Instance Unique ID</label>
-              <input type="text" id="deploy-strat-id" value="mcx_tr_live_01" class="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white font-mono text-xs">
+              <input type="text" id="deploy-strat-id" value="" placeholder="Unique instance ID" oninput="this.dataset.generated='false'" class="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white font-mono text-xs">
             </div>
             <div>
               <label class="block text-gray-400 mb-1">Instrument Target</label>
               <select id="deploy-strat-inst" class="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white font-mono text-xs">
-                <option value="MCX_GOLDM">MCX_GOLDM (Gold Mini)</option>
-                <option value="MCX_SILVERM">MCX_SILVERM (Silver Mini)</option>
-                <option value="MCX_CRUDEOIL">MCX_CRUDEOIL (Crude Oil)</option>
-                <option value="NSE:NIFTY">NSE:NIFTY</option>
+                <option value="">Loading symbols...</option>
               </select>
             </div>
             <button onclick="deployStrategy()" class="w-full py-2.5 bg-emerald-500 hover:bg-emerald-400 text-gray-950 font-bold rounded-xl text-xs transition flex items-center justify-center space-x-2">
@@ -2337,10 +2360,41 @@ trading-platform status</pre>
           }
         }
         renderStrategyCards();
+        syncDeployStrategyCatalog();
         refreshOiRunningState();
         setInterval(refreshOiRunningState, 30000);
       } catch (err) {
         console.error('Failed to load strategy catalog:', err);
+      }
+
+      function syncDeployStrategyCatalog() {
+        const strategySelect = document.getElementById('deploy-strat-name');
+        if (!strategySelect || !catalog.length) return;
+        strategySelect.innerHTML = catalog
+          .filter(s => !s.paper_only_live)
+          .map(s => `<option value="${s.id}">${s.id} (${s.asset_class || s.name})</option>`)
+          .join('');
+        syncDeployStrategyForm();
+      }
+
+      function syncDeployStrategyForm() {
+        const strategyId = document.getElementById('deploy-strat-name')?.value;
+        const strategy = catalog.find(s => s.id === strategyId);
+        const instrumentSelect = document.getElementById('deploy-strat-inst');
+        const idInput = document.getElementById('deploy-strat-id');
+        if (!strategy || !instrumentSelect) return;
+        const symbols = Array.isArray(strategy.allowed_symbols) && strategy.allowed_symbols.length
+          ? strategy.allowed_symbols
+          : (window.GLOBAL_UNIVERSE || []);
+        instrumentSelect.innerHTML = symbols
+          .slice()
+          .sort((a, b) => String(a.label || a.value).localeCompare(String(b.label || b.value)))
+          .map(s => `<option value="${s.value}">${s.label || s.value} (${s.value})</option>`)
+          .join('');
+        if (idInput && (!idInput.value.trim() || idInput.dataset.generated === 'true')) {
+          idInput.value = `${strategy.id}_live_01`;
+          idInput.dataset.generated = 'true';
+        }
       }
     }
 
@@ -3691,14 +3745,15 @@ trading-platform status</pre>
           stratData.active.forEach(s => {
             const el = document.createElement('div');
             el.className = 'p-3.5 bg-gray-950/60 rounded-xl border border-gray-800 flex items-center justify-between';
+            const running = s.is_running === true;
             el.innerHTML = `
               <div>
                 <div class="flex items-center space-x-2">
-                  <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                  <span class="w-2 h-2 rounded-full ${running ? 'bg-emerald-400 animate-pulse' : 'bg-rose-400'}"></span>
                   <span class="font-bold text-xs text-white font-mono">${s.id}</span>
                   <span class="text-[10px] bg-gray-800 text-cyan-300 px-2 py-0.5 rounded font-mono">${s.instrument}</span>
                 </div>
-                <div class="text-[11px] text-gray-400 mt-1">Signals fired: ${s.signals_count} | Status: RUNNING</div>
+                <div class="text-[11px] text-gray-400 mt-1">Signals fired: ${s.signals_count} | Status: ${running ? 'RUNNING' : 'STOPPED'}</div>
               </div>
               <button onclick="stopStrategy('${s.id}')" class="px-3 py-1 bg-rose-950 hover:bg-rose-900 border border-rose-800 text-rose-300 text-xs font-semibold rounded-lg transition">
                 Stop
