@@ -2233,6 +2233,7 @@ trading-platform status</pre>
               <thead class="bg-gray-900/80 text-gray-400 uppercase text-[10px] sticky top-0">
                 <tr>
                   <th class="py-2 px-3">Trade ID</th>
+                  <th class="py-2 px-3">Type</th>
                   <th class="py-2 px-3">Instrument</th>
                   <th class="py-2 px-3">Qty</th>
                   <th class="py-2 px-3">Entry Time</th>
@@ -2244,7 +2245,7 @@ trading-platform status</pre>
               </thead>
               <tbody id="modal-trades-tbody" class="divide-y divide-gray-800/60 text-gray-300">
                 <tr>
-                  <td colspan="8" class="text-center py-6 text-gray-500">Click "Run Backtest" above to execute the simulation and stream trade logs.</td>
+                  <td colspan="9" class="text-center py-6 text-gray-500">Click "Run Backtest" above to execute the simulation and stream trade logs.</td>
                 </tr>
               </tbody>
             </table>
@@ -2550,8 +2551,8 @@ trading-platform status</pre>
       const _pnlTh = document.getElementById('modal-pnl-th');
       if (_pnlTh) _pnlTh.textContent = 'Realized PnL (₹)';
       document.getElementById('modal-trades-tbody').innerHTML = s.paper_only_live
-        ? '<tr><td colspan="8" class="text-center py-6 text-gray-500">Waiting for live paper trades \u2014 entries, exits and PnL stream in here from Angel One WebSocket2 ticks.</td></tr>'
-        : '<tr><td colspan="8" class="text-center py-6 text-gray-500">Click "Run Backtest" above to execute the simulation.</td></tr>';
+        ? '<tr><td colspan="9" class="text-center py-6 text-gray-500">Waiting for live paper trades \u2014 entries, exits and PnL stream in here from Angel One WebSocket2 ticks.</td></tr>'
+        : '<tr><td colspan="9" class="text-center py-6 text-gray-500">Click "Run Backtest" above to execute the simulation.</td></tr>';
       document.getElementById('modal-progress-container').classList.add('hidden');
 
       if (modalEquityChart) {
@@ -2796,6 +2797,18 @@ trading-platform status</pre>
             progressLabel.innerHTML = `<i class="fa-solid fa-microchip fa-spin"></i><span>Processing: ${data.payload.instrument || ''}</span>`;
           });
 
+          eventSource.addEventListener('equity_update', (e) => {
+            const data = JSON.parse(e.data);
+            const point = data.payload.point;
+            if (!point) return;
+            streamingEquity.push(point);
+            renderModalChart(streamingEquity);
+            const label = document.getElementById('modal-chart-label');
+            if (label) {
+              label.textContent = `Streaming portfolio progression | Portfolio: ₹${(point.total_equity || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}`;
+            }
+          });
+
           eventSource.addEventListener('trade_entry', (e) => {
             const data = JSON.parse(e.data);
             const trade = data.payload;
@@ -2806,7 +2819,7 @@ trading-platform status</pre>
               side: trade.side,
               entry_price: trade.entry_price,
               quantity: trade.quantity,
-              entry_time: new Date().toISOString(),
+              entry_time: trade.timestamp,
               status: 'OPEN',
               pnl: 0
             });
@@ -2819,17 +2832,18 @@ trading-platform status</pre>
             const data = JSON.parse(e.data);
             const trade = data.payload;
             
-            // Update the last trade with exit info
-            if (streamingTrades.length > 0) {
-              const lastTrade = streamingTrades[streamingTrades.length - 1];
+            const lastTrade = [...streamingTrades].reverse().find(t =>
+              t.status === 'OPEN' && t.instrument === trade.instrument
+            );
+            if (lastTrade) {
               lastTrade.exit_price = trade.exit_price;
               lastTrade.pnl = trade.pnl;
               lastTrade.status = 'CLOSED';
-              lastTrade.exit_time = new Date().toISOString();
+              lastTrade.exit_time = trade.timestamp;
             }
 
             // Update the table row
-            renderStreamingTradeExit(trade, streamingTrades.length);
+            renderStreamingTradeExit(trade);
           });
 
           eventSource.addEventListener('metrics_update', (e) => {
@@ -2997,18 +3011,20 @@ trading-platform status</pre>
         ? '<span class="inline-block px-2 py-0.5 rounded-full text-[9px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/50">BUY</span>'
         : '<span class="inline-block px-2 py-0.5 rounded-full text-[9px] font-bold bg-rose-500/20 text-rose-300 border border-rose-500/50">SELL</span>';
       
+      row.dataset.instrument = trade.instrument;
+      row.dataset.status = 'OPEN';
       row.innerHTML = `
         <td class="py-2 px-2 text-gray-400">${tradeNum}</td>
         <td class="py-2 px-2">${sideBadge}</td>
         <td class="py-2 px-2 text-cyan-400">${trade.instrument}</td>
-        <td class="py-2 px-2 text-right text-emerald-400">₹${trade.entry_price.toFixed(2)}</td>
-        <td class="py-2 px-2 text-right text-gray-500">-</td>
         <td class="py-2 px-2 text-right">${trade.quantity}</td>
+        <td class="py-2 px-2 text-gray-400">${formatTradeDateTime(trade.timestamp)}</td>
+        <td class="py-2 px-2 text-right text-emerald-400">₹${trade.entry_price.toFixed(2)}</td>
         <td class="py-2 px-2 text-right text-gray-500">-</td>
         <td class="py-2 px-2 text-right"><span class="text-yellow-400 text-[10px]"><i class="fa-solid fa-spinner fa-spin"></i> OPEN</span></td>
       `;
       
-      tbody.appendChild(row);
+      tbody.insertBefore(row, tbody.firstChild);
       
       // Auto-scroll to bottom
       const tradesContainer = tbody.closest('.overflow-y-auto');
@@ -3017,15 +3033,22 @@ trading-platform status</pre>
       }
     }
 
-    function renderStreamingTradeExit(trade, tradeNum) {
+    function renderStreamingTradeExit(trade) {
       // Update the existing row with exit data
-      const row = document.getElementById(`stream-trade-${tradeNum}`);
+      const row = [...document.querySelectorAll('[id^="stream-trade-"]')].reverse().find(candidate =>
+        candidate.dataset.status === 'OPEN' && candidate.dataset.instrument === trade.instrument
+      );
       if (!row) return;
       
-      const exitCell = row.cells[4];
-      const pnlCell = row.cells[6];
-      const statusCell = row.cells[7];
+      const exitTimeCell = row.cells[6];
+      const exitCell = row.cells[7];
+      const pnlCell = row.cells[8];
+      const pnlCell = row.cells[8];
       
+      if (exitTimeCell) {
+        exitTimeCell.textContent = formatTradeDateTime(trade.timestamp);
+        exitTimeCell.className = 'py-2 px-2 text-right text-gray-400';
+      }
       if (exitCell) {
         exitCell.textContent = `₹${trade.exit_price.toFixed(2)}`;
         exitCell.className = 'py-2 px-2 text-right text-rose-400';
@@ -3035,10 +3058,18 @@ trading-platform status</pre>
         const isProfit = trade.pnl >= 0;
         pnlCell.innerHTML = `<span class="font-bold ${isProfit ? 'text-emerald-400' : 'text-rose-400'}">${isProfit ? '+' : ''}₹${trade.pnl.toFixed(2)}</span>`;
       }
-      
-      if (statusCell) {
-        statusCell.innerHTML = '<span class="text-gray-400 text-[10px]"><i class="fa-solid fa-check"></i> CLOSED</span>';
-      }
+      row.dataset.status = 'CLOSED';
+    }
+
+    function formatTradeDateTime(value) {
+      if (!value) return '--';
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) return String(value);
+      return date.toLocaleString('en-IN', {
+        day: '2-digit', month: '2-digit', year: 'numeric',
+        hour: '2-digit', minute: '2-digit', second: '2-digit',
+        hour12: false
+      });
     }
 
     function updateStreamingMetrics(metrics) {
@@ -3107,7 +3138,7 @@ trading-platform status</pre>
       document.getElementById('modal-trades-count').textContent = `${data.trades.length} records`;
 
       if (data.trades.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="8" class="text-center py-6 text-gray-500">No trade signals triggered within selected dates.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="9" class="text-center py-6 text-gray-500">No trade signals triggered within selected dates.</td></tr>';
       } else {
         if (data.mode_badges) {
           const b = Object.entries(data.mode_badges).map(([k, v]) => `${k}: ${v}`).join('  |  ');
@@ -3116,18 +3147,21 @@ trading-platform status</pre>
           const extra = (data.base_trades !== undefined) ? ` | Base ${data.base_trades} (${(data.base_pnl>=0?'+':'')+'₹'+data.base_pnl.toLocaleString('en-IN')}) / Expiry ${data.expiry_trades} (${(data.expiry_pnl>=0?'+':'')+'₹'+data.expiry_pnl.toLocaleString('en-IN')})` : '';
           document.getElementById('modal-chart-label').textContent += extra;
         }
-        data.trades.forEach(t => {
+        [...data.trades].sort((a, b) =>
+          new Date(b.exit_time || b.entry_time || 0) - new Date(a.exit_time || a.entry_time || 0)
+        ).forEach(t => {
           const row = document.createElement('tr');
           const pnlVal = (t.pnl !== undefined ? t.pnl : t.realized_pnl) || 0;
           const pnlClass = pnlVal >= 0 ? 'text-emerald-400' : 'text-rose-400';
           row.className = 'hover:bg-gray-800/40 transition';
           row.innerHTML = `
             <td class="py-2 px-3 text-cyan-400 font-semibold">${t.trade_id}</td>
+            <td class="py-2 px-3">${t.side || (t.action === 'SELL' ? 'SELL' : 'BUY')}</td>
             <td class="py-2 px-3">${t.instrument}</td>
             <td class="py-2 px-3">${t.quantity}</td>
-            <td class="py-2 px-3 text-gray-400">${t.entry_time ? t.entry_time.substring(0, 10) : '--'}</td>
+            <td class="py-2 px-3 text-gray-400">${formatTradeDateTime(t.entry_time)}</td>
             <td class="py-2 px-3">₹${(t.entry_price || 0).toFixed(2)}</td>
-            <td class="py-2 px-3 text-gray-400">${t.exit_time ? t.exit_time.substring(0, 10) : '--'}</td>
+            <td class="py-2 px-3 text-gray-400">${formatTradeDateTime(t.exit_time)}</td>
             <td class="py-2 px-3">₹${(t.exit_price || 0).toFixed(2)}</td>
             <td class="py-2 px-3 text-right font-bold ${pnlClass}">₹${pnlVal.toFixed(2)}</td>
           `;
@@ -3439,9 +3473,10 @@ trading-platform status</pre>
           : `<span class="${unreal >= 0 ? 'text-emerald-400' : 'text-rose-400'}">${unreal >= 0 ? '+' : ''}${inr(unreal)}</span> <span class="text-amber-400 text-[10px]">(unrealized)</span>`;
         rows.push(`<tr class="hover:bg-gray-800/40 transition bg-amber-950/20">
           <td class="py-1.5 px-3 text-amber-300 font-bold">OPEN</td>
+          <td class="py-1.5 px-3">${op.side || '--'}</td>
           <td class="py-1.5 px-3">${op.index || '--'} <span class="text-cyan-400">${op.side || ''}</span> <span class="text-gray-500">(${op.variant || 'base'})</span></td>
           <td class="py-1.5 px-3">${op.qty ?? '--'}</td>
-          <td class="py-1.5 px-3">${fmtPaperTime(op.entry_time)}</td>
+          <td class="py-1.5 px-3">${formatTradeDateTime(op.entry_time)}</td>
           <td class="py-1.5 px-3">${op.entry ? inr(op.entry) : '--'}</td>
           <td class="py-1.5 px-3 text-amber-400">IN PROGRESS</td>
           <td class="py-1.5 px-3">${op.mark ? inr(op.mark) : '--'}</td>
@@ -3450,15 +3485,18 @@ trading-platform status</pre>
       });
 
       // Closed paper trades with realized PnL
-      trades.forEach(t => {
+      [...trades].sort((a, b) =>
+        new Date(b.exit_time || b.entry_time || 0) - new Date(a.exit_time || a.entry_time || 0)
+      ).forEach(t => {
         const pnl = Number(t.paper_pnl || 0);
         rows.push(`<tr class="hover:bg-gray-800/40 transition">
           <td class="py-1.5 px-3 text-cyan-300">${t.paper_id || t.trade_id || '--'}</td>
+          <td class="py-1.5 px-3">${t.side || '--'}</td>
           <td class="py-1.5 px-3">${t.index || '--'} <span class="text-gray-500">(${t.variant || 'base'})</span></td>
           <td class="py-1.5 px-3">${t.qty ?? '--'}</td>
-          <td class="py-1.5 px-3">${fmtPaperTime(t.entry_time)}</td>
+          <td class="py-1.5 px-3">${formatTradeDateTime(t.entry_time)}</td>
           <td class="py-1.5 px-3">${t.entry ? inr(t.entry) : '--'}</td>
-          <td class="py-1.5 px-3">${fmtPaperTime(t.exit_time)}</td>
+          <td class="py-1.5 px-3">${formatTradeDateTime(t.exit_time)}</td>
           <td class="py-1.5 px-3">${t.exit ? inr(t.exit) : '--'}</td>
           <td class="py-1.5 px-3 text-right font-bold ${pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}">${pnl >= 0 ? '+' : ''}${inr(pnl)}<div class="text-[9px] text-gray-500">${t.reason || ''}</div></td>
         </tr>`);
@@ -3466,7 +3504,7 @@ trading-platform status</pre>
 
       tbody.innerHTML = rows.length
         ? rows.join('')
-        : '<tr><td colspan="8" class="text-center py-6 text-gray-500">No paper trades yet. Waiting for OI momentum signals on live Angel One WebSocket2 ticks...</td></tr>';
+        : '<tr><td colspan="9" class="text-center py-6 text-gray-500">No paper trades yet. Waiting for OI momentum signals on live Angel One WebSocket2 ticks...</td></tr>';
 
       const scrollBox = tbody.closest('.overflow-x-auto');
       if (scrollBox) scrollBox.scrollTop = scrollBox.scrollHeight;

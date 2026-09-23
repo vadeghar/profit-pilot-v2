@@ -161,6 +161,9 @@ class BacktestEngine:
                     
                     # Update equity curve
                     self._update_equity(candle)
+                    self._emit("equity_update", {
+                        "point": self._equity_curve[-1],
+                    })
                     
                     # Report progress
                     if self._event_callback and len(candles) > 0:
@@ -362,7 +365,8 @@ class BacktestEngine:
                 "pnl": pnl,
                 "duration": (candle.timestamp - existing_pos['entry_time']).total_seconds(),
                 "quantity": close_qty,
-                "reason": "signal_exit"
+                "reason": "signal_exit",
+                "timestamp": candle.timestamp.isoformat(),
             })
 
             trade = Trade(
@@ -375,7 +379,8 @@ class BacktestEngine:
                 quantity=close_qty,
                 entry_price=existing_pos['entry_price'],
                 exit_price=fill_price,
-                pnl=pnl
+                pnl=pnl,
+                side=existing_pos['side'],
             )
             self._trades.append(trade)
             self._capital += pnl
@@ -399,7 +404,8 @@ class BacktestEngine:
                 "pnl": pnl,
                 "duration": (candle.timestamp - existing_pos['entry_time']).total_seconds(),
                 "quantity": existing_pos['quantity'],
-                "reason": "signal_exit"
+                "reason": "signal_exit",
+                "timestamp": candle.timestamp.isoformat(),
             })
 
             trade = Trade(
@@ -412,7 +418,8 @@ class BacktestEngine:
                 quantity=existing_pos['quantity'],
                 entry_price=existing_pos['entry_price'],
                 exit_price=fill_price,
-                pnl=pnl
+                pnl=pnl,
+                side=existing_pos['side'],
             )
             self._trades.append(trade)
             self._capital += pnl
