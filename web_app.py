@@ -16,7 +16,7 @@ from pathlib import Path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from fastapi import FastAPI, HTTPException, BackgroundTasks, Request
-from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingResponse
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 import asyncio
@@ -51,28 +51,6 @@ execution_engine = ExecutionEngine(mock_broker, {'orderRetryAttempts': 3})
 # Running active strategy instances
 active_strategies: Dict[str, Any] = {}
 recent_backtests: List[Dict[str, Any]] = []
-
-
-@app.get("/.well-known/appspecific/com.chrome.devtools.json")
-def chrome_devtools_config():
-    """Return an empty config for Chrome DevTools' optional discovery request."""
-    return JSONResponse(content={})
-
-
-@app.get("/favicon.ico")
-def favicon():
-    """Serve a small dashboard favicon without requiring a separate asset file."""
-    return Response(
-        content=(
-            '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">'
-            '<rect width="64" height="64" rx="12" fill="#0f172a"/>'
-            '<path d="M12 44 24 31l9 7 17-20" fill="none" stroke="#22d3ee" '
-            'stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>'
-            '<circle cx="50" cy="18" r="4" fill="#34d399"/>'
-            '</svg>'
-        ).encode("utf-8"),
-        media_type="image/svg+xml",
-    )
 
 # Dropdown list shown on spot/equity strategy cards from universe.yaml.
 GLOBAL_UNIVERSE: list[dict[str, str]] = build_dropdown_list()
@@ -429,8 +407,7 @@ def get_strategies():
             {
                 "id": sid,
                 "name": strat.name,
-                "instrument": getattr(strat, "instrument", None)
-                              or strat.params.get("instrument", "NSE:NIFTY"),
+                "instrument": getattr(strat, "instrument", "NSE:NIFTY"),
                 "is_running": strat.is_running,
                 "signals_count": len(strat.get_signals()),
                 "indicators": strat._indicators
@@ -828,47 +805,22 @@ def cancel_backtest_stream(job_id: str):
 @app.post("/api/strategy/start")
 def start_strategy(req: StrategyStartRequest):
     """Start an interactive strategy in the live mock engine"""
-    catalog_entry = STRATEGY_CATALOG.get(req.strategy_name)
-    if not catalog_entry:
-        raise HTTPException(status_code=400, detail=f"Unknown strategy {req.strategy_name}")
-    if req.strategy_id.strip() == "":
-        raise HTTPException(status_code=400, detail="Strategy instance ID is required")
-    instrument = req.instrument.strip()
-    allowed = {item["value"] for item in catalog_entry.get("allowed_symbols", [])}
-    if allowed and instrument not in allowed:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Instrument {instrument} is not allowed for {req.strategy_name}",
-        )
     if req.strategy_id in active_strategies:
         raise HTTPException(status_code=400, detail=f"Strategy {req.strategy_id} already running")
     
-    params = dict(req.params or {})
-    params["instrument"] = instrument
+    params = req.params or {}
+    params["instrument"] = req.instrument
     
     try:
-        defaults = dict(catalog_entry.get("default_params") or {})
-        defaults.update(params)
-        strat = StrategyRegistry.create(req.strategy_name, req.strategy_id, defaults)
+        strat = StrategyRegistry.create(req.strategy_name, req.strategy_id, params)
         strat.initialize()
         strat.start()
-        def on_tick(tick):
-            signal = strat.on_tick(tick)
-            if signal is None:
-                return
-            strat.add_signal(signal)
-            result = execution_engine.execute_signal(signal)
-            if not result.success:
-                strat.logger.error(f"Live signal execution failed: {result.error}")
-
-        market_data.subscribe(instrument, on_tick)
-        strat._live_callback = on_tick
-        strat._live_instrument = instrument
         active_strategies[req.strategy_id] = strat
+        
+        # Subscribe mock market data
+        market_data.subscribe(req.instrument, strat.on_tick)
         return {"status": "SUCCESS", "message": f"Strategy {req.strategy_id} started successfully"}
     except Exception as e:
-        if 'strat' in locals():
-            strat.stop()
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -880,10 +832,6 @@ def stop_strategy(strategy_id: str):
     
     strat = active_strategies[strategy_id]
     strat.stop()
-    instrument = getattr(strat, "_live_instrument", None)
-    callback = getattr(strat, "_live_callback", None)
-    if instrument and callback:
-        market_data.unsubscribe(instrument, callback)
     del active_strategies[strategy_id]
     return {"status": "SUCCESS", "message": f"Strategy {strategy_id} stopped"}
 
@@ -1637,7 +1585,6 @@ def get_auto_start_config():
 @app.on_event("startup")
 async def startup_event():
     """Start OI paper session automatically on app startup if market is open."""
-    market_data.start()
     # Run in a thread pool since start() is blocking
     loop = asyncio.get_event_loop()
     await loop.run_in_executor(None, lambda: start_auto_paper_session())
@@ -1814,18 +1761,26 @@ DASHBOARD_HTML = """<!DOCTYPE html>
           <div class="space-y-3 text-xs">
             <div>
               <label class="block text-gray-400 mb-1">Strategy Name</label>
-              <select id="deploy-strat-name" onchange="syncDeployStrategyForm()" class="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white font-mono text-xs">
-                <option value="">Loading strategies...</option>
+              <select id="deploy-strat-name" class="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white font-mono text-xs">
+                <option value="mcx_trend_rider">mcx_trend_rider (MCX Futures)</option>
+                <option value="ema_crossover">ema_crossover (NSE)</option>
+                <option value="rsi">rsi (NSE)</option>
+                <option value="breakout">breakout (NSE)</option>
+                <option value="equity_swing_vcp">equity_swing_vcp (NSE Equities)</option>
+                <option value="index_oi_momentum">index_oi_momentum (NSE/BSE Index Options)</option>
               </select>
             </div>
             <div>
               <label class="block text-gray-400 mb-1">Instance Unique ID</label>
-              <input type="text" id="deploy-strat-id" value="" placeholder="Unique instance ID" oninput="this.dataset.generated='false'" class="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white font-mono text-xs">
+              <input type="text" id="deploy-strat-id" value="mcx_tr_live_01" class="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white font-mono text-xs">
             </div>
             <div>
               <label class="block text-gray-400 mb-1">Instrument Target</label>
               <select id="deploy-strat-inst" class="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white font-mono text-xs">
-                <option value="">Loading symbols...</option>
+                <option value="MCX_GOLDM">MCX_GOLDM (Gold Mini)</option>
+                <option value="MCX_SILVERM">MCX_SILVERM (Silver Mini)</option>
+                <option value="MCX_CRUDEOIL">MCX_CRUDEOIL (Crude Oil)</option>
+                <option value="NSE:NIFTY">NSE:NIFTY</option>
               </select>
             </div>
             <button onclick="deployStrategy()" class="w-full py-2.5 bg-emerald-500 hover:bg-emerald-400 text-gray-950 font-bold rounded-xl text-xs transition flex items-center justify-center space-x-2">
@@ -2278,7 +2233,6 @@ trading-platform status</pre>
               <thead class="bg-gray-900/80 text-gray-400 uppercase text-[10px] sticky top-0">
                 <tr>
                   <th class="py-2 px-3">Trade ID</th>
-                  <th class="py-2 px-3">Type</th>
                   <th class="py-2 px-3">Instrument</th>
                   <th class="py-2 px-3">Qty</th>
                   <th class="py-2 px-3">Entry Time</th>
@@ -2290,7 +2244,7 @@ trading-platform status</pre>
               </thead>
               <tbody id="modal-trades-tbody" class="divide-y divide-gray-800/60 text-gray-300">
                 <tr>
-                  <td colspan="9" class="text-center py-6 text-gray-500">Click "Run Backtest" above to execute the simulation and stream trade logs.</td>
+                  <td colspan="8" class="text-center py-6 text-gray-500">Click "Run Backtest" above to execute the simulation and stream trade logs.</td>
                 </tr>
               </tbody>
             </table>
@@ -2360,41 +2314,10 @@ trading-platform status</pre>
           }
         }
         renderStrategyCards();
-        syncDeployStrategyCatalog();
         refreshOiRunningState();
         setInterval(refreshOiRunningState, 30000);
       } catch (err) {
         console.error('Failed to load strategy catalog:', err);
-      }
-    }
-
-    function syncDeployStrategyCatalog() {
-      const strategySelect = document.getElementById('deploy-strat-name');
-      if (!strategySelect || !catalog.length) return;
-      strategySelect.innerHTML = catalog
-        .filter(s => !s.paper_only_live)
-        .map(s => `<option value="${s.id}">${s.name || s.id}</option>`)
-        .join('');
-      syncDeployStrategyForm();
-    }
-
-    function syncDeployStrategyForm() {
-      const strategyId = document.getElementById('deploy-strat-name')?.value;
-      const strategy = catalog.find(s => s.id === strategyId);
-      const instrumentSelect = document.getElementById('deploy-strat-inst');
-      const idInput = document.getElementById('deploy-strat-id');
-      if (!strategy || !instrumentSelect) return;
-      const symbols = Array.isArray(strategy.allowed_symbols) && strategy.allowed_symbols.length
-        ? strategy.allowed_symbols
-        : (window.GLOBAL_UNIVERSE || []);
-      instrumentSelect.innerHTML = symbols
-        .slice()
-        .sort((a, b) => String(a.label || a.value).localeCompare(String(b.label || b.value)))
-        .map(s => `<option value="${s.value}">${s.label || s.value}</option>`)
-        .join('');
-      if (idInput && (!idInput.value.trim() || idInput.dataset.generated === 'true')) {
-        idInput.value = `${strategy.id}_live_01`;
-        idInput.dataset.generated = 'true';
       }
     }
 
@@ -2627,8 +2550,8 @@ trading-platform status</pre>
       const _pnlTh = document.getElementById('modal-pnl-th');
       if (_pnlTh) _pnlTh.textContent = 'Realized PnL (₹)';
       document.getElementById('modal-trades-tbody').innerHTML = s.paper_only_live
-        ? '<tr><td colspan="9" class="text-center py-6 text-gray-500">Waiting for live paper trades \u2014 entries, exits and PnL stream in here from Angel One WebSocket2 ticks.</td></tr>'
-        : '<tr><td colspan="9" class="text-center py-6 text-gray-500">Click "Run Backtest" above to execute the simulation.</td></tr>';
+        ? '<tr><td colspan="8" class="text-center py-6 text-gray-500">Waiting for live paper trades \u2014 entries, exits and PnL stream in here from Angel One WebSocket2 ticks.</td></tr>'
+        : '<tr><td colspan="8" class="text-center py-6 text-gray-500">Click "Run Backtest" above to execute the simulation.</td></tr>';
       document.getElementById('modal-progress-container').classList.add('hidden');
 
       if (modalEquityChart) {
@@ -2873,18 +2796,6 @@ trading-platform status</pre>
             progressLabel.innerHTML = `<i class="fa-solid fa-microchip fa-spin"></i><span>Processing: ${data.payload.instrument || ''}</span>`;
           });
 
-          eventSource.addEventListener('equity_update', (e) => {
-            const data = JSON.parse(e.data);
-            const point = data.payload.point;
-            if (!point) return;
-            streamingEquity.push(point);
-            renderModalChart(streamingEquity);
-            const label = document.getElementById('modal-chart-label');
-            if (label) {
-              label.textContent = `Streaming portfolio progression | Portfolio: ₹${(point.total_equity || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}`;
-            }
-          });
-
           eventSource.addEventListener('trade_entry', (e) => {
             const data = JSON.parse(e.data);
             const trade = data.payload;
@@ -2895,7 +2806,7 @@ trading-platform status</pre>
               side: trade.side,
               entry_price: trade.entry_price,
               quantity: trade.quantity,
-              entry_time: trade.timestamp,
+              entry_time: new Date().toISOString(),
               status: 'OPEN',
               pnl: 0
             });
@@ -2908,18 +2819,17 @@ trading-platform status</pre>
             const data = JSON.parse(e.data);
             const trade = data.payload;
             
-            const lastTrade = [...streamingTrades].reverse().find(t =>
-              t.status === 'OPEN' && t.instrument === trade.instrument
-            );
-            if (lastTrade) {
+            // Update the last trade with exit info
+            if (streamingTrades.length > 0) {
+              const lastTrade = streamingTrades[streamingTrades.length - 1];
               lastTrade.exit_price = trade.exit_price;
               lastTrade.pnl = trade.pnl;
               lastTrade.status = 'CLOSED';
-              lastTrade.exit_time = trade.timestamp;
+              lastTrade.exit_time = new Date().toISOString();
             }
 
             // Update the table row
-            renderStreamingTradeExit(trade);
+            renderStreamingTradeExit(trade, streamingTrades.length);
           });
 
           eventSource.addEventListener('metrics_update', (e) => {
@@ -3087,21 +2997,18 @@ trading-platform status</pre>
         ? '<span class="inline-block px-2 py-0.5 rounded-full text-[9px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/50">BUY</span>'
         : '<span class="inline-block px-2 py-0.5 rounded-full text-[9px] font-bold bg-rose-500/20 text-rose-300 border border-rose-500/50">SELL</span>';
       
-      row.dataset.instrument = trade.instrument;
-      row.dataset.status = 'OPEN';
       row.innerHTML = `
         <td class="py-2 px-2 text-gray-400">${tradeNum}</td>
         <td class="py-2 px-2">${sideBadge}</td>
         <td class="py-2 px-2 text-cyan-400">${trade.instrument}</td>
-        <td class="py-2 px-2 text-right">${trade.quantity}</td>
-        <td class="py-2 px-2 text-gray-400">${formatTradeDateTime(trade.timestamp)}</td>
         <td class="py-2 px-2 text-right text-emerald-400">₹${trade.entry_price.toFixed(2)}</td>
         <td class="py-2 px-2 text-right text-gray-500">-</td>
+        <td class="py-2 px-2 text-right">${trade.quantity}</td>
         <td class="py-2 px-2 text-right text-gray-500">-</td>
         <td class="py-2 px-2 text-right"><span class="text-yellow-400 text-[10px]"><i class="fa-solid fa-spinner fa-spin"></i> OPEN</span></td>
       `;
       
-      tbody.insertBefore(row, tbody.firstChild);
+      tbody.appendChild(row);
       
       // Auto-scroll to bottom
       const tradesContainer = tbody.closest('.overflow-y-auto');
@@ -3110,21 +3017,15 @@ trading-platform status</pre>
       }
     }
 
-    function renderStreamingTradeExit(trade) {
+    function renderStreamingTradeExit(trade, tradeNum) {
       // Update the existing row with exit data
-      const row = [...document.querySelectorAll('[id^="stream-trade-"]')].reverse().find(candidate =>
-        candidate.dataset.status === 'OPEN' && candidate.dataset.instrument === trade.instrument
-      );
+      const row = document.getElementById(`stream-trade-${tradeNum}`);
       if (!row) return;
       
-      const exitTimeCell = row.cells[6];
-      const exitCell = row.cells[7];
-      const pnlCell = row.cells[8];
+      const exitCell = row.cells[4];
+      const pnlCell = row.cells[6];
+      const statusCell = row.cells[7];
       
-      if (exitTimeCell) {
-        exitTimeCell.textContent = formatTradeDateTime(trade.timestamp);
-        exitTimeCell.className = 'py-2 px-2 text-right text-gray-400';
-      }
       if (exitCell) {
         exitCell.textContent = `₹${trade.exit_price.toFixed(2)}`;
         exitCell.className = 'py-2 px-2 text-right text-rose-400';
@@ -3134,18 +3035,10 @@ trading-platform status</pre>
         const isProfit = trade.pnl >= 0;
         pnlCell.innerHTML = `<span class="font-bold ${isProfit ? 'text-emerald-400' : 'text-rose-400'}">${isProfit ? '+' : ''}₹${trade.pnl.toFixed(2)}</span>`;
       }
-      row.dataset.status = 'CLOSED';
-    }
-
-    function formatTradeDateTime(value) {
-      if (!value) return '--';
-      const date = new Date(value);
-      if (Number.isNaN(date.getTime())) return String(value);
-      return date.toLocaleString('en-IN', {
-        day: '2-digit', month: '2-digit', year: 'numeric',
-        hour: '2-digit', minute: '2-digit', second: '2-digit',
-        hour12: false, timeZone: 'Asia/Kolkata'
-      });
+      
+      if (statusCell) {
+        statusCell.innerHTML = '<span class="text-gray-400 text-[10px]"><i class="fa-solid fa-check"></i> CLOSED</span>';
+      }
     }
 
     function updateStreamingMetrics(metrics) {
@@ -3214,7 +3107,7 @@ trading-platform status</pre>
       document.getElementById('modal-trades-count').textContent = `${data.trades.length} records`;
 
       if (data.trades.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="9" class="text-center py-6 text-gray-500">No trade signals triggered within selected dates.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="8" class="text-center py-6 text-gray-500">No trade signals triggered within selected dates.</td></tr>';
       } else {
         if (data.mode_badges) {
           const b = Object.entries(data.mode_badges).map(([k, v]) => `${k}: ${v}`).join('  |  ');
@@ -3223,21 +3116,18 @@ trading-platform status</pre>
           const extra = (data.base_trades !== undefined) ? ` | Base ${data.base_trades} (${(data.base_pnl>=0?'+':'')+'₹'+data.base_pnl.toLocaleString('en-IN')}) / Expiry ${data.expiry_trades} (${(data.expiry_pnl>=0?'+':'')+'₹'+data.expiry_pnl.toLocaleString('en-IN')})` : '';
           document.getElementById('modal-chart-label').textContent += extra;
         }
-        [...data.trades].sort((a, b) =>
-          new Date(b.exit_time || b.entry_time || 0) - new Date(a.exit_time || a.entry_time || 0)
-        ).forEach(t => {
+        data.trades.forEach(t => {
           const row = document.createElement('tr');
           const pnlVal = (t.pnl !== undefined ? t.pnl : t.realized_pnl) || 0;
           const pnlClass = pnlVal >= 0 ? 'text-emerald-400' : 'text-rose-400';
           row.className = 'hover:bg-gray-800/40 transition';
           row.innerHTML = `
             <td class="py-2 px-3 text-cyan-400 font-semibold">${t.trade_id}</td>
-            <td class="py-2 px-3">${t.side || (t.action === 'SELL' ? 'SELL' : 'BUY')}</td>
             <td class="py-2 px-3">${t.instrument}</td>
             <td class="py-2 px-3">${t.quantity}</td>
-            <td class="py-2 px-3 text-gray-400">${formatTradeDateTime(t.entry_time)}</td>
+            <td class="py-2 px-3 text-gray-400">${t.entry_time ? t.entry_time.substring(0, 10) : '--'}</td>
             <td class="py-2 px-3">₹${(t.entry_price || 0).toFixed(2)}</td>
-            <td class="py-2 px-3 text-gray-400">${formatTradeDateTime(t.exit_time)}</td>
+            <td class="py-2 px-3 text-gray-400">${t.exit_time ? t.exit_time.substring(0, 10) : '--'}</td>
             <td class="py-2 px-3">₹${(t.exit_price || 0).toFixed(2)}</td>
             <td class="py-2 px-3 text-right font-bold ${pnlClass}">₹${pnlVal.toFixed(2)}</td>
           `;
@@ -3252,28 +3142,10 @@ trading-platform status</pre>
         modalEquityChart.destroy();
       }
 
-      const labels = curve.map(pt => pt.timestamp || pt.t || '');
+      const labels = curve.map((pt, i) => i + 1);
       const values = curve.map(pt => (pt.total_equity !== undefined ? pt.total_equity : pt.value));
-      const crosshairPlugin = {
-        id: 'modalEquityCrosshair',
-        afterDraw(chart) {
-          if (chart._activeCrosshairX === undefined) return;
-          const {ctx, chartArea} = chart;
-          if (!chartArea) return;
-          ctx.save();
-          ctx.strokeStyle = 'rgba(148, 163, 184, 0.8)';
-          ctx.lineWidth = 1;
-          ctx.setLineDash([4, 4]);
-          ctx.beginPath();
-          ctx.moveTo(chart._activeCrosshairX, chartArea.top);
-          ctx.lineTo(chart._activeCrosshairX, chartArea.bottom);
-          ctx.stroke();
-          ctx.restore();
-        }
-      };
 
       modalEquityChart = new Chart(ctx, {
-        plugins: [crosshairPlugin],
         type: 'line',
         data: {
           labels: labels,
@@ -3291,43 +3163,16 @@ trading-platform status</pre>
         options: {
           responsive: true,
           maintainAspectRatio: false,
-          animation: false,
-          interaction: {
-            mode: 'index',
-            intersect: false
-          },
-          onHover(event, active) {
-            const chart = event.chart;
-            chart._activeCrosshairX = active.length ? active[0].element.x : undefined;
-            chart.draw();
-          },
           plugins: {
             legend: { display: false },
             tooltip: {
-              mode: 'index',
-              intersect: false,
               callbacks: {
-                title: (items) => items.length ? formatTradeDateTime(items[0].label) : '',
                 label: (ctx) => `Equity: ₹${ctx.parsed.y.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`
               }
             }
           },
           scales: {
-            x: {
-              display: true,
-              ticks: {
-                color: '#94a3b8',
-                maxTicksLimit: 8,
-                maxRotation: 0,
-                callback: (value, index) => {
-                  const label = labels[index];
-                  if (!label) return '';
-                  const date = new Date(label);
-                  return Number.isNaN(date.getTime()) ? label : formatTradeDateTime(label);
-                }
-              },
-              grid: { color: 'rgba(255, 255, 255, 0.05)' }
-            },
+            x: { display: false },
             y: {
               grid: { color: 'rgba(255, 255, 255, 0.05)' },
               ticks: {
@@ -3594,10 +3439,9 @@ trading-platform status</pre>
           : `<span class="${unreal >= 0 ? 'text-emerald-400' : 'text-rose-400'}">${unreal >= 0 ? '+' : ''}${inr(unreal)}</span> <span class="text-amber-400 text-[10px]">(unrealized)</span>`;
         rows.push(`<tr class="hover:bg-gray-800/40 transition bg-amber-950/20">
           <td class="py-1.5 px-3 text-amber-300 font-bold">OPEN</td>
-          <td class="py-1.5 px-3">${op.side || '--'}</td>
           <td class="py-1.5 px-3">${op.index || '--'} <span class="text-cyan-400">${op.side || ''}</span> <span class="text-gray-500">(${op.variant || 'base'})</span></td>
           <td class="py-1.5 px-3">${op.qty ?? '--'}</td>
-          <td class="py-1.5 px-3">${formatTradeDateTime(op.entry_time)}</td>
+          <td class="py-1.5 px-3">${fmtPaperTime(op.entry_time)}</td>
           <td class="py-1.5 px-3">${op.entry ? inr(op.entry) : '--'}</td>
           <td class="py-1.5 px-3 text-amber-400">IN PROGRESS</td>
           <td class="py-1.5 px-3">${op.mark ? inr(op.mark) : '--'}</td>
@@ -3606,18 +3450,15 @@ trading-platform status</pre>
       });
 
       // Closed paper trades with realized PnL
-      [...trades].sort((a, b) =>
-        new Date(b.exit_time || b.entry_time || 0) - new Date(a.exit_time || a.entry_time || 0)
-      ).forEach(t => {
+      trades.forEach(t => {
         const pnl = Number(t.paper_pnl || 0);
         rows.push(`<tr class="hover:bg-gray-800/40 transition">
           <td class="py-1.5 px-3 text-cyan-300">${t.paper_id || t.trade_id || '--'}</td>
-          <td class="py-1.5 px-3">${t.side || '--'}</td>
           <td class="py-1.5 px-3">${t.index || '--'} <span class="text-gray-500">(${t.variant || 'base'})</span></td>
           <td class="py-1.5 px-3">${t.qty ?? '--'}</td>
-          <td class="py-1.5 px-3">${formatTradeDateTime(t.entry_time)}</td>
+          <td class="py-1.5 px-3">${fmtPaperTime(t.entry_time)}</td>
           <td class="py-1.5 px-3">${t.entry ? inr(t.entry) : '--'}</td>
-          <td class="py-1.5 px-3">${formatTradeDateTime(t.exit_time)}</td>
+          <td class="py-1.5 px-3">${fmtPaperTime(t.exit_time)}</td>
           <td class="py-1.5 px-3">${t.exit ? inr(t.exit) : '--'}</td>
           <td class="py-1.5 px-3 text-right font-bold ${pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}">${pnl >= 0 ? '+' : ''}${inr(pnl)}<div class="text-[9px] text-gray-500">${t.reason || ''}</div></td>
         </tr>`);
@@ -3625,7 +3466,7 @@ trading-platform status</pre>
 
       tbody.innerHTML = rows.length
         ? rows.join('')
-        : '<tr><td colspan="9" class="text-center py-6 text-gray-500">No paper trades yet. Waiting for OI momentum signals on live Angel One WebSocket2 ticks...</td></tr>';
+        : '<tr><td colspan="8" class="text-center py-6 text-gray-500">No paper trades yet. Waiting for OI momentum signals on live Angel One WebSocket2 ticks...</td></tr>';
 
       const scrollBox = tbody.closest('.overflow-x-auto');
       if (scrollBox) scrollBox.scrollTop = scrollBox.scrollHeight;
@@ -3745,15 +3586,14 @@ trading-platform status</pre>
           stratData.active.forEach(s => {
             const el = document.createElement('div');
             el.className = 'p-3.5 bg-gray-950/60 rounded-xl border border-gray-800 flex items-center justify-between';
-            const running = s.is_running === true;
             el.innerHTML = `
               <div>
                 <div class="flex items-center space-x-2">
-                  <span class="w-2 h-2 rounded-full ${running ? 'bg-emerald-400 animate-pulse' : 'bg-rose-400'}"></span>
+                  <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
                   <span class="font-bold text-xs text-white font-mono">${s.id}</span>
                   <span class="text-[10px] bg-gray-800 text-cyan-300 px-2 py-0.5 rounded font-mono">${s.instrument}</span>
                 </div>
-                <div class="text-[11px] text-gray-400 mt-1">Signals fired: ${s.signals_count} | Status: ${running ? 'RUNNING' : 'STOPPED'}</div>
+                <div class="text-[11px] text-gray-400 mt-1">Signals fired: ${s.signals_count} | Status: RUNNING</div>
               </div>
               <button onclick="stopStrategy('${s.id}')" class="px-3 py-1 bg-rose-950 hover:bg-rose-900 border border-rose-800 text-rose-300 text-xs font-semibold rounded-lg transition">
                 Stop

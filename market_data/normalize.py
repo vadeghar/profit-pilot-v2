@@ -144,6 +144,14 @@ def normalize_timestamp(value: Any) -> datetime:
     raise ValueError(f"Unparseable candle timestamp: {value!r}")
 
 
+def session_timestamp(timestamp: datetime, timeframe: str) -> datetime:
+    """Use the market-session close as the timestamp for daily candles."""
+    canonical = normalize_timeframe(timeframe)
+    if canonical == "1d":
+        return timestamp.replace(hour=15, minute=30, second=0, microsecond=0)
+    return timestamp
+
+
 # ---------------------------------------------------------------------------
 # NormalizedCandle
 # ---------------------------------------------------------------------------
@@ -303,10 +311,13 @@ def candles_from_rows(rows: Iterable[Any], instrument: str, timeframe: str,
             skipped += 1
             continue
         try:
+            candle_timeframe = normalize_timeframe(timeframe)
             out.append(NormalizedCandle(
-                timestamp=normalize_timestamp(ts_raw),
+                timestamp=session_timestamp(
+                    normalize_timestamp(ts_raw), candle_timeframe
+                ),
                 open=o, high=h, low=l, close=c, volume=v or 0.0,
-                instrument=instrument, timeframe=timeframe,
+                instrument=instrument, timeframe=candle_timeframe,
                 open_interest=oi, vwap=vw,
                 trades_count=int(tc) if tc is not None else None,
                 provider=provider, source_symbol=source_symbol,
@@ -481,8 +492,5 @@ def resample_candles(df: pd.DataFrame, target_timeframe: str) -> pd.DataFrame:
     if "open_interest" in df.columns:
         resampled["open_interest"] = df["open_interest"].resample(freq).last()
     return resampled
-
-
-
 
 
