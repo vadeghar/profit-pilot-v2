@@ -2318,6 +2318,29 @@ trading-platform status</pre>
                 <i class="fa-solid fa-satellite-dish"></i><span>RUN PAPER LIVE (confirm)</span>
               </button>
             </div>
+            <div id="four-indicator-paper-box" class="hidden p-2 bg-gray-950/60 border border-cyan-500/30 rounded-lg text-[11px] space-y-1.5">
+              <div class="text-cyan-300 font-bold flex items-center space-x-1.5"><i class="fa-solid fa-satellite-dish"></i><span>Live paper trading — same rules as the backtest, no real orders</span></div>
+              <div class="grid grid-cols-2 gap-2">
+                <div>
+                  <label class="block text-gray-500 mb-0.5">Capital (₹)</label>
+                  <input id="fi-paper-capital" type="number" value="100000" step="10000" class="w-full bg-gray-900 border border-gray-700 rounded px-2 py-1 text-white font-mono text-[11px] focus:outline-none focus:border-cyan-500">
+                </div>
+                <div>
+                  <label class="block text-gray-500 mb-0.5">Capital / lot (₹)</label>
+                  <input id="fi-paper-capital-per-lot" type="number" value="50000" step="5000" class="w-full bg-gray-900 border border-gray-700 rounded px-2 py-1 text-white font-mono text-[11px] focus:outline-none focus:border-cyan-500">
+                </div>
+              </div>
+              <button onclick="startFourIndicatorPaper()" id="btn-fi-paper-start" class="w-full py-1.5 mt-1 bg-gradient-to-r from-cyan-500 to-emerald-500 hover:from-cyan-400 hover:to-emerald-400 text-gray-950 font-bold rounded-lg shadow transition flex items-center justify-center space-x-2">
+                <i class="fa-solid fa-satellite-dish"></i><span>START PAPER TRADING</span>
+              </button>
+              <div id="fi-paper-status" class="hidden mt-1 p-2 bg-emerald-950/60 border border-emerald-500/30 rounded-lg space-y-1.5">
+                <div class="text-emerald-300 font-bold flex items-center space-x-1.5"><span class="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span><span>PAPER SESSION RUNNING</span></div>
+                <div id="fi-paper-status-text" class="text-gray-300 font-mono text-[10px]">--</div>
+                <button onclick="stopFourIndicatorPaper()" class="w-full py-1.5 mt-1 bg-gradient-to-r from-rose-500 to-rose-600 hover:from-rose-400 hover:to-rose-500 text-gray-950 font-bold rounded-lg shadow transition flex items-center justify-center space-x-2">
+                  <i class="fa-solid fa-stop"></i><span>STOP PAPER SESSION</span>
+                </button>
+              </div>
+            </div>
           </div>
 
         </div>
@@ -2627,6 +2650,7 @@ trading-platform status</pre>
         renderStrategyCards();
         refreshOiRunningState();
         setInterval(refreshOiRunningState, 30000);
+        refreshFourIndicatorPaperStatus();
       } catch (err) {
         console.error('Failed to load strategy catalog:', err);
       }
@@ -2640,7 +2664,8 @@ trading-platform status</pre>
         const card = document.createElement('div');
         // Fixed size responsive card with cursor pointer
         const isOIPaperRunning = !!(window._oiRunning && window._oiRunning[s.id]);
-        const cardBorderClass = isOIPaperRunning ? 'border-emerald-500/60' : 'border-gray-800 hover:border-cyan-500/60';
+        const isFiPaperRunning = !!(window._fiPaperRunning && s.id === 'four_indicator_system');
+        const cardBorderClass = (isOIPaperRunning || isFiPaperRunning) ? 'border-emerald-500/60' : 'border-gray-800 hover:border-cyan-500/60';
         // Card stays clickable while running so the live paper trades can be inspected in the modal.
         // Only the "Run Paper Live" action is disabled while a session is active.
         card.className = `glass-card p-5 rounded-2xl border ${cardBorderClass} transition-all duration-200 hover:-translate-y-1 cursor-pointer flex flex-col justify-between h-[340px] group`;
@@ -2690,11 +2715,13 @@ trading-platform status</pre>
             <div class="text-[11px] font-mono">
               <span class="text-gray-500">Benchmark:</span>
               <span class="font-bold text-emerald-400 ml-1">${s.historical_stats.return_pct}</span>
-              ${(window._oiRunning && window._oiRunning[s.id]) ? '<div class="mt-1 text-[10px] font-bold text-emerald-300 flex items-center space-x-1"><span class="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span><span>RUNNING</span></div>' : ''}
-               ${(s.paper_only_live && !(window._oiRunning && window._oiRunning[s.id])) ? '<div class="mt-1 text-[9px] text-amber-500">Paper Live Only</div>' : ''}
+              ${(isOIPaperRunning || isFiPaperRunning) ? '<div class="mt-1 text-[10px] font-bold text-emerald-300 flex items-center space-x-1"><span class="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span><span>PAPER RUNNING</span></div>' : ''}
+               ${(s.paper_only_live && !isOIPaperRunning) ? '<div class="mt-1 text-[9px] text-amber-500">Paper Live Only</div>' : ''}
             </div>
-            ${(window._oiRunning && window._oiRunning[s.id])
+            ${isOIPaperRunning
               ? `<button onclick="event.stopPropagation(); cardStopOiPaper('${s.id}')" class="px-3 py-1 bg-rose-500/20 hover:bg-rose-500 text-rose-300 hover:text-white font-bold text-xs rounded-lg transition flex items-center space-x-1"><i class="fa-solid fa-stop text-[10px]"></i><span>Stop</span></button>`
+              : isFiPaperRunning
+              ? `<button onclick="event.stopPropagation(); cardStopFourIndicatorPaper()" class="px-3 py-1 bg-rose-500/20 hover:bg-rose-500 text-rose-300 hover:text-white font-bold text-xs rounded-lg transition flex items-center space-x-1"><i class="fa-solid fa-stop text-[10px]"></i><span>Stop</span></button>`
               : `<button class="px-3 py-1 bg-cyan-500/20 hover:bg-cyan-500 group-hover:bg-cyan-500 text-cyan-300 group-hover:text-gray-950 font-bold text-xs rounded-lg transition flex items-center space-x-1"><span>Test</span><i class="fa-solid fa-arrow-right text-[10px]"></i></button>`}
           </div>
         `;
@@ -2802,6 +2829,13 @@ trading-platform status</pre>
       // Re-attach to a running paper session so the trades table keeps streaming after the modal reopen
       window._oiPaperSessionId = (window._oiRunning && window._oiRunning[s.id]) || null;
       if (window._oiPaperSessionId) { setTimeout(pollOiPaperStatus, 300); }
+
+      // Four Indicator System: independent paper-trading box (co-exists with Run Backtest)
+      const fiBox = document.getElementById('four-indicator-paper-box');
+      if (fiBox) {
+        if (s.id === 'four_indicator_system') { fiBox.classList.remove('hidden'); refreshFourIndicatorPaperStatus(); }
+        else { fiBox.classList.add('hidden'); if (window._fiPaperPollTimer) { clearInterval(window._fiPaperPollTimer); window._fiPaperPollTimer = null; } }
+      }
 
       // For paper-only strategies (index_oi_momentum), hide the Run Backtest button
       // and show appropriate status. For other strategies, ensure the button is visible.
@@ -3806,6 +3840,128 @@ trading-platform status</pre>
           const cache = window._oiLegCache || {};
           Object.values(cache).forEach(c => { if (typeof c.tick_age_s === 'number') c.tick_age_s += 1; });
         }, 1000); }
+    }
+
+    // ---------------------------------------------------------------------
+    // Four Indicator System: dedicated live paper-trading controls
+    // ---------------------------------------------------------------------
+    async function refreshFourIndicatorPaperStatus() {
+      try {
+        const res = await fetch('/api/paper/four-indicator/status');
+        if (res.status === 404) { window._fiPaperRunning = false; syncFourIndicatorPaperUI(null); return; }
+        const data = await res.json();
+        const wasRunning = window._fiPaperRunning;
+        window._fiPaperRunning = data.status === 'RUNNING';
+        syncFourIndicatorPaperUI(data);
+        if (wasRunning !== window._fiPaperRunning) renderStrategyCards();
+        if (window._fiPaperRunning && !window._fiPaperPollTimer) {
+          window._fiPaperPollTimer = setInterval(pollFourIndicatorPaperStatus, 5000);
+        }
+      } catch (e) { /* silent: status view only */ }
+    }
+
+    function syncFourIndicatorPaperUI(data) {
+      const startBtn = document.getElementById('btn-fi-paper-start');
+      const statusBox = document.getElementById('fi-paper-status');
+      const running = !!(data && data.status === 'RUNNING');
+      if (startBtn) startBtn.classList.toggle('hidden', running);
+      if (statusBox) statusBox.classList.toggle('hidden', !running);
+      if (data) renderFourIndicatorStatusText(data);
+    }
+
+    function renderFourIndicatorStatusText(data) {
+      const el = document.getElementById('fi-paper-status-text');
+      if (!el) return;
+      const bal = (data.balance || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 });
+      const trades = (data.trades || []).length;
+      const open = data.open_trade
+        ? `${data.open_trade.side} ${data.open_trade.strike} @ ₹${data.open_trade.entry_premium.toFixed(2)} (${data.open_trade.lots} lots)`
+        : 'flat';
+      const err = data.last_error ? ` | <span class="text-rose-400">${data.last_error}</span>` : '';
+      el.innerHTML = `Balance: ₹${bal} | Closed trades: ${trades} | Open: ${open}${err}`;
+      renderFourIndicatorTradesTable(data);
+    }
+
+    function renderFourIndicatorTradesTable(data) {
+      const tbody = document.getElementById('modal-trades-tbody');
+      if (!tbody) return;
+      const rows = [];
+      if (data.open_trade) {
+        const t = data.open_trade;
+        rows.push(`<tr class="bg-cyan-950/30"><td class="py-2 px-3 font-mono text-[10px]">OPEN</td><td class="py-2 px-3">NIFTY ${t.strike} ${t.side}</td><td class="py-2 px-3">${t.quantity}</td><td class="py-2 px-3">${fmtPaperTime(t.entry_time)}</td><td class="py-2 px-3">${t.entry_premium.toFixed(2)}</td><td class="py-2 px-3">--</td><td class="py-2 px-3">--</td><td class="py-2 px-3 text-right text-cyan-300">OPEN</td></tr>`);
+      }
+      (data.trades || []).slice().reverse().forEach((t, i) => {
+        const pnlClass = t.pnl >= 0 ? 'text-emerald-400' : 'text-rose-400';
+        rows.push(`<tr><td class="py-2 px-3 font-mono text-[10px]">4IND-${t.entry_date}-${t.strike}${t.side}</td><td class="py-2 px-3">NIFTY ${t.strike} ${t.side}</td><td class="py-2 px-3">${t.quantity}</td><td class="py-2 px-3">${fmtPaperTime(t.entry_time)}</td><td class="py-2 px-3">${t.entry_premium.toFixed(2)}</td><td class="py-2 px-3">${fmtPaperTime(t.exit_time)}</td><td class="py-2 px-3">${t.exit_premium.toFixed(2)}</td><td class="py-2 px-3 text-right ${pnlClass}">₹${t.pnl.toFixed(0)}</td></tr>`);
+      });
+      tbody.innerHTML = rows.length ? rows.join('') :
+        '<tr><td colspan="8" class="text-center py-6 text-gray-500">Waiting for the first live signal — entries, exits and PnL stream in here.</td></tr>';
+      document.getElementById('modal-trades-count').textContent = `${(data.trades || []).length} records`;
+    }
+
+    async function pollFourIndicatorPaperStatus() {
+      try {
+        const res = await fetch('/api/paper/four-indicator/status');
+        if (res.status === 404) {
+          window._fiPaperRunning = false;
+          if (window._fiPaperPollTimer) { clearInterval(window._fiPaperPollTimer); window._fiPaperPollTimer = null; }
+          syncFourIndicatorPaperUI(null);
+          return;
+        }
+        const data = await res.json();
+        const wasRunning = window._fiPaperRunning;
+        window._fiPaperRunning = data.status === 'RUNNING';
+        syncFourIndicatorPaperUI(data);
+        if (wasRunning !== window._fiPaperRunning) renderStrategyCards();
+        if (!window._fiPaperRunning && window._fiPaperPollTimer) {
+          clearInterval(window._fiPaperPollTimer); window._fiPaperPollTimer = null;
+        }
+      } catch (e) { /* silent */ }
+    }
+
+    async function startFourIndicatorPaper() {
+      const capital = parseFloat(document.getElementById('fi-paper-capital').value) || 100000;
+      const capitalPerLot = parseFloat(document.getElementById('fi-paper-capital-per-lot').value) || 50000;
+      const btn = document.getElementById('btn-fi-paper-start');
+      if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i><span>Starting...</span>'; }
+      try {
+        const res = await fetch('/api/paper/four-indicator/start', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ capital: capital, capital_per_lot: capitalPerLot, target_premium_pct: 0.01 })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || 'start failed');
+        window._fiPaperRunning = true;
+        syncFourIndicatorPaperUI(data);
+        renderStrategyCards();
+        if (!window._fiPaperPollTimer) window._fiPaperPollTimer = setInterval(pollFourIndicatorPaperStatus, 5000);
+      } catch (e) {
+        showModalError('Could not start paper trading', e.message || e);
+      } finally {
+        if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-satellite-dish"></i><span>START PAPER TRADING</span>'; }
+      }
+    }
+
+    async function stopFourIndicatorPaper() {
+      if (!confirm('Stop the Four Indicator System paper session? The trade log and balance are kept.')) return;
+      try {
+        const res = await fetch('/api/paper/four-indicator/stop', { method: 'POST' });
+        const data = await res.json();
+        window._fiPaperRunning = false;
+        if (window._fiPaperPollTimer) { clearInterval(window._fiPaperPollTimer); window._fiPaperPollTimer = null; }
+        syncFourIndicatorPaperUI(data);
+        renderStrategyCards();
+      } catch (e) { showModalError('Stop failed', e.message || e); }
+    }
+
+    async function cardStopFourIndicatorPaper() {
+      if (!confirm('Stop the Four Indicator System paper session? The trade log and balance are kept.')) return;
+      try {
+        await fetch('/api/paper/four-indicator/stop', { method: 'POST' });
+      } catch (e) { /* ignore */ }
+      window._fiPaperRunning = false;
+      if (window._fiPaperPollTimer) { clearInterval(window._fiPaperPollTimer); window._fiPaperPollTimer = null; }
+      renderStrategyCards();
     }
 
     // Format an ISO (IST) timestamp for the trades table (HH:MM:SS)
