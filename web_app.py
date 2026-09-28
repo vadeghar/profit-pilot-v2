@@ -1109,6 +1109,7 @@ def register_forward_test_api(req: ForwardTestRegisterRequest):
 
 
 OI_PAPER_SESSIONS: Dict[str, Any] = {}
+FOUR_INDICATOR_PAPER_SESSIONS: Dict[str, Any] = {}
 
 
 def _paper_safe_float(v: Any, default: float = 0.0) -> float:
@@ -1726,6 +1727,78 @@ def paper_stop(session_id: str):
     sess = OI_PAPER_SESSIONS.get(session_id)
     if not sess:
         raise HTTPException(status_code=404, detail="Paper session not found")
+    sess.stop("manual")
+    return {"status": "STOPPED", **sess.status()}
+
+
+class FourIndicatorPaperStartRequest(BaseModel):
+    capital: float = 100000.0
+    capital_per_lot: float = 50000.0
+    target_premium_pct: float = 0.01
+    poll_interval_seconds: int = 60
+    params: Optional[Dict[str, Any]] = None
+
+
+@app.post("/api/paper/four-indicator/start")
+def start_four_indicator_paper(req: FourIndicatorPaperStartRequest):
+    """Start the dedicated Four Indicator System live PAPER-trading session.
+
+    Reuses the exact same signal engine and strike-selection rules as the
+    real backtest (see backtest/four_indicator_backtest.py); only the data
+    source differs (a rolling live fetch instead of a fixed historical
+    range). No real orders are ever placed.
+    """
+    from execution.four_indicator_paper_trader import FourIndicatorPaperSession, FourIndicatorPaperTrader
+    from market_data.breeze_data_provider import BreezeHistoricalDataProvider
+    from strategies.four_indicator_system import FourIndicatorConfig
+
+    if "four_indicator_system" in FOUR_INDICATOR_PAPER_SESSIONS and \
+       FOUR_INDICATOR_PAPER_SESSIONS["four_indicator_system"].status().get("status") == "RUNNING":
+        raise HTTPException(status_code=400, detail="Four Indicator System paper session already running")
+
+    p = req.params or {}
+    try:
+        provider = BreezeHistoricalDataProvider(persist_cache=False)
+        provider.verify_once = True
+        provider.ensure_authenticated()
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Breeze session not usable: {e}")
+
+    cfg = FourIndicatorConfig(
+        supertrend_period=int(p.get("supertrend_period", 10)),
+        supertrend_multiplier=float(p.get("supertrend_multiplier", 3.0)),
+        rsi_period=int(p.get("rsi_period", 14)),
+        rsi_threshold=float(p.get("rsi_threshold", 70.0)),
+        put_rsi_threshold=float(p.get("put_rsi_threshold", 30.0)),
+        bollinger_period=int(p.get("bollinger_period", 20)),
+        bollinger_std=float(p.get("bollinger_std", 2.0)),
+        timeframe=str(p.get("timeframe", "5m")),
+        enable_calls=bool(p.get("enable_calls", True)),
+        enable_puts=bool(p.get("enable_puts", True)),
+    )
+    trader = FourIndicatorPaperTrader(
+        provider, capital=req.capital, capital_per_lot=req.capital_per_lot,
+        target_premium_pct=req.target_premium_pct, config=cfg,
+    )
+    sess = FourIndicatorPaperSession(trader, poll_interval_seconds=req.poll_interval_seconds)
+    FOUR_INDICATOR_PAPER_SESSIONS["four_indicator_system"] = sess
+    sess.start()
+    return {"status": "PAPER_RUNNING", "live_trading": False, **sess.status()}
+
+
+@app.get("/api/paper/four-indicator/status")
+def four_indicator_paper_status():
+    sess = FOUR_INDICATOR_PAPER_SESSIONS.get("four_indicator_system")
+    if not sess:
+        raise HTTPException(status_code=404, detail="No Four Indicator System paper session has been started")
+    return sess.status()
+
+
+@app.post("/api/paper/four-indicator/stop")
+def stop_four_indicator_paper():
+    sess = FOUR_INDICATOR_PAPER_SESSIONS.get("four_indicator_system")
+    if not sess:
+        raise HTTPException(status_code=404, detail="No Four Indicator System paper session has been started")
     sess.stop("manual")
     return {"status": "STOPPED", **sess.status()}
 
