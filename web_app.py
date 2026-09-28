@@ -213,7 +213,7 @@ STRATEGY_CATALOG = {
             {"label": "Bank Nifty Options (BANKNIFTY)", "value": "BANKNIFTY"},
             {"label": "Sensex Options (SENSEX)", "value": "SENSEX"}
         ],
-        "default_timeframe": "tick",
+        "default_timeframe": "1m",
         "default_capital": 100000.0,
         "default_start_date": "2026-01-01",
         "default_end_date": "2026-09-23",
@@ -246,6 +246,50 @@ STRATEGY_CATALOG = {
         "auto_start_capital": 100000.0,
         # Paper-only live strategy - no traditional backtest button in modal
         "paper_only_live": True
+    },
+    "nifty_no_brainer": {
+        "id": "nifty_no_brainer",
+        "name": "NIFTY No Brainer",
+        "badge": "Monthly Call Spread",
+        "badge_color": "amber",
+        "icon": "fa-layer-group",
+        "description": "Monthly NIFTY CE ratio: buy ATM+300 and a round far hedge, sell two lots 300 points above the near buy. Enters at 15:16 IST on the last valid Friday; expiry comes from the contract master.",
+        "asset_class": "NIFTY Index Options (Monthly)",
+        "data_provider": "breeze",
+        "default_symbols": "NIFTY",
+        "allowed_symbols": [{"label": "NIFTY Monthly Call Spread", "value": "NIFTY"}],
+        "default_timeframe": "1m",
+        "default_capital": 100000.0,
+        "default_start_date": "2026-01-01",
+        "default_end_date": __import__("datetime").date.today().isoformat(),
+        "default_params": {
+            "capital": 100000.0,
+            "lot_size": 65,
+            "entry_time": "15:16",
+            "target_pct": 0.025,
+            "stop_pct": 0.03,
+            "time_exit_days": 19,
+            "brokerage_per_order": 20.0,
+            "max_shift_steps": None,
+            "hedge_recalc_on_shift": True,
+            "live_order_placement": False
+        },
+        "param_schema": [
+            {"key": "lot_size", "label": "NIFTY Lot Size (contract master)", "type": "number", "default": 65, "step": 1},
+            {"key": "target_pct", "label": "Target (% of Capital)", "type": "number", "default": 0.025, "step": 0.0025},
+            {"key": "stop_pct", "label": "Stop Loss (% of Capital)", "type": "number", "default": 0.03, "step": 0.0025},
+            {"key": "time_exit_days", "label": "Max Hold (Calendar Days)", "type": "number", "default": 19, "step": 1},
+            {"key": "brokerage_per_order", "label": "Brokerage per Order (Rs, your plan)", "type": "number", "default": 20.0, "step": 1}
+        ],
+        "historical_stats": {
+            "return_pct": "Pending Backtest",
+            "win_rate": "Pending Backtest",
+            "max_dd": "3.0% Strategy Stop",
+            "sharpe": "Pending Backtest"
+        },
+        # This strategy is available from Strategy Studio for historical
+        # simulation as well as live/paper execution.
+        "paper_only_live": False
     },
     "equity_swing_vcp": {
         "id": "equity_swing_vcp",
@@ -673,6 +717,61 @@ def start_backtest_stream(req: BacktestRequest, background_tasks: BackgroundTask
         slippage_percent=req.slippage_percent,
         commission_percent=req.commission_percent
     )
+
+    # NIFTY No Brainer is a dynamic three-leg option strategy: it cannot use the
+    # generic single-instrument candle engine.  It always reads Breeze live
+    # (no candle cache, weekends/holidays never requested).
+    if req.strategy_id == "nifty_no_brainer":
+        from backtest.nifty_no_brainer_runner import run_backtest as run_nifty_nb, to_ui_result
+        from market_data.breeze_data_provider import BreezeHistoricalDataProvider
+        job_id = job_manager.create_job(bt_config, None)
+        nb_params = req.params or {}
+        try:
+            nb_provider = BreezeHistoricalDataProvider(persist_cache=False)
+            nb_provider.verify_once = True
+            nb_provider.ensure_authenticated()
+        except Exception as e:
+            job = job_manager.get_job(job_id)
+            if job:
+                job.status = "failed"
+            job_manager.add_event(job_id, "backtest_failed", {"error": f"Breeze session not usable: {e}"})
+            return {"job_id": job_id, "status": "failed", "error": str(e)}
+
+        def run_nifty_backtest():
+            job = job_manager.get_job(job_id)
+            if not job:
+                return
+            job.status = "running"
+            job_manager.add_event(job_id, "backtest_started", {"strategy_id": "nifty_no_brainer"})
+            months_total = max(1, (end.year - start.year) * 12 + end.month - start.month + 1)
+            done = {"n": 0}
+
+            def on_month(trade):
+                done["n"] += 1
+                job_manager.add_event(job_id, "progress", {
+                    "progress": min(99.0, done["n"] / months_total * 100),
+                    "instrument": f"NIFTY {trade.month} ({trade.status} {trade.decision})"})
+            try:
+                from brokers.breeze_margin import margin_settings
+                margin_cfg = margin_settings(nb_provider, str(nb_params.get("margin_mode") or "calibrated"))
+                from backtest.charges import ChargeConfig
+                report = run_nifty_nb(
+                    nb_provider, start.date(), end.date(), **margin_cfg,
+                    capital=float(req.capital),
+                    charges=ChargeConfig(brokerage_per_order=float(nb_params.get("brokerage_per_order", 20.0))),
+                    on_event=lambda kind, payload: job_manager.add_event(job_id, f"nifty_{kind}", payload),
+                    max_hold_days=int(nb_params.get("time_exit_days") or 19),
+                    lifecycle_timeframe=str(nb_params.get("lifecycle_timeframe") or "5m"),
+                    slippage_points=float(nb_params.get("slippage_points") or 0.0),
+                    progress=on_month)
+                result = to_ui_result(report, req.capital)
+                job.result, job.status = result, "completed"
+                job_manager.add_event(job_id, "backtest_completed", {"result": result})
+            except Exception as exc:
+                job.status = "failed"
+                job_manager.add_event(job_id, "backtest_failed", {"error": str(exc)})
+        background_tasks.add_task(run_nifty_backtest)
+        return {"job_id": job_id, "status": "started"}
 
     # Get data provider — fail fast with a clear message instead of silently
     # passing None (the engine must never fall back to fabricated prices).
@@ -1632,15 +1731,32 @@ DASHBOARD_HTML = """<!DOCTYPE html>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   <style>
     @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap');
-    body { font-family: 'Inter', sans-serif; background-color: #0b0f19; color: #e2e8f0; }
+    :root { --bg: #080b12; --panel: #101620; --panel-2: #0d131c; --line: #202b3a; --muted: #7f8da3; --cyan: #39d3e8; --green: #3dd598; --red: #ff6b7a; }
+    body { font-family: 'Inter', sans-serif; background: var(--bg); color: #e2e8f0; }
     .font-mono { font-family: 'JetBrains Mono', monospace; }
-    .glass-card { background: rgba(17, 24, 39, 0.75); backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.08); }
+    .glass-card { background: var(--panel); backdrop-filter: none; border: 1px solid var(--line); border-radius: 8px !important; }
     .modal-backdrop { background-color: rgba(3, 7, 18, 0.85); backdrop-filter: blur(8px); }
     .glow-cyan { box-shadow: 0 0 25px -5px rgba(6, 182, 212, 0.35); }
     .glow-emerald { box-shadow: 0 0 25px -5px rgba(16, 185, 129, 0.35); }
     ::-webkit-scrollbar { width: 6px; height: 6px; }
     ::-webkit-scrollbar-track { background: #0f172a; }
     ::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+    header { min-height: 64px; padding-left: 24px !important; padding-right: 24px !important; background: #0b1018 !important; border-color: var(--line) !important; }
+    header h1 { letter-spacing: .12em; font-size: 15px !important; }
+    header > div:nth-child(2) { margin-left: auto; }
+    nav { display: flex !important; flex-direction: row; flex-wrap: nowrap; align-items: stretch; gap: 4px; overflow-x: auto; padding: 0 24px !important; background: #0b1018 !important; border-bottom: 1px solid var(--line) !important; }
+    nav button { display: flex; flex: 0 0 auto; width: auto; align-items: center; gap: 8px; padding: 14px 16px !important; margin: 0; border-radius: 0; color: #8290a5; font-size: 12px; white-space: nowrap; }
+    nav button:hover { background: #151e2b; color: #e7edf6 !important; }
+    nav button.border-cyan-400 { background: #132d36; color: var(--cyan) !important; }
+    nav button span { white-space: nowrap; }
+    main { max-width: 90rem !important; padding: 24px 28px !important; }
+    .market-strip { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-bottom: 22px; }
+    .market-quote { background: var(--panel-2); border: 1px solid var(--line); border-radius: 7px; padding: 11px 13px; }
+    .market-quote .label { color: var(--muted); font: 600 10px 'JetBrains Mono', monospace; letter-spacing: .08em; text-transform: uppercase; }
+    .market-quote .value { margin-top: 5px; font: 700 16px 'JetBrains Mono', monospace; color: #f1f5f9; }
+    .market-quote .delta { color: var(--green); font: 500 10px 'JetBrains Mono', monospace; }
+    .section-kicker { color: #5e6d82; font: 600 10px 'JetBrains Mono', monospace; letter-spacing: .14em; text-transform: uppercase; }
+    @media (max-width: 850px) { header { padding-left: 16px !important; } nav { padding: 0 8px !important; } main { padding: 18px 14px !important; } .market-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
   </style>
 </head>
 <body class="min-h-screen flex flex-col antialiased">
@@ -1707,12 +1823,20 @@ DASHBOARD_HTML = """<!DOCTYPE html>
   <!-- Main Content Body -->
   <main class="flex-1 p-6 max-w-7xl w-full mx-auto space-y-6">
 
+    <div class="market-strip" aria-label="Market overview">
+      <div class="market-quote"><div class="label">NIFTY 50</div><div class="value">25,191.65</div><div class="delta">+0.42% today</div></div>
+      <div class="market-quote"><div class="label">BANK NIFTY</div><div class="value">58,412.20</div><div class="delta">+0.68% today</div></div>
+      <div class="market-quote"><div class="label">MCX GOLD</div><div class="value">INR 74,218</div><div class="delta">+0.21% today</div></div>
+      <div class="market-quote"><div class="label">ENGINE STATUS</div><div class="value" style="color: var(--green);">ONLINE</div><div class="delta" style="color: var(--muted);">Feed / broker / audit online</div></div>
+    </div>
+
     <!-- ==================== TAB 1: STRATEGY CARDS & STUDIO ==================== -->
     <div id="tab-content-cards" class="space-y-6">
 
       <!-- Section Header -->
       <div class="flex items-center justify-between">
         <div>
+          <div class="section-kicker mb-2">Strategy workspace / 01</div>
           <h2 class="text-base font-bold text-white flex items-center space-x-2">
             <i class="fa-solid fa-vial-circle-check text-cyan-400"></i>
             <span>Select Strategy to Configure & Backtest</span>
@@ -1954,11 +2078,12 @@ trading-platform status</pre>
           <div>
             <label class="block text-gray-400 mb-1 font-medium">Timeframe</label>
             <select id="modal-timeframe" class="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white font-mono text-xs focus:outline-none focus:border-cyan-500">
+              <option value="1m">1 Minute</option>
               <option value="5m">5 Minutes</option>
               <option value="10m">10 Minutes</option>
               <option value="15m">15 Minutes</option>
               <option value="30m">30 Minutes</option>
-              <option value="1h">1 Hour</option>
+              <option value="2h">2 Hours</option>
               <option value="4h">4 Hours</option>
               <option value="1d" selected>Daily</option>
               <option value="1mo">Monthly</option>
@@ -2230,7 +2355,7 @@ trading-platform status</pre>
           </div>
           <div class="overflow-x-auto max-h-60">
             <table class="w-full text-left text-xs font-mono">
-              <thead class="bg-gray-900/80 text-gray-400 uppercase text-[10px] sticky top-0">
+              <thead id="modal-trades-thead" class="bg-gray-900/80 text-gray-400 uppercase text-[10px] sticky top-0">
                 <tr>
                   <th class="py-2 px-3">Trade ID</th>
                   <th class="py-2 px-3">Instrument</th>
@@ -2784,6 +2909,36 @@ trading-platform status</pre>
             progressLabel.innerHTML = `<i class="fa-solid fa-play text-cyan-400"></i><span>Backtest started</span>`;
           });
 
+          // NIFTY No Brainer: rows appear live as trades are entered / exited / skipped
+          if (currentModalStrat.id === 'nifty_no_brainer') {
+            const niftyRows = {};
+            const liveThead = document.getElementById('modal-trades-thead');
+            if (liveThead && !window._defaultTradesThead) window._defaultTradesThead = liveThead.innerHTML;
+            document.getElementById('modal-trades-tbody').innerHTML = '';
+            ['nifty_entry', 'nifty_exit', 'nifty_skip'].forEach(evName => {
+              eventSource.addEventListener(evName, (e) => {
+                const d = JSON.parse(e.data).payload;
+                niftyRows[d.trade.month] = d.trade;
+                const rows = Object.values(niftyRows);
+                const tbodyLive = document.getElementById('modal-trades-tbody');
+                tbodyLive.innerHTML = '';
+                renderNiftyTrades({ nifty_trades: rows, nifty_summary: {} }, liveThead, tbodyLive);
+                const closed = rows.filter(r => r.status === 'CLOSED');
+                const wins = closed.filter(r => (r.pnl_rupees || 0) > 0).length;
+                updateStreamingMetrics({
+                  total_return: d.realized_pnl,
+                  total_return_pct: d.initial_capital ? d.realized_pnl / d.initial_capital * 100 : 0,
+                  total_trades: closed.length, winning_trades: wins, losing_trades: closed.length - wins,
+                  win_rate: closed.length ? wins / closed.length * 100 : 0
+                });
+                document.getElementById('modal-chart-label').textContent =
+                  `Live | Available balance: ₹${Math.round(d.balance).toLocaleString('en-IN')} (initial ₹${Math.round(d.initial_capital).toLocaleString('en-IN')})`;
+                const label = evName === 'nifty_entry' ? `Entered ${d.trade.month}` : (evName === 'nifty_exit' ? `Exited ${d.trade.month} (${d.trade.exit_reason || d.trade.status})` : `Skipped ${d.trade.month} (${d.trade.decision})`);
+                progressLabel.innerHTML = `<i class="fa-solid fa-bolt text-amber-300"></i><span>${label}</span>`;
+              });
+            });
+          }
+
           eventSource.addEventListener('candles_loaded', (e) => {
             progressLabel.innerHTML = `<i class="fa-solid fa-chart-line text-emerald-400"></i><span>Historical data loaded</span>`;
           });
@@ -3105,6 +3260,13 @@ trading-platform status</pre>
       const tbody = document.getElementById('modal-trades-tbody');
       tbody.innerHTML = '';
       document.getElementById('modal-trades-count').textContent = `${data.trades.length} records`;
+      const thead = document.getElementById('modal-trades-thead');
+      if (thead && !window._defaultTradesThead) window._defaultTradesThead = thead.innerHTML;
+      if (thead && window._defaultTradesThead) thead.innerHTML = window._defaultTradesThead;
+      if (Array.isArray(data.nifty_trades)) {
+        renderNiftyTrades(data, thead, tbody);
+        return;
+      }
 
       if (data.trades.length === 0) {
         tbody.innerHTML = '<tr><td colspan="8" class="text-center py-6 text-gray-500">No trade signals triggered within selected dates.</td></tr>';
@@ -3134,6 +3296,66 @@ trading-platform status</pre>
           tbody.appendChild(row);
         });
       }
+    }
+
+    function renderNiftyTrades(data, thead, tbody) {
+      const inr = (v) => (v === null || v === undefined) ? '--' : (v < 0 ? '-' : '') + '₹' + Math.abs(v).toLocaleString('en-IN', { maximumFractionDigits: 0 });
+      const pct = (v) => (v === null || v === undefined) ? '--' : (v * 100).toFixed(2) + '%';
+      const limit = (v) => (v !== null && v !== undefined && v > 0.01 + 1e-9) ? 'text-rose-400' : 'text-emerald-400';
+      const d = (iso) => iso ? iso.substring(0, 10) : '--';
+      const t = (iso) => iso ? iso.substring(11, 16) : '--';
+      thead.innerHTML = `<tr>
+        <th class="py-2 px-3">Month</th><th class="py-2 px-3">Status</th>
+        <th class="py-2 px-3">Entry Date</th><th class="py-2 px-3">Entry Time</th>
+        <th class="py-2 px-3">Expiry</th><th class="py-2 px-3">Strikes (Buy / Sell x2 / Hedge)</th>
+        <th class="py-2 px-3">Entry Prices</th>
+        <th class="py-2 px-3 text-right">Available Balance</th>
+        <th class="py-2 px-3 text-right">Lots</th>
+        <th class="py-2 px-3 text-right">Deployed Capital</th>
+        <th class="py-2 px-3 text-right">Debit on Downside (max 1%)</th>
+        <th class="py-2 px-3 text-right">Credit (max 1%)</th>
+        <th class="py-2 px-3 text-right">Target / Stop</th>
+        <th class="py-2 px-3">Exit</th><th class="py-2 px-3">Reason</th>
+        <th class="py-2 px-3 text-right">Gross P&amp;L</th>
+        <th class="py-2 px-3 text-right">Charges</th>
+        <th class="py-2 px-3 text-right">Net P&amp;L</th></tr>`;
+      const summary = data.nifty_summary || {};
+      document.getElementById('modal-trades-count').textContent = `${data.nifty_trades.length} months` + (summary.margin_method ? ` | margin: ${summary.margin_method}` : '');
+      data.nifty_trades.forEach(m => {
+        const row = document.createElement('tr');
+        row.className = 'hover:bg-gray-800/40 transition';
+        const s = m.strikes || {}, p = m.entry_prices || {};
+        const strikes = s.near_buy ? `${s.near_buy} / ${s.sell} / ${s.hedge}` : '--';
+        const prices = p.near_buy !== undefined ? `${p.near_buy.toFixed(2)} / ${p.sell.toFixed(2)} / ${p.hedge.toFixed(2)}` : '--';
+        const pnlClass = (m.pnl_rupees || 0) >= 0 ? 'text-emerald-400' : 'text-rose-400';
+        const shift = m.shift_steps ? ` <span class="text-amber-300">(shift x${m.shift_steps}; initial credit ${pct(m.initial_net_premium_pct)})</span>` : '';
+        const flags = (m.flags || []).length ? `<div class="text-[9px] text-amber-300">${m.flags.join('; ')}</div>` : '';
+        const status = m.status === 'SKIPPED' ? `<span class="text-amber-300">SKIPPED</span><div class="text-[9px] text-gray-500">${m.decision}</div>`
+          : (m.status === 'OPEN' ? '<span class="text-yellow-400"><i class="fa-solid fa-spinner fa-spin"></i> OPEN</span>' : m.status);
+        const c = m.charges || {};
+        const chargeTip = c.total !== undefined ? `brokerage ${inr(c.brokerage)} | STT ${inr(c.stt)} | exchange ${inr(c.exchange)} | SEBI ${c.sebi.toFixed(2)} | stamp ${inr(c.stamp)} | GST ${inr(c.gst)}` : '';
+        const perSet = m.margin_per_set ? `<div class="text-[9px] text-gray-500">${inr(m.margin_per_set)} / set</div>` : '';
+        row.innerHTML = `
+          <td class="py-2 px-3 text-cyan-400 font-semibold">${m.month}</td>
+          <td class="py-2 px-3">${status}</td>
+          <td class="py-2 px-3">${d(m.entry_date)}</td>
+          <td class="py-2 px-3">${t(m.entry_time)} IST</td>
+          <td class="py-2 px-3 text-gray-400">${d(m.expiry)}</td>
+          <td class="py-2 px-3">${strikes}${shift}</td>
+          <td class="py-2 px-3 text-gray-400">${prices}</td>
+          <td class="py-2 px-3 text-right">${inr(m.balance_before)}</td>
+          <td class="py-2 px-3 text-right">${m.lots ?? '--'}</td>
+          <td class="py-2 px-3 text-right font-semibold">${inr(m.deployed_capital)}${perSet}</td>
+          <td class="py-2 px-3 text-right ${limit(m.debit_on_downside_pct)}">${pct(m.debit_on_downside_pct)}<div class="text-[9px] text-gray-500">${inr(m.debit_on_downside_pct ? -m.debit_on_downside_pct * (m.deployed_capital || m.margin) : 0)}</div></td>
+          <td class="py-2 px-3 text-right ${limit(m.credit_pct)}">${pct(m.credit_pct)}<div class="text-[9px] text-gray-500">${inr(m.credit_pct ? m.credit_pct * (m.deployed_capital || m.margin) : 0)}</div></td>
+          <td class="py-2 px-3 text-right text-gray-400">${inr(m.target_rupees)} / ${inr(m.stop_rupees)}<div class="text-[9px] text-gray-500">hard cap ${inr(m.stop_hard_cap_rupees)}</div></td>
+          <td class="py-2 px-3 text-gray-400">${d(m.exit_time)} ${t(m.exit_time)}</td>
+          <td class="py-2 px-3">${m.exit_reason || (m.status === 'OPEN' ? 'OPEN' : '--')}</td>
+          <td class="py-2 px-3 text-right">${inr(m.gross_pnl)}</td>
+          <td class="py-2 px-3 text-right text-amber-300" title="${chargeTip}">${inr(m.charges_total)}</td>
+          <td class="py-2 px-3 text-right font-bold ${pnlClass}">${m.pnl_rupees === null || m.pnl_rupees === undefined ? '--' : inr(m.pnl_rupees) + ' (' + pct(m.pnl_pct_margin) + ')'}${flags}</td>`;
+        tbody.appendChild(row);
+      });
     }
 
     function renderModalChart(curve) {

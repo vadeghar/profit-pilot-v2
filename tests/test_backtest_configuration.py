@@ -15,6 +15,22 @@ from datetime import datetime
 
 
 class BacktestConfigurationTests(unittest.TestCase):
+    def test_nifty_no_brainer_is_visible_in_strategy_studio_catalog(self):
+        card = web_app.STRATEGY_CATALOG["nifty_no_brainer"]
+        self.assertEqual(card["name"], "NIFTY No Brainer")
+        self.assertEqual(card["default_symbols"], "NIFTY")
+        self.assertEqual(card["default_params"]["lot_size"], 65)
+        self.assertEqual(card["default_capital"], 100000.0)
+        self.assertEqual(card["default_start_date"], "2026-01-01")
+        self.assertEqual(card["default_timeframe"], "1m")
+        self.assertFalse(card["paper_only_live"])
+
+    def test_nifty_no_brainer_is_registered_for_backtest_api(self):
+        from strategies import StrategyRegistry
+        strategy = StrategyRegistry.create("nifty_no_brainer", "test-nifty", {"timeframe": "1m"})
+        strategy.initialize()
+        self.assertEqual(strategy.name, "nifty_no_brainer")
+
     def test_catalog_has_only_strategy_specific_parameters(self):
         for strategy in web_app.STRATEGY_CATALOG.values():
             with self.subTest(strategy=strategy['id']):
