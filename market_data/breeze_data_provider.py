@@ -45,9 +45,13 @@ class BreezeHistoricalDataProvider(HistoricalDataProvider):
         from lorentzian_strategy.data_loader import BREEZE_INTERVAL_MAP
         return sorted(BREEZE_INTERVAL_MAP)
 
-    def __init__(self, client=None, cache_dir: Optional[str] = None, env_path: Optional[str] = None):
+    def __init__(self, client=None, cache_dir: Optional[str] = None, env_path: Optional[str] = None,
+                 persist_cache: bool = True):
         self.client = client
         self.env_path = env_path
+        self.persist_cache = bool(persist_cache)
+        self.verify_once = False  # opt-in: skip re-verifying a live session on every fetch
+        self._session_ok = False
         self.cache_dir = cache_dir or str(platform_config.HISTORICAL_DATA_DIR)
         self.logger = Logger("data_provider.breeze")
         os.makedirs(self.cache_dir, exist_ok=True)
@@ -64,6 +68,8 @@ class BreezeHistoricalDataProvider(HistoricalDataProvider):
         Raises RuntimeError listing the missing BREEZE_* keys or the exact
         connect failure, and verifies the live session — never logs-and-None.
         """
+        if self.verify_once and self._session_ok and self.client is not None:
+            return
         if self.client is None:
             try:
                 self.client = connect_breeze(env_path=self.env_path or str(platform_config.ENV_FILE))
@@ -92,15 +98,19 @@ class BreezeHistoricalDataProvider(HistoricalDataProvider):
         if not (isinstance(details, dict) and details.get("Status") == 200):
             err = details.get("Error") if isinstance(details, dict) else details
             self.client = None
+            self._session_ok = False
             raise RuntimeError(
                 f"Breeze session verification failed for "
                 f"{self.env_path or platform_config.ENV_FILE}: {err or 'no response'} "
                 f"— refresh BREEZE_SESSION_TOKEN via tools/breeze/breeze_auto_login.py."
             )
+        self._session_ok = True
 
     def normalize_symbol(self, symbol: str) -> str:
         """Convert a generic symbol ('NSE:NIFTY', 'RELIANCE') to Breeze's
         native 'stock_code' using the shared ticker parser."""
+        if isinstance(symbol, dict):
+            return "BREEZE_OPTION_" + "_".join(str(symbol.get(k, "")) for k in ("stock_code", "expiry_date", "strike_price", "right"))
         from platform_config import resolve_provider_symbol
         mapped = resolve_provider_symbol(symbol, self.name)
         if mapped:
@@ -132,11 +142,11 @@ class BreezeHistoricalDataProvider(HistoricalDataProvider):
                 f"Unsupported Breeze timeframe {timeframe!r}; supported: "
                 f"{sorted(BREEZE_INTERVAL_MAP)}"
             )
-        clean_key = instrument.upper().replace(":", "_")
+        clean_key = self.normalize_symbol(instrument).upper().replace(":", "_")
         cache_path = os.path.join(self.cache_dir, f"{clean_key}_{timeframe}.json")
 
 
-        if os.path.exists(cache_path):
+        if self.persist_cache and os.path.exists(cache_path):
             self.logger.info(f"Loading {clean_key} candles from local cache: {cache_path}")
             try:
                 with open(cache_path) as f:
@@ -163,12 +173,13 @@ class BreezeHistoricalDataProvider(HistoricalDataProvider):
                 f"backtesting on fabricated data is not allowed."
             )
 
-        try:
-            with open(cache_path, "w") as f:
-                json.dump({"source": "breeze", "fetched_at": now_ist().isoformat(),
-                           "candles": rows}, f)
-        except Exception as e:
-            self.logger.warning(f"Failed writing Breeze cache for {clean_key}: {e}")
+        if self.persist_cache:
+            try:
+                with open(cache_path, "w") as f:
+                    json.dump({"source": "breeze", "fetched_at": now_ist().isoformat(),
+                               "candles": rows}, f)
+            except Exception as e:
+                self.logger.warning(f"Failed writing Breeze cache for {clean_key}: {e}")
 
         return self._parse_rows(instrument, timeframe, rows, start_date, end_date)
 
@@ -179,17 +190,31 @@ class BreezeHistoricalDataProvider(HistoricalDataProvider):
                              f"supported: {sorted(BREEZE_INTERVAL_MAP)}")
         interval = BREEZE_INTERVAL_MAP[timeframe][0]
         from lorentzian_strategy.data_loader import parse_breeze_ticker, resolve_breeze_stock_code
-        mapped = platform_config.resolve_provider_symbol(instrument, self.name)
-        source_instrument = mapped["provider_symbol"] if mapped else instrument
-        stock_code, exchange_code, product_type = parse_breeze_ticker(source_instrument)
+        if isinstance(instrument, dict):
+            stock_code = instrument["stock_code"]
+            exchange_code = instrument["exchange_code"]
+            product_type = instrument.get("product_type", "options")
+            expiry_date = instrument["expiry_date"]
+            strike_price = instrument["strike_price"]
+            right = instrument["right"]
+            source_instrument = instrument
+        else:
+            mapped = platform_config.resolve_provider_symbol(instrument, self.name)
+            source_instrument = mapped["provider_symbol"] if mapped else instrument
+            stock_code, exchange_code, product_type = parse_breeze_ticker(source_instrument)
+            raw_code = stock_code
+            stock_code = resolve_breeze_stock_code(stock_code, exchange_code)
+            if stock_code != raw_code:
+                self.logger.info(f"Resolved {raw_code} -> {stock_code} ({exchange_code}) via scrip master")
         # Historical data is served under the scrip master's ShortName
         # (RELIANCE -> RELIND); the raw NSE ticker yields `Success: []`.
-        raw_code = stock_code
-        stock_code = resolve_breeze_stock_code(stock_code, exchange_code)
-        if stock_code != raw_code:
-            self.logger.info(
-                f"Resolved {raw_code} -> {stock_code} ({exchange_code}) via scrip master"
-            )
+        if isinstance(instrument, dict):
+            # Breeze option history uses the option-chain parameters directly.
+            option_expiry = expiry_date
+            option_right = right
+            option_strike = strike_price
+        else:
+            option_expiry = option_right = option_strike = None
 
         end_dt = ensure_ist(end_date) if end_date else now_ist()
         if start_date:
@@ -204,7 +229,7 @@ class BreezeHistoricalDataProvider(HistoricalDataProvider):
             chunk_end = min(cursor + chunk, end_dt)
             from_str, to_str = breeze_utc_window_for_ist_day_chunk(cursor, chunk_end)
             try:
-                res = self.client.get_historical_data_v2(
+                kwargs = dict(
                     interval=interval,
                     from_date=from_str,
                     to_date=to_str,
@@ -212,6 +237,9 @@ class BreezeHistoricalDataProvider(HistoricalDataProvider):
                     exchange_code=exchange_code,
                     product_type=product_type,
                 )
+                if isinstance(instrument, dict):
+                    kwargs.update(expiry_date=option_expiry, right=option_right, strike_price=option_strike)
+                res = self.client.get_historical_data_v2(**kwargs)
                 if res and res.get("Status") == 200 and res.get("Success"):
                     batch = res["Success"]
                     if isinstance(batch, dict):

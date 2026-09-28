@@ -217,7 +217,9 @@ def test_breeze_platform_provider_with_mock(tmp_path):
     candles2 = provider.get_historical_candles("NSE:NIFTY", "1h", start, end)
     assert len(candles2) == len(candles)
     assert len(client.calls) == calls_before
-    assert (cache_dir / "NSE_NIFTY_1h.json").exists()
+    # The provider cache key is the normalized source symbol, without the
+    # exchange prefix (the log above also reports NIFTY_1h.json).
+    assert (cache_dir / "NIFTY_1h.json").exists()
 
 
 def test_lorentzian_ml_registered_in_registry():

@@ -417,3 +417,10 @@ try:
     StrategyRegistry.register('lorentzian', LorentzianMLStrategy)
 except ImportError:
     pass
+
+# Register NIFTY No Brainer multi-leg option lifecycle adapter.
+try:
+    from strategies.nifty_no_brainer import NiftyNoBrainerStrategy
+    StrategyRegistry.register('nifty_no_brainer', NiftyNoBrainerStrategy)
+except ImportError:
+    pass

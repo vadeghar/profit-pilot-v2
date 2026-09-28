@@ -1,0 +1,11 @@
+{
+  "source": "NSE expiry rule and official NSE derivatives bhavcopy availability",
+  "rule": "Thursday through 2025-08; Tuesday from 2025-09; shift backward for NSE holidays",
+  "verified_examples": {
+    "2024-02": "2024-02-29",
+    "2025-02": "2025-02-27",
+    "2025-09": "2025-09-30",
+    "2026-02": "2026-02-24"
+  },
+  "notes": "NSE API pages timed out in this environment. The official NSE derivatives bhavcopy archive is reachable and is the authoritative contract/trade-date source. Full historical contract-master verification remains required before production scale-up."
+}

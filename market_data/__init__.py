@@ -287,9 +287,15 @@ class DataFeedHealthMonitor:
 # Export factory for convenient imports
 from .factory import ProviderFactory
 
+# Broker-correct option contract identifiers (Angel token / Breeze kwargs /
+# yfinance OCC symbol) — see market_data/option_symbol.py.
+from .option_symbol import AngelContract, get_option_symbol
+
 __all__ = [
     'CandleBuilder',
     'TickAggregator',
     'MarketDataManager',
     'ProviderFactory',
+    'AngelContract',
+    'get_option_symbol',
 ]

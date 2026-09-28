@@ -1,0 +1,26 @@
+NIFTY NO BRAINER RATIO — RULEBOOK
+
+At 15:16 IST on the last Friday (previous trading day if that Friday is not
+tradable), use the next month's NIFTY monthly expiry exactly as supplied by the
+exchange contract master. Select the nearest 100-point ATM; an ATM at a 50
+multiple is rounded upward. Buy one CE at ATM+300, sell two CEs at +300 beyond
+that, and buy one far CE. The far CE is the 500-multiple in sell+800..sell+1400
+closest to sell+1000, ties going farther.
+
+The deployed-capital denominator is the broker's margin for the complete
+1:-2:1 structure, with the method recorded. Premium is credit minus debit,
+including lot size. A debit or credit above 1% of margin is not eligible: an
+excess debit skips the month; an excess credit shifts the near buy by 100 points
+and keeps the sell gap at 300, repeating until compliant or MAX_SHIFT_STEPS is
+exhausted. Hedge recalculation on shift is configurable and defaults true.
+
+Exit all legs at +2.5% or -3.0% of margin, using the first available fill after
+a breach (gap-through can exceed -3%), or at MAX_HOLD_DAYS (run 18 and 19), or
+expiry. There are no adjustments, rolls, re-entry, partial exits, or overlap.
+The system is paper-only unless explicitly enabled after the R20 adoption gate.
+
+Assumptions: previous-trading-day holiday fallback, calendar hold days, and
+15:16 time-of-day for forced exits. Ambiguities: the video's sell 24,700 to
+hedge 26,000 example conflicts with the formal 500-grid algorithm; the default
+is the formal algorithm. Contract master, broker margin, and period lot size are
+mandatory inputs; no weekday or lot size is hard-coded.
