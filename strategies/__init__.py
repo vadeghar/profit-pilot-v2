@@ -424,3 +424,11 @@ try:
     StrategyRegistry.register('nifty_no_brainer', NiftyNoBrainerStrategy)
 except ImportError:
     pass
+
+# Register the Four Indicator System (SuperTrend + RSI + Pivot R1 + Bollinger
+# intraday NIFTY call-buying).
+try:
+    from strategies.four_indicator_system import FourIndicatorSystemStrategy
+    StrategyRegistry.register('four_indicator_system', FourIndicatorSystemStrategy)
+except ImportError:
+    pass

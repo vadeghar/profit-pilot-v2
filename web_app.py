@@ -291,6 +291,50 @@ STRATEGY_CATALOG = {
         # simulation as well as live/paper execution.
         "paper_only_live": False
     },
+    "four_indicator_system": {
+        "id": "four_indicator_system",
+        "name": "Four Indicator System",
+        "badge": "Intraday Call Buying",
+        "badge_color": "cyan",
+        "icon": "fa-bolt-lightning",
+        "description": "SuperTrend(10,3) trend + RSI(14)>70 momentum + prior-day Pivot R1 breakout + Bollinger(20,2) 'super candle' filter buys NIFTY calls near a 1%-of-spot premium strike; SuperTrend flip is the exit/trailing stop. Long-only (source left the put side undefined). Exact rules from 'The 4 Indicator System for Option Buying' (Darin Dharan).",
+        "asset_class": "NIFTY Index Options (Intraday)",
+        "data_provider": "breeze",
+        "default_symbols": "NIFTY",
+        "allowed_symbols": [{"label": "NIFTY 5m Intraday Call Buying", "value": "NIFTY"}],
+        "default_timeframe": "5m",
+        "default_capital": 100000.0,
+        "default_start_date": "2026-01-01",
+        "default_end_date": __import__("datetime").date.today().isoformat(),
+        "default_params": {
+            "capital": 100000.0,
+            "capital_per_lot": 50000.0,
+            "target_premium_pct": 0.01,
+            "supertrend_period": 10,
+            "supertrend_multiplier": 3.0,
+            "rsi_period": 14,
+            "rsi_threshold": 70.0,
+            "bollinger_period": 20,
+            "bollinger_std": 2.0
+        },
+        "param_schema": [
+            {"key": "capital_per_lot", "label": "Capital Allocated per Lot (Rs)", "type": "number", "default": 50000.0, "step": 5000.0},
+            {"key": "target_premium_pct", "label": "Target Premium (% of Spot)", "type": "number", "default": 0.01, "step": 0.0025},
+            {"key": "supertrend_period", "label": "SuperTrend Period", "type": "number", "default": 10, "step": 1},
+            {"key": "supertrend_multiplier", "label": "SuperTrend Multiplier", "type": "number", "default": 3.0, "step": 0.5},
+            {"key": "rsi_threshold", "label": "RSI Momentum Threshold", "type": "number", "default": 70.0, "step": 1.0},
+            {"key": "bollinger_std", "label": "Bollinger Std Dev", "type": "number", "default": 2.0, "step": 0.1}
+        ],
+        "historical_stats": {
+            "return_pct": "Pending Backtest",
+            "win_rate": "40-45% target (per source)",
+            "max_dd": "Pending Backtest",
+            "sharpe": "Pending Backtest"
+        },
+        # Available from Strategy Studio for historical simulation as well as
+        # live/paper deployment (forward-test on real candles).
+        "paper_only_live": False
+    },
     "equity_swing_vcp": {
         "id": "equity_swing_vcp",
         "name": "Equity Swing VCP",
@@ -771,6 +815,66 @@ def start_backtest_stream(req: BacktestRequest, background_tasks: BackgroundTask
                 job.status = "failed"
                 job_manager.add_event(job_id, "backtest_failed", {"error": str(exc)})
         background_tasks.add_task(run_nifty_backtest)
+        return {"job_id": job_id, "status": "started"}
+
+    # Four Indicator System resolves and prices a real single-leg CE contract
+    # per signal (strike chosen by real premium, not ATM): it cannot use the
+    # generic single-instrument candle engine either. Reads Breeze live.
+    if req.strategy_id == "four_indicator_system":
+        from backtest.four_indicator_backtest import run_four_indicator_backtest, to_ui_result
+        from market_data.breeze_data_provider import BreezeHistoricalDataProvider
+        job_id = job_manager.create_job(bt_config, None)
+        fi_params = req.params or {}
+        try:
+            fi_provider = BreezeHistoricalDataProvider(persist_cache=False)
+            fi_provider.verify_once = True
+            fi_provider.ensure_authenticated()
+        except Exception as e:
+            job = job_manager.get_job(job_id)
+            if job:
+                job.status = "failed"
+            job_manager.add_event(job_id, "backtest_failed", {"error": f"Breeze session not usable: {e}"})
+            return {"job_id": job_id, "status": "failed", "error": str(e)}
+
+        def run_four_indicator_backtest_job():
+            job = job_manager.get_job(job_id)
+            if not job:
+                return
+            job.status = "running"
+            job_manager.add_event(job_id, "backtest_started", {"strategy_id": "four_indicator_system"})
+            done = {"n": 0}
+
+            def on_progress(trade):
+                done["n"] += 1
+                job_manager.add_event(job_id, "progress", {
+                    "progress": min(99.0, done["n"] * 5.0),
+                    "instrument": f"NIFTY {trade.strike}CE ({trade.status} {trade.exit_reason or ''})"})
+            try:
+                from strategies.four_indicator_system import FourIndicatorConfig
+                cfg = FourIndicatorConfig(
+                    supertrend_period=int(fi_params.get("supertrend_period", 10)),
+                    supertrend_multiplier=float(fi_params.get("supertrend_multiplier", 3.0)),
+                    rsi_period=int(fi_params.get("rsi_period", 14)),
+                    rsi_threshold=float(fi_params.get("rsi_threshold", 70.0)),
+                    bollinger_period=int(fi_params.get("bollinger_period", 20)),
+                    bollinger_std=float(fi_params.get("bollinger_std", 2.0)),
+                    timeframe=str(req.timeframe or "5m"),
+                )
+                report = run_four_indicator_backtest(
+                    fi_provider, start.date(), end.date(), timeframe=str(req.timeframe or "5m"),
+                    capital=float(req.capital),
+                    capital_per_lot=float(fi_params.get("capital_per_lot", 50000.0)),
+                    target_premium_pct=float(fi_params.get("target_premium_pct", 0.01)),
+                    config=cfg,
+                    on_event=lambda kind, payload: job_manager.add_event(job_id, f"four_indicator_{kind}", payload),
+                    progress=on_progress)
+                result = to_ui_result(report, req.capital)
+                job.result, job.status = result, "completed"
+                job_manager.add_event(job_id, "backtest_completed", {"result": result})
+            except Exception as exc:
+                job.status = "failed"
+                job_manager.add_event(job_id, "backtest_failed", {"error": str(exc)})
+        background_tasks.add_task(run_four_indicator_backtest_job)
         return {"job_id": job_id, "status": "started"}
 
     # Get data provider — fail fast with a clear message instead of silently
