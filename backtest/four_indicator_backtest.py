@@ -3,11 +3,12 @@
 Every entry/exit decision is derived once from real NIFTY spot candles via
 ``strategies.four_indicator_system.FourIndicatorSignalEngine`` - the same
 engine used for live trading - so backtest and live can never diverge. For
-each entry the runner resolves the nearest NIFTY weekly CE expiry, probes
-real Breeze premiums outward from ATM to find the strike closest to the
-1%-of-spot target defined in the source system, and marks the trade against
-that contract's real historical candles until the SuperTrend exit or an
-intraday square-off (the source describes this as an intraday setup).
+each entry the runner resolves the nearest NIFTY weekly expiry (CE for a
+call entry, PE for a put entry), probes real Breeze premiums outward from
+ATM to find the strike closest to the 1%-of-spot target defined in the
+source system, and marks the trade against that contract's real historical
+candles until the SuperTrend exit or an intraday square-off (the source
+describes this as an intraday setup).
 
 Like ``backtest/nifty_no_brainer_runner.py`` this never uses a local candle
 cache: it fetches one trading day at a time straight from the configured
@@ -40,6 +41,7 @@ class TradeResult:
     entry_time: str
     expiry: str
     strike: int
+    side: str  # "CE" | "PE"
     entry_spot: float
     entry_premium: float
     lots: int
@@ -68,8 +70,8 @@ def resolve_weekly_expiry(entry_day: date, calendar: TradingCalendar) -> date:
     return calendar.previous_trading_day(candidate)
 
 
-def _ce_request(expiry: date, strike: int) -> dict:
-    request = get_option_symbol("breeze", "NIFTY", expiry, strike, "CE")
+def _option_request(expiry: date, strike: int, option_type: str) -> dict:
+    request = get_option_symbol("breeze", "NIFTY", expiry, strike, option_type)
     if not isinstance(request, dict):
         raise TypeError("Breeze option request builder must return a mapping")
     return request
@@ -79,20 +81,22 @@ def round_to_strike_step(value: float, step: int = STRIKE_STEP) -> int:
     return int(round(value / step) * step)
 
 
-def _premium_at(fetcher: TradingDayFetcher, expiry: date, strike: int, at: datetime) -> Optional[float]:
-    rows = fetcher.fetch(_ce_request(expiry, strike), "5m", at, at + timedelta(minutes=15))
+def _premium_at(fetcher: TradingDayFetcher, expiry: date, strike: int, option_type: str,
+                at: datetime) -> Optional[float]:
+    rows = fetcher.fetch(_option_request(expiry, strike, option_type), "5m", at, at + timedelta(minutes=15))
     return float(rows[0].close) if rows else None
 
 
 def find_strike_for_target_premium(fetcher: TradingDayFetcher, expiry: date, spot: float,
-                                   at: datetime, target_pct: float = 0.01
+                                   at: datetime, option_type: str = "CE", target_pct: float = 0.01
                                    ) -> Optional[tuple[int, float]]:
     """Probe real premiums outward from ATM for the strike closest to
     ``target_pct`` of spot - the source system's "1% of underlying" rule.
 
     A call's premium falls as the strike moves further OTM (higher) and
-    rises moving ITM (lower), so each probe steers toward the target;
-    overshooting the target halves the step (bisection-style convergence).
+    rises moving ITM (lower); a put mirrors this (premium rises moving
+    further ITM, i.e. as the strike rises). Each probe steers toward the
+    target; overshooting it halves the step (bisection-style convergence).
     """
     target = spot * target_pct
     strike = round_to_strike_step(spot)
@@ -100,18 +104,20 @@ def find_strike_for_target_premium(fetcher: TradingDayFetcher, expiry: date, spo
     step = STRIKE_STEP * 4
     direction = 0
     tried: set[int] = set()
+    call_sign = 1 if option_type == "CE" else -1  # CE: higher strike -> lower premium; PE: the reverse
     for _ in range(MAX_STRIKE_PROBES):
         if strike <= 0 or strike in tried:
             break
         tried.add(strike)
-        premium = _premium_at(fetcher, expiry, strike, at)
+        premium = _premium_at(fetcher, expiry, strike, option_type, at)
         if premium is None:
             break
         if best is None or abs(premium - target) < abs(best[1] - target):
             best = (strike, premium)
         if target > 0 and abs(premium - target) / target < TARGET_TOLERANCE:
             break
-        new_direction = 1 if premium > target else -1  # too rich -> more OTM; too cheap -> more ITM
+        # too rich -> move toward less premium; too cheap -> move toward more premium
+        new_direction = call_sign if premium > target else -call_sign
         if direction and new_direction != direction:
             step = max(STRIKE_STEP, step // 2)
         direction = new_direction
@@ -226,26 +232,28 @@ def run_four_indicator_backtest(provider: Any, start: date, end: date, *,
         result = engine.process(candle)
 
         if result and result["action"] == "ENTER" and ts.date() >= start:
+            side = result["side"]
             expiry = resolve_weekly_expiry(ts.date(), calendar)
-            found = find_strike_for_target_premium(fetcher, expiry, result["price"], ts, target_premium_pct)
+            found = find_strike_for_target_premium(fetcher, expiry, result["price"], ts, side, target_premium_pct)
             if found is None:
                 engine.in_position = False  # could not actually resolve a tradable contract
-                emit("entry_skipped", {"time": ts.isoformat(), "reason": "no_option_data"})
+                emit("entry_skipped", {"time": ts.isoformat(), "side": side, "reason": "no_option_data"})
             else:
                 strike, premium = found
                 lots = max(1, int(balance // capital_per_lot))
                 trade = TradeResult(
                     entry_date=ts.date().isoformat(), entry_time=ts.isoformat(),
-                    expiry=expiry.isoformat(), strike=strike, entry_spot=result["price"],
+                    expiry=expiry.isoformat(), strike=strike, side=side, entry_spot=result["price"],
                     entry_premium=premium, lots=lots, quantity=lots * lot,
                     indicators_at_entry=result["indicators"],
                 )
-                open_trade = {"trade": trade, "expiry": expiry, "strike": strike, "entry_ts": ts}
+                open_trade = {"trade": trade, "expiry": expiry, "strike": strike, "side": side, "entry_ts": ts}
                 emit("entry", {"trade": asdict(trade), "balance": balance})
             continue
 
         if result and result["action"] == "EXIT" and open_trade is not None:
-            exit_premium = _premium_at(fetcher, open_trade["expiry"], open_trade["strike"], ts)
+            exit_premium = _premium_at(fetcher, open_trade["expiry"], open_trade["strike"],
+                                       open_trade["side"], ts)
             close_trade(ts, exit_premium, "supertrend_flip")
             continue
 
@@ -254,7 +262,8 @@ def run_four_indicator_backtest(provider: Any, start: date, end: date, *,
             same_session_day = ts.date() == entry_ts.date()
             past_cutoff = ts.timetz().replace(tzinfo=None) >= SQUARE_OFF_TIME
             if same_session_day and past_cutoff:
-                exit_premium = _premium_at(fetcher, open_trade["expiry"], open_trade["strike"], ts)
+                exit_premium = _premium_at(fetcher, open_trade["expiry"], open_trade["strike"],
+                                           open_trade["side"], ts)
                 close_trade(ts, exit_premium, "intraday_square_off")
                 engine.in_position = False
 
@@ -271,7 +280,9 @@ def run_four_indicator_backtest(provider: Any, start: date, end: date, *,
             "target_premium_pct": target_premium_pct,
             "supertrend_period": cfg.supertrend_period, "supertrend_multiplier": cfg.supertrend_multiplier,
             "rsi_period": cfg.rsi_period, "rsi_threshold": cfg.rsi_threshold,
+            "put_rsi_threshold": cfg.put_rsi_threshold,
             "bollinger_period": cfg.bollinger_period, "bollinger_std": cfg.bollinger_std,
+            "enable_calls": cfg.enable_calls, "enable_puts": cfg.enable_puts,
         },
         "data_source": {"provider": "breeze", "local_candle_cache": False, "requests": fetcher.requests,
                         "non_trading_days_skipped": len(fetcher.skipped_days)},
@@ -287,7 +298,8 @@ def to_ui_result(report: dict[str, Any], capital: float) -> dict[str, Any]:
     summary = report["summary"]
     total = summary["total_pnl"]
     trades = [{
-        "trade_id": f"4IND-{t['entry_date']}-{t['strike']}", "instrument": f"NIFTY {t['strike']} CE",
+        "trade_id": f"4IND-{t['entry_date']}-{t['strike']}{t['side']}",
+        "instrument": f"NIFTY {t['strike']} {t['side']}",
         "quantity": t["quantity"], "entry_time": t["entry_time"], "entry_price": t["entry_premium"],
         "exit_time": t["exit_time"], "exit_price": t["exit_premium"], "pnl": t["pnl"],
     } for t in closed]

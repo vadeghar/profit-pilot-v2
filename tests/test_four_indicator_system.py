@@ -107,6 +107,95 @@ def test_exit_on_supertrend_flip_after_entry():
     assert engine.in_position is False
 
 
+def test_entry_put_mirrors_call_on_a_selloff():
+    """A steady decline should trigger a PE entry: downtrend, RSI<30, below S1, below lower band."""
+    engine = FourIndicatorSignalEngine(FourIndicatorConfig(put_rsi_threshold=30.0))
+    _feed_warmup_day(engine, day=1, base=25000.0, bars=40)
+    _feed_warmup_day(engine, day=2, base=25000.0, bars=40)
+    result = None
+    price = 25000.0
+    for i in range(30):
+        price -= 25.0  # steady selloff: breaks S1, pushes RSI down, stays below SuperTrend
+        c = make_candle(3, i * 5, price + 25, price + 30, price - 5, price)
+        r = engine.process(c)
+        if r:
+            result = r
+            break
+    assert result is not None
+    assert result["action"] == "ENTER"
+    assert result["side"] == "PE"
+    assert engine.in_position is True
+    assert engine.position_side == "PE"
+    ind = result["indicators"]
+    assert ind["supertrend_trend"] == "down"
+    assert ind["rsi"] < 30.0
+    assert ind["prev_day_s1"] is not None
+    assert result["price"] < ind["bollinger_lower"]
+    assert result["price"] < ind["prev_day_s1"]
+
+
+def test_exit_put_on_supertrend_flip_up():
+    engine = FourIndicatorSignalEngine(FourIndicatorConfig())
+    _feed_warmup_day(engine, day=1, base=25000.0, bars=40)
+    _feed_warmup_day(engine, day=2, base=25000.0, bars=40)
+    price = 25000.0
+    entered = False
+    for i in range(30):
+        price -= 25.0
+        c = make_candle(3, i * 5, price + 25, price + 30, price - 5, price)
+        r = engine.process(c)
+        if r and r["action"] == "ENTER":
+            entered = True
+            break
+    assert entered and engine.position_side == "PE"
+    exit_result = None
+    for i in range(30):
+        price += 60.0
+        c = make_candle(3, 150 + i * 5, price - 60, price + 5, price - 65, price)
+        r = engine.process(c)
+        if r and r["action"] == "EXIT":
+            exit_result = r
+            break
+    assert exit_result is not None
+    assert exit_result["reason"] == "supertrend_flip"
+    assert engine.in_position is False
+    assert engine.position_side is None
+
+
+def test_calls_and_puts_can_be_individually_disabled():
+    engine = FourIndicatorSignalEngine(FourIndicatorConfig(enable_puts=False))
+    _feed_warmup_day(engine, day=1, base=25000.0, bars=40)
+    _feed_warmup_day(engine, day=2, base=25000.0, bars=40)
+    price = 25000.0
+    for i in range(30):
+        price -= 25.0
+        c = make_candle(3, i * 5, price + 25, price + 30, price - 5, price)
+        r = engine.process(c)
+        assert not (r and r["action"] == "ENTER")  # puts disabled: never enters
+    assert engine.in_position is False
+
+
+def test_strategy_wrapper_emits_put_signal_on_selloff():
+    strat = FourIndicatorSystemStrategy("four_indicator_system", "Four Indicator System",
+                                        {"instrument": "NSE:NIFTY"})
+    strat.initialize()
+    price = 25000.0
+    for day, base in ((1, 25000.0), (2, 25000.0)):
+        for i in range(40):
+            strat.on_candle(make_candle(day, i * 5, base, base + 1, base - 1, base))
+    signal = None
+    for i in range(30):
+        price -= 25.0
+        c = make_candle(3, i * 5, price + 25, price + 30, price - 5, price)
+        sig = strat.on_candle(c)
+        if sig:
+            signal = sig
+            break
+    assert signal is not None
+    assert signal.action == OrderSide.BUY
+    assert signal.metadata["side"] == "PE"
+
+
 def test_strategy_wrapper_emits_signals_matching_engine():
     strat = FourIndicatorSystemStrategy("four_indicator_system", "Four Indicator System",
                                         {"instrument": "NSE:NIFTY"})

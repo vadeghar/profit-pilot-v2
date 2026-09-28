@@ -1,37 +1,41 @@
-"""Four Indicator System - rule-based intraday NIFTY option buying (long calls only).
+"""Four Indicator System - rule-based intraday NIFTY option buying (calls + puts).
 
 Source: "The 4 Indicator System for Option Buying" podcast transcript (Darin
-Dharan / Upsurge, Sep-2026). Rules implemented exactly as described on-air,
-nothing added:
+Dharan / Upsurge, Sep-2026), plus the symmetric put-side rules given directly
+by the user (the source itself only detailed the call side on-air).
 
+Call side (as defined on-air):
   1. SuperTrend(10, 3) on the underlying candle close defines the trend: a
-     candle closing above the SuperTrend line is an uptrend, below is a
-     downtrend ("it's just an escalator" - no sideways state).
-  2. RSI(14) above 70 confirms momentum is with the trend. This is used
-     deliberately against the textbook overbought-reversal reading: the
-     system buys calls *because* RSI is hot, not despite it.
+     candle closing above the SuperTrend line is an uptrend ("it's just an
+     escalator" - no sideways state).
+  2. RSI(14) above 70 confirms momentum is with the trend - used deliberately
+     against the textbook overbought-reversal reading: the system buys calls
+     *because* RSI is hot, not despite it.
   3. Previous trading day's classic pivot R1 level: the close must be above
-     R1 - "at least one level of resistance should have been broken" before
-     a long is taken.
+     R1 - "at least one level of resistance should have been broken".
   4. Bollinger Bands(20, 2 std-dev): the candle must close above the *upper*
      band - the "super candle" filter that keeps entries to the strongest
      ~5% of candles on the chart.
+  Entry: all four conditions true on the same candle close -> buy a call.
+  Exit: the SuperTrend flips from up to down.
 
-  Entry (long / call buying): all four conditions true on the same candle
-  close.
-  Exit: the SuperTrend flips from up to down. It doubles as the trailing
-  stop while the trade is open - the source defines no separate stop-loss.
+Put side (exact mirror, as specified by the user):
+  1. SuperTrend(10, 3): candle closing below the line is a downtrend.
+  2. RSI(14) below 30 confirms downside momentum.
+  3. Previous day's classic pivot S1 level: close must be below S1 - "one
+     support level broken".
+  4. Bollinger Bands(20, 2 std-dev): close must be below the *lower* band.
+  Entry: all four conditions true -> buy a put.
+  Exit: the SuperTrend flips from down to up.
 
-  Strike selection is not ATM: the strike is chosen so its option premium is
-  close to 1% of the underlying spot (NIFTY @ 25,000 -> ~Rs 250 premium),
-  the exact scaling rule given in the source for any underlying price. That
-  selection needs real option-chain prices, so it lives in
-  ``backtest.four_indicator_backtest`` (historical) and the live paper/broker
-  integration, not in this module.
-
-  The short (put-buying) side was explicitly left undefined in the source
-  ("more advanced concepts... in the course") and is intentionally NOT
-  implemented here - only what was defined on-air is built.
+In both cases the SuperTrend flip doubles as the trailing stop while the
+trade is open - the source defines no separate stop-loss - and strike
+selection is not ATM: the strike is chosen so its option premium is close to
+1% of the underlying spot (NIFTY @ 25,000 -> ~Rs 250 premium), the exact
+scaling rule given in the source for any underlying price. That selection
+needs real option-chain prices, so it lives in
+``backtest.four_indicator_backtest`` (historical) and the live paper/broker
+integration, not in this module.
 """
 from __future__ import annotations
 
@@ -147,10 +151,13 @@ class FourIndicatorConfig:
     supertrend_period: int = 10
     supertrend_multiplier: float = 3.0
     rsi_period: int = 14
-    rsi_threshold: float = 70.0
+    rsi_threshold: float = 70.0            # call-side momentum floor (RSI above)
+    put_rsi_threshold: float = 30.0        # put-side momentum ceiling (RSI below)
     bollinger_period: int = 20
     bollinger_std: float = 2.0
     timeframe: str = "5m"
+    enable_calls: bool = True
+    enable_puts: bool = True
 
 
 class FourIndicatorSignalEngine:
@@ -158,8 +165,10 @@ class FourIndicatorSignalEngine:
 
     Feed candles for the underlying strictly in time order via ``process``.
     Live trading and the historical backtest both drive this same engine so
-    the two can never diverge. Only long (call-buying) entries are generated
-    - see the module docstring for why the put side is out of scope.
+    the two can never diverge. Call and put entries are exact mirrors of each
+    other (SuperTrend direction, RSI side, Pivot R1/S1, Bollinger upper/lower)
+    and are mutually exclusive since SuperTrend can only be up or down on any
+    one candle.
     """
 
     def __init__(self, config: Optional[FourIndicatorConfig] = None):
@@ -171,7 +180,9 @@ class FourIndicatorSignalEngine:
         self._day_low: Optional[float] = None
         self._day_close: Optional[float] = None
         self._prev_day_r1: Optional[float] = None
+        self._prev_day_s1: Optional[float] = None
         self.in_position = False
+        self.position_side: Optional[str] = None  # "CE" | "PE"
         self.last_indicators: Dict[str, Any] = {}
 
     def _roll_day(self, candle_date: date) -> None:
@@ -180,7 +191,8 @@ class FourIndicatorSignalEngine:
             return
         if candle_date != self._current_day:
             if self._day_high is not None:
-                self._prev_day_r1 = classic_pivot(self._day_high, self._day_low, self._day_close)["r1"]
+                pivots = classic_pivot(self._day_high, self._day_low, self._day_close)
+                self._prev_day_r1, self._prev_day_s1 = pivots["r1"], pivots["s1"]
             self._current_day = candle_date
             self._day_high = self._day_low = self._day_close = None
 
@@ -198,35 +210,52 @@ class FourIndicatorSignalEngine:
 
         rsi_value = rsi(self._closes, self.config.rsi_period)
         bands = bollinger_bands(self._closes, self.config.bollinger_period, self.config.bollinger_std)
-        r1 = self._prev_day_r1
+        r1, s1 = self._prev_day_r1, self._prev_day_s1
 
         self.last_indicators = {
             "supertrend_trend": st["trend"] if st else None,
             "supertrend_line": st["line"] if st else None,
             "rsi": rsi_value,
             "bollinger_upper": bands["upper"] if bands else None,
+            "bollinger_lower": bands["lower"] if bands else None,
             "prev_day_r1": r1,
+            "prev_day_s1": s1,
         }
 
         if self.in_position:
-            if st and st["trend"] == "down":
+            flipped = (self.position_side == "CE" and st and st["trend"] == "down") or \
+                      (self.position_side == "PE" and st and st["trend"] == "up")
+            if flipped:
                 self.in_position = False
+                self.position_side = None
                 return {"action": "EXIT", "at": ts, "price": close, "reason": "supertrend_flip",
                         "indicators": dict(self.last_indicators)}
             return None
 
-        if st is None or rsi_value is None or bands is None or r1 is None:
+        if st is None or rsi_value is None or bands is None or r1 is None or s1 is None:
             return None  # still warming up: not enough history for one of the four rules
 
-        entry_ok = (
-            st["trend"] == "up"
+        entry_call_ok = (
+            self.config.enable_calls
+            and st["trend"] == "up"
             and rsi_value > self.config.rsi_threshold
             and close > r1
             and close > bands["upper"]
         )
-        if entry_ok:
-            self.in_position = True
+        entry_put_ok = (
+            self.config.enable_puts
+            and st["trend"] == "down"
+            and rsi_value < self.config.put_rsi_threshold
+            and close < s1
+            and close < bands["lower"]
+        )
+        if entry_call_ok:
+            self.in_position, self.position_side = True, "CE"
             return {"action": "ENTER", "side": "CE", "at": ts, "price": close,
+                    "indicators": dict(self.last_indicators)}
+        if entry_put_ok:
+            self.in_position, self.position_side = True, "PE"
+            return {"action": "ENTER", "side": "PE", "at": ts, "price": close,
                     "indicators": dict(self.last_indicators)}
         return None
 
@@ -235,10 +264,10 @@ class FourIndicatorSystemStrategy(StrategyBase):
     """Live/generic-engine adapter around :class:`FourIndicatorSignalEngine`.
 
     Runs on the underlying's own candles (default NSE:NIFTY) and emits a BUY
-    signal to enter a call, a SELL signal to flatten it. Resolving and
-    pricing the real CE contract (1%-of-spot premium strike) is the caller's
-    job - see ``backtest.four_indicator_backtest`` for the historical runner
-    that does this against real option data.
+    signal to enter a call or put, a SELL signal to flatten it. Resolving and
+    pricing the real CE/PE contract (1%-of-spot premium strike) is the
+    caller's job - see ``backtest.four_indicator_backtest`` for the
+    historical runner that does this against real option data.
     """
 
     def _init_indicators(self) -> None:
@@ -247,9 +276,12 @@ class FourIndicatorSystemStrategy(StrategyBase):
             supertrend_multiplier=float(self.params.get("supertrend_multiplier", 3.0)),
             rsi_period=int(self.params.get("rsi_period", 14)),
             rsi_threshold=float(self.params.get("rsi_threshold", 70.0)),
+            put_rsi_threshold=float(self.params.get("put_rsi_threshold", 30.0)),
             bollinger_period=int(self.params.get("bollinger_period", 20)),
             bollinger_std=float(self.params.get("bollinger_std", 2.0)),
             timeframe=str(self.params.get("timeframe", "5m")),
+            enable_calls=bool(self.params.get("enable_calls", True)),
+            enable_puts=bool(self.params.get("enable_puts", True)),
         )
         self.engine = FourIndicatorSignalEngine(cfg)
         self.instrument = self.params.get("instrument", "NSE:NIFTY")
@@ -268,7 +300,8 @@ class FourIndicatorSystemStrategy(StrategyBase):
         if result["action"] == "ENTER":
             return Signal(strategy_id=self.strategy_id, instrument=inst, action=OrderSide.BUY,
                          quantity=self.quantity, order_type=OrderType.MARKET,
-                         metadata={"reason": "four_indicator_entry", "side": "CE", **result["indicators"]})
+                         metadata={"reason": "four_indicator_entry", "side": result["side"],
+                                  **result["indicators"]})
         return Signal(strategy_id=self.strategy_id, instrument=inst, action=OrderSide.SELL,
                      quantity=self.quantity, order_type=OrderType.MARKET,
                      metadata={"reason": "supertrend_flip_exit", **result["indicators"]})

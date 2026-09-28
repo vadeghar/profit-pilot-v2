@@ -294,14 +294,14 @@ STRATEGY_CATALOG = {
     "four_indicator_system": {
         "id": "four_indicator_system",
         "name": "Four Indicator System",
-        "badge": "Intraday Call Buying",
+        "badge": "Intraday Call/Put Buying",
         "badge_color": "cyan",
         "icon": "fa-bolt-lightning",
-        "description": "SuperTrend(10,3) trend + RSI(14)>70 momentum + prior-day Pivot R1 breakout + Bollinger(20,2) 'super candle' filter buys NIFTY calls near a 1%-of-spot premium strike; SuperTrend flip is the exit/trailing stop. Long-only (source left the put side undefined). Exact rules from 'The 4 Indicator System for Option Buying' (Darin Dharan).",
+        "description": "SuperTrend(10,3) trend + RSI(14) momentum + prior-day Pivot R1/S1 breakout + Bollinger(20,2) 'super candle' filter buys NIFTY calls (RSI>70, above R1/upper band) or puts (RSI<30, below S1/lower band) near a 1%-of-spot premium strike; SuperTrend flip is the exit/trailing stop. Exact call-side rules from 'The 4 Indicator System for Option Buying' (Darin Dharan); the put side is the exact mirror.",
         "asset_class": "NIFTY Index Options (Intraday)",
         "data_provider": "breeze",
         "default_symbols": "NIFTY",
-        "allowed_symbols": [{"label": "NIFTY 5m Intraday Call Buying", "value": "NIFTY"}],
+        "allowed_symbols": [{"label": "NIFTY 5m Intraday Call/Put Buying", "value": "NIFTY"}],
         "default_timeframe": "5m",
         "default_capital": 100000.0,
         "default_start_date": "2026-01-01",
@@ -314,16 +314,22 @@ STRATEGY_CATALOG = {
             "supertrend_multiplier": 3.0,
             "rsi_period": 14,
             "rsi_threshold": 70.0,
+            "put_rsi_threshold": 30.0,
             "bollinger_period": 20,
-            "bollinger_std": 2.0
+            "bollinger_std": 2.0,
+            "enable_calls": True,
+            "enable_puts": True
         },
         "param_schema": [
             {"key": "capital_per_lot", "label": "Capital Allocated per Lot (Rs)", "type": "number", "default": 50000.0, "step": 5000.0},
             {"key": "target_premium_pct", "label": "Target Premium (% of Spot)", "type": "number", "default": 0.01, "step": 0.0025},
             {"key": "supertrend_period", "label": "SuperTrend Period", "type": "number", "default": 10, "step": 1},
             {"key": "supertrend_multiplier", "label": "SuperTrend Multiplier", "type": "number", "default": 3.0, "step": 0.5},
-            {"key": "rsi_threshold", "label": "RSI Momentum Threshold", "type": "number", "default": 70.0, "step": 1.0},
-            {"key": "bollinger_std", "label": "Bollinger Std Dev", "type": "number", "default": 2.0, "step": 0.1}
+            {"key": "rsi_threshold", "label": "Call RSI Momentum Threshold (above)", "type": "number", "default": 70.0, "step": 1.0},
+            {"key": "put_rsi_threshold", "label": "Put RSI Momentum Threshold (below)", "type": "number", "default": 30.0, "step": 1.0},
+            {"key": "bollinger_std", "label": "Bollinger Std Dev", "type": "number", "default": 2.0, "step": 0.1},
+            {"key": "enable_calls", "label": "Enable Call (CE) Entries", "type": "boolean", "default": True},
+            {"key": "enable_puts", "label": "Enable Put (PE) Entries", "type": "boolean", "default": True}
         ],
         "historical_stats": {
             "return_pct": "Pending Backtest",
@@ -848,7 +854,7 @@ def start_backtest_stream(req: BacktestRequest, background_tasks: BackgroundTask
                 done["n"] += 1
                 job_manager.add_event(job_id, "progress", {
                     "progress": min(99.0, done["n"] * 5.0),
-                    "instrument": f"NIFTY {trade.strike}CE ({trade.status} {trade.exit_reason or ''})"})
+                    "instrument": f"NIFTY {trade.strike}{trade.side} ({trade.status} {trade.exit_reason or ''})"})
             try:
                 from strategies.four_indicator_system import FourIndicatorConfig
                 cfg = FourIndicatorConfig(
@@ -856,9 +862,12 @@ def start_backtest_stream(req: BacktestRequest, background_tasks: BackgroundTask
                     supertrend_multiplier=float(fi_params.get("supertrend_multiplier", 3.0)),
                     rsi_period=int(fi_params.get("rsi_period", 14)),
                     rsi_threshold=float(fi_params.get("rsi_threshold", 70.0)),
+                    put_rsi_threshold=float(fi_params.get("put_rsi_threshold", 30.0)),
                     bollinger_period=int(fi_params.get("bollinger_period", 20)),
                     bollinger_std=float(fi_params.get("bollinger_std", 2.0)),
                     timeframe=str(req.timeframe or "5m"),
+                    enable_calls=bool(fi_params.get("enable_calls", True)),
+                    enable_puts=bool(fi_params.get("enable_puts", True)),
                 )
                 report = run_four_indicator_backtest(
                     fi_provider, start.date(), end.date(), timeframe=str(req.timeframe or "5m"),
