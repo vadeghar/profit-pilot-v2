@@ -1332,6 +1332,131 @@ def stop_equity_swing_vcp_paper():
     return {"status": "STOPPED", **sess.status()}
 
 
+MCX_TREND_RIDER_PAPER_SESSIONS: Dict[str, Any] = {}
+
+
+class MCXTrendRiderPaperStartRequest(BaseModel):
+    capital: float = 100000.0
+    instruments: Optional[List[str]] = None
+    poll_interval_seconds: int = 3600
+    data_provider: str = "angel"
+    params: Optional[Dict[str, Any]] = None
+
+
+@app.post("/api/paper/mcx-trend-rider/start")
+def start_mcx_trend_rider_paper(req: MCXTrendRiderPaperStartRequest):
+    """Start the dedicated MCX Trend Rider live PAPER-trading session.
+
+    Note: Angel One is the only provider with real MCX data, and its
+    MCX_* symbol map (market_data/angel_data_provider.py) is pinned to
+    specific expiry contracts that go stale every futures rollover - keep
+    that map current for this to fetch real data. No real orders are placed.
+    """
+    from execution.mcx_trend_rider_paper_trader import (
+        DEFAULT_INSTRUMENTS, MCXTrendRiderPaperSession, MCXTrendRiderPaperTrader,
+    )
+
+    if "mcx_trend_rider" in MCX_TREND_RIDER_PAPER_SESSIONS and \
+       MCX_TREND_RIDER_PAPER_SESSIONS["mcx_trend_rider"].status().get("status") == "RUNNING":
+        raise HTTPException(status_code=400, detail="MCX Trend Rider paper session already running")
+
+    try:
+        provider = ProviderFactory.get(req.data_provider)
+        gate = getattr(provider, "ensure_authenticated", None)
+        if callable(gate):
+            gate()
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Data provider '{req.data_provider}' not usable: {e}")
+
+    trader = MCXTrendRiderPaperTrader(
+        provider, instruments=req.instruments or DEFAULT_INSTRUMENTS, capital=req.capital,
+        params=req.params or {},
+    )
+    sess = MCXTrendRiderPaperSession(trader, poll_interval_seconds=req.poll_interval_seconds)
+    MCX_TREND_RIDER_PAPER_SESSIONS["mcx_trend_rider"] = sess
+    sess.start()
+    return {"status": "PAPER_RUNNING", "live_trading": False, **sess.status()}
+
+
+@app.get("/api/paper/mcx-trend-rider/status")
+def mcx_trend_rider_paper_status():
+    sess = MCX_TREND_RIDER_PAPER_SESSIONS.get("mcx_trend_rider")
+    if not sess:
+        raise HTTPException(status_code=404, detail="No MCX Trend Rider paper session has been started")
+    return sess.status()
+
+
+@app.post("/api/paper/mcx-trend-rider/stop")
+def stop_mcx_trend_rider_paper():
+    sess = MCX_TREND_RIDER_PAPER_SESSIONS.get("mcx_trend_rider")
+    if not sess:
+        raise HTTPException(status_code=404, detail="No MCX Trend Rider paper session has been started")
+    sess.stop("manual")
+    return {"status": "STOPPED", **sess.status()}
+
+
+LORENTZIAN_ML_PAPER_SESSIONS: Dict[str, Any] = {}
+
+
+class LorentzianMLPaperStartRequest(BaseModel):
+    capital: float = 100000.0
+    tickers: Optional[List[str]] = None
+    poll_interval_seconds: int = 3600
+    data_provider: str = "yfinance"
+    params: Optional[Dict[str, Any]] = None
+
+
+@app.post("/api/paper/lorentzian-ml/start")
+def start_lorentzian_ml_paper(req: LorentzianMLPaperStartRequest):
+    """Start the dedicated Lorentzian Classification ML live PAPER-trading session.
+
+    No capital-based sizing: the strategy always trades a fixed quantity
+    (default 1) per signal - balance is tracked for reporting only. No real
+    orders are ever placed.
+    """
+    from execution.lorentzian_ml_paper_trader import (
+        LorentzianMLPaperSession, LorentzianMLPaperTrader, default_tickers,
+    )
+
+    if "lorentzian_ml" in LORENTZIAN_ML_PAPER_SESSIONS and \
+       LORENTZIAN_ML_PAPER_SESSIONS["lorentzian_ml"].status().get("status") == "RUNNING":
+        raise HTTPException(status_code=400, detail="Lorentzian ML paper session already running")
+
+    try:
+        provider = ProviderFactory.get(req.data_provider)
+        gate = getattr(provider, "ensure_authenticated", None)
+        if callable(gate):
+            gate()
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Data provider '{req.data_provider}' not usable: {e}")
+
+    trader = LorentzianMLPaperTrader(
+        provider, tickers=req.tickers or default_tickers(), capital=req.capital,
+        params=req.params or {},
+    )
+    sess = LorentzianMLPaperSession(trader, poll_interval_seconds=req.poll_interval_seconds)
+    LORENTZIAN_ML_PAPER_SESSIONS["lorentzian_ml"] = sess
+    sess.start()
+    return {"status": "PAPER_RUNNING", "live_trading": False, **sess.status()}
+
+
+@app.get("/api/paper/lorentzian-ml/status")
+def lorentzian_ml_paper_status():
+    sess = LORENTZIAN_ML_PAPER_SESSIONS.get("lorentzian_ml")
+    if not sess:
+        raise HTTPException(status_code=404, detail="No Lorentzian ML paper session has been started")
+    return sess.status()
+
+
+@app.post("/api/paper/lorentzian-ml/stop")
+def stop_lorentzian_ml_paper():
+    sess = LORENTZIAN_ML_PAPER_SESSIONS.get("lorentzian_ml")
+    if not sess:
+        raise HTTPException(status_code=404, detail="No Lorentzian ML paper session has been started")
+    sess.stop("manual")
+    return {"status": "STOPPED", **sess.status()}
+
+
 def _is_market_hours_ist() -> bool:
     """Check if current time is within market hours (09:15 - 15:30 IST)."""
     from utils.timezone import now_ist, EQUITY_OPEN_MIN, EQUITY_CLOSE_MIN
@@ -1892,6 +2017,48 @@ trading-platform status</pre>
                 </button>
               </div>
             </div>
+            <div id="mcx-paper-box" class="hidden p-2 bg-gray-950/60 border border-amber-500/30 rounded-lg text-[11px] space-y-1.5">
+              <div class="text-amber-300 font-bold flex items-center space-x-1.5"><i class="fa-solid fa-satellite-dish"></i><span>Live paper trading — daily replay of the real strategy, no real orders</span></div>
+              <div>
+                <label class="block text-gray-500 mb-0.5">Capital (₹)</label>
+                <input id="mcx-paper-capital" type="number" value="100000" step="10000" class="w-full bg-gray-900 border border-gray-700 rounded px-2 py-1 text-white font-mono text-[11px] focus:outline-none focus:border-amber-500">
+              </div>
+              <div>
+                <label class="block text-gray-500 mb-0.5">Instruments (comma-separated, blank = default basket)</label>
+                <input id="mcx-paper-instruments" type="text" placeholder="MCX_GOLDM, MCX_SILVERM, MCX_CRUDEOIL" class="w-full bg-gray-900 border border-gray-700 rounded px-2 py-1 text-white font-mono text-[11px] focus:outline-none focus:border-amber-500">
+              </div>
+              <button onclick="startMcxPaper()" id="btn-mcx-paper-start" class="w-full py-1.5 mt-1 bg-gradient-to-r from-amber-500 to-rose-500 hover:from-amber-400 hover:to-rose-400 text-gray-950 font-bold rounded-lg shadow transition flex items-center justify-center space-x-2">
+                <i class="fa-solid fa-satellite-dish"></i><span>START PAPER TRADING</span>
+              </button>
+              <div id="mcx-paper-status" class="hidden mt-1 p-2 bg-emerald-950/60 border border-emerald-500/30 rounded-lg space-y-1.5">
+                <div class="text-emerald-300 font-bold flex items-center space-x-1.5"><span class="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span><span>PAPER SESSION RUNNING</span></div>
+                <div id="mcx-paper-status-text" class="text-gray-300 font-mono text-[10px]">--</div>
+                <button onclick="stopMcxPaper()" class="w-full py-1.5 mt-1 bg-gradient-to-r from-rose-500 to-rose-600 hover:from-rose-400 hover:to-rose-500 text-gray-950 font-bold rounded-lg shadow transition flex items-center justify-center space-x-2">
+                  <i class="fa-solid fa-stop"></i><span>STOP PAPER SESSION</span>
+                </button>
+              </div>
+            </div>
+            <div id="lorentzian-paper-box" class="hidden p-2 bg-gray-950/60 border border-purple-500/30 rounded-lg text-[11px] space-y-1.5">
+              <div class="text-purple-300 font-bold flex items-center space-x-1.5"><i class="fa-solid fa-satellite-dish"></i><span>Live paper trading — daily replay of the real strategy, no real orders</span></div>
+              <div>
+                <label class="block text-gray-500 mb-0.5">Capital (₹) — reporting only, no capital-based sizing</label>
+                <input id="lorentzian-paper-capital" type="number" value="100000" step="10000" class="w-full bg-gray-900 border border-gray-700 rounded px-2 py-1 text-white font-mono text-[11px] focus:outline-none focus:border-purple-500">
+              </div>
+              <div>
+                <label class="block text-gray-500 mb-0.5">Tickers (comma-separated, blank = NSE:NIFTY)</label>
+                <input id="lorentzian-paper-tickers" type="text" placeholder="NSE:NIFTY, NSE:RELIANCE, ..." class="w-full bg-gray-900 border border-gray-700 rounded px-2 py-1 text-white font-mono text-[11px] focus:outline-none focus:border-purple-500">
+              </div>
+              <button onclick="startLorentzianPaper()" id="btn-lorentzian-paper-start" class="w-full py-1.5 mt-1 bg-gradient-to-r from-purple-500 to-cyan-500 hover:from-purple-400 hover:to-cyan-400 text-gray-950 font-bold rounded-lg shadow transition flex items-center justify-center space-x-2">
+                <i class="fa-solid fa-satellite-dish"></i><span>START PAPER TRADING</span>
+              </button>
+              <div id="lorentzian-paper-status" class="hidden mt-1 p-2 bg-emerald-950/60 border border-emerald-500/30 rounded-lg space-y-1.5">
+                <div class="text-emerald-300 font-bold flex items-center space-x-1.5"><span class="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span><span>PAPER SESSION RUNNING</span></div>
+                <div id="lorentzian-paper-status-text" class="text-gray-300 font-mono text-[10px]">--</div>
+                <button onclick="stopLorentzianPaper()" class="w-full py-1.5 mt-1 bg-gradient-to-r from-rose-500 to-rose-600 hover:from-rose-400 hover:to-rose-500 text-gray-950 font-bold rounded-lg shadow transition flex items-center justify-center space-x-2">
+                  <i class="fa-solid fa-stop"></i><span>STOP PAPER SESSION</span>
+                </button>
+              </div>
+            </div>
           </div>
 
         </div>
@@ -2203,6 +2370,8 @@ trading-platform status</pre>
         setInterval(refreshOiRunningState, 30000);
         refreshFourIndicatorPaperStatus();
         refreshVcpPaperStatus();
+        refreshMcxPaperStatus();
+        refreshLorentzianPaperStatus();
       } catch (err) {
         console.error('Failed to load strategy catalog:', err);
       }
@@ -2218,7 +2387,9 @@ trading-platform status</pre>
         const isOIPaperRunning = !!(window._oiRunning && window._oiRunning[s.id]);
         const isFiPaperRunning = !!(window._fiPaperRunning && s.id === 'four_indicator_system');
         const isVcpPaperRunning = !!(window._vcpPaperRunning && s.id === 'equity_swing_vcp');
-        const cardBorderClass = (isOIPaperRunning || isFiPaperRunning || isVcpPaperRunning) ? 'border-emerald-500/60' : 'border-gray-800 hover:border-cyan-500/60';
+        const isMcxPaperRunning = !!(window._mcxPaperRunning && s.id === 'mcx_trend_rider');
+        const isLorentzianPaperRunning = !!(window._lorentzianPaperRunning && s.id === 'lorentzian_ml');
+        const cardBorderClass = (isOIPaperRunning || isFiPaperRunning || isVcpPaperRunning || isMcxPaperRunning || isLorentzianPaperRunning) ? 'border-emerald-500/60' : 'border-gray-800 hover:border-cyan-500/60';
         // Card stays clickable while running so the live paper trades can be inspected in the modal.
         // Only the "Run Paper Live" action is disabled while a session is active.
         card.className = `glass-card p-5 rounded-2xl border ${cardBorderClass} transition-all duration-200 hover:-translate-y-1 cursor-pointer flex flex-col justify-between h-[340px] group`;
@@ -2268,7 +2439,7 @@ trading-platform status</pre>
             <div class="text-[11px] font-mono">
               <span class="text-gray-500">Benchmark:</span>
               <span class="font-bold text-emerald-400 ml-1">${s.historical_stats.return_pct}</span>
-              ${(isOIPaperRunning || isFiPaperRunning || isVcpPaperRunning) ? '<div class="mt-1 text-[10px] font-bold text-emerald-300 flex items-center space-x-1"><span class="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span><span>PAPER RUNNING</span></div>' : ''}
+              ${(isOIPaperRunning || isFiPaperRunning || isVcpPaperRunning || isMcxPaperRunning || isLorentzianPaperRunning) ? '<div class="mt-1 text-[10px] font-bold text-emerald-300 flex items-center space-x-1"><span class="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span><span>PAPER RUNNING</span></div>' : ''}
                ${(s.paper_only_live && !isOIPaperRunning) ? '<div class="mt-1 text-[9px] text-amber-500">Paper Live Only</div>' : ''}
             </div>
             ${isOIPaperRunning
@@ -2277,6 +2448,10 @@ trading-platform status</pre>
               ? `<button onclick="event.stopPropagation(); cardStopFourIndicatorPaper()" class="px-3 py-1 bg-rose-500/20 hover:bg-rose-500 text-rose-300 hover:text-white font-bold text-xs rounded-lg transition flex items-center space-x-1"><i class="fa-solid fa-stop text-[10px]"></i><span>Stop</span></button>`
               : isVcpPaperRunning
               ? `<button onclick="event.stopPropagation(); cardStopVcpPaper()" class="px-3 py-1 bg-rose-500/20 hover:bg-rose-500 text-rose-300 hover:text-white font-bold text-xs rounded-lg transition flex items-center space-x-1"><i class="fa-solid fa-stop text-[10px]"></i><span>Stop</span></button>`
+              : isMcxPaperRunning
+              ? `<button onclick="event.stopPropagation(); cardStopMcxPaper()" class="px-3 py-1 bg-rose-500/20 hover:bg-rose-500 text-rose-300 hover:text-white font-bold text-xs rounded-lg transition flex items-center space-x-1"><i class="fa-solid fa-stop text-[10px]"></i><span>Stop</span></button>`
+              : isLorentzianPaperRunning
+              ? `<button onclick="event.stopPropagation(); cardStopLorentzianPaper()" class="px-3 py-1 bg-rose-500/20 hover:bg-rose-500 text-rose-300 hover:text-white font-bold text-xs rounded-lg transition flex items-center space-x-1"><i class="fa-solid fa-stop text-[10px]"></i><span>Stop</span></button>`
               : `<button class="px-3 py-1 bg-cyan-500/20 hover:bg-cyan-500 group-hover:bg-cyan-500 text-cyan-300 group-hover:text-gray-950 font-bold text-xs rounded-lg transition flex items-center space-x-1"><span>Test</span><i class="fa-solid fa-arrow-right text-[10px]"></i></button>`}
           </div>
         `;
@@ -2397,6 +2572,20 @@ trading-platform status</pre>
       if (vcpBox) {
         if (s.id === 'equity_swing_vcp') { vcpBox.classList.remove('hidden'); refreshVcpPaperStatus(); }
         else { vcpBox.classList.add('hidden'); if (window._vcpPaperPollTimer) { clearInterval(window._vcpPaperPollTimer); window._vcpPaperPollTimer = null; } }
+      }
+
+      // MCX Trend Rider: independent paper-trading box (co-exists with Run Backtest)
+      const mcxBox = document.getElementById('mcx-paper-box');
+      if (mcxBox) {
+        if (s.id === 'mcx_trend_rider') { mcxBox.classList.remove('hidden'); refreshMcxPaperStatus(); }
+        else { mcxBox.classList.add('hidden'); if (window._mcxPaperPollTimer) { clearInterval(window._mcxPaperPollTimer); window._mcxPaperPollTimer = null; } }
+      }
+
+      // Lorentzian Classification ML: independent paper-trading box (co-exists with Run Backtest)
+      const lorentzianBox = document.getElementById('lorentzian-paper-box');
+      if (lorentzianBox) {
+        if (s.id === 'lorentzian_ml') { lorentzianBox.classList.remove('hidden'); refreshLorentzianPaperStatus(); }
+        else { lorentzianBox.classList.add('hidden'); if (window._lorentzianPaperPollTimer) { clearInterval(window._lorentzianPaperPollTimer); window._lorentzianPaperPollTimer = null; } }
       }
 
       // For paper-only strategies (index_oi_momentum), hide the Run Backtest button
@@ -3646,6 +3835,252 @@ trading-platform status</pre>
       } catch (e) { /* ignore */ }
       window._vcpPaperRunning = false;
       if (window._vcpPaperPollTimer) { clearInterval(window._vcpPaperPollTimer); window._vcpPaperPollTimer = null; }
+      renderStrategyCards();
+    }
+
+    // ---------------------------------------------------------------------
+    // MCX Trend Rider: dedicated live paper-trading controls
+    // ---------------------------------------------------------------------
+    async function refreshMcxPaperStatus() {
+      try {
+        const res = await fetch('/api/paper/mcx-trend-rider/status');
+        if (res.status === 404) { window._mcxPaperRunning = false; syncMcxPaperUI(null); return; }
+        const data = await res.json();
+        const wasRunning = window._mcxPaperRunning;
+        window._mcxPaperRunning = data.status === 'RUNNING';
+        syncMcxPaperUI(data);
+        if (wasRunning !== window._mcxPaperRunning) renderStrategyCards();
+        if (window._mcxPaperRunning && !window._mcxPaperPollTimer) {
+          window._mcxPaperPollTimer = setInterval(pollMcxPaperStatus, 15000);
+        }
+      } catch (e) { /* silent: status view only */ }
+    }
+
+    function syncMcxPaperUI(data) {
+      const startBtn = document.getElementById('btn-mcx-paper-start');
+      const statusBox = document.getElementById('mcx-paper-status');
+      const running = !!(data && data.status === 'RUNNING');
+      if (startBtn) startBtn.classList.toggle('hidden', running);
+      if (statusBox) statusBox.classList.toggle('hidden', !running);
+      if (data) renderMcxStatusText(data);
+    }
+
+    function renderMcxStatusText(data) {
+      const el = document.getElementById('mcx-paper-status-text');
+      if (!el) return;
+      const bal = (data.balance || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 });
+      const trades = (data.trades || []).length;
+      const positions = Object.values(data.positions || {});
+      const open = positions.length
+        ? positions.map(p => `${p.instrument} ${p.side} x${p.lots}@${(p.entry_price||0).toFixed(2)}`).join(', ')
+        : 'flat';
+      const err = data.last_error ? ` | <span class="text-rose-400">${data.last_error}</span>` : '';
+      el.innerHTML = `Balance: ₹${bal} | Closed trades: ${trades} | Open: ${open}${err}`;
+      renderMcxTradesTable(data);
+    }
+
+    function renderMcxTradesTable(data) {
+      const tbody = document.getElementById('modal-trades-tbody');
+      if (!tbody) return;
+      const rows = [];
+      Object.values(data.positions || {}).forEach(p => {
+        rows.push(`<tr class="bg-amber-950/30"><td class="py-2 px-3 font-mono text-[10px]">OPEN</td><td class="py-2 px-3">${p.instrument} ${p.side}</td><td class="py-2 px-3">${p.lots}</td><td class="py-2 px-3">${p.entry_date||'--'}</td><td class="py-2 px-3">${(p.entry_price||0).toFixed(2)}</td><td class="py-2 px-3">--</td><td class="py-2 px-3">--</td><td class="py-2 px-3 text-right text-amber-300">OPEN</td></tr>`);
+      });
+      (data.trades || []).slice().reverse().forEach(t => {
+        const pnlClass = t.pnl >= 0 ? 'text-emerald-400' : 'text-rose-400';
+        rows.push(`<tr><td class="py-2 px-3 font-mono text-[10px]">MCX-${t.instrument}-${t.entry_date}</td><td class="py-2 px-3">${t.instrument} ${t.side}</td><td class="py-2 px-3">${t.lots}</td><td class="py-2 px-3">${t.entry_date}</td><td class="py-2 px-3">${t.entry_price.toFixed(2)}</td><td class="py-2 px-3">${t.exit_date}</td><td class="py-2 px-3">${t.exit_price.toFixed(2)}</td><td class="py-2 px-3 text-right ${pnlClass}">₹${t.pnl.toFixed(0)}</td></tr>`);
+      });
+      tbody.innerHTML = rows.length ? rows.join('') :
+        '<tr><td colspan="8" class="text-center py-6 text-gray-500">Waiting for the first daily signal — entries, exits and PnL stream in here.</td></tr>';
+      document.getElementById('modal-trades-count').textContent = `${(data.trades || []).length} records`;
+    }
+
+    async function pollMcxPaperStatus() {
+      try {
+        const res = await fetch('/api/paper/mcx-trend-rider/status');
+        if (res.status === 404) {
+          window._mcxPaperRunning = false;
+          if (window._mcxPaperPollTimer) { clearInterval(window._mcxPaperPollTimer); window._mcxPaperPollTimer = null; }
+          syncMcxPaperUI(null);
+          return;
+        }
+        const data = await res.json();
+        const wasRunning = window._mcxPaperRunning;
+        window._mcxPaperRunning = data.status === 'RUNNING';
+        syncMcxPaperUI(data);
+        if (wasRunning !== window._mcxPaperRunning) renderStrategyCards();
+        if (!window._mcxPaperRunning && window._mcxPaperPollTimer) {
+          clearInterval(window._mcxPaperPollTimer); window._mcxPaperPollTimer = null;
+        }
+      } catch (e) { /* silent */ }
+    }
+
+    async function startMcxPaper() {
+      const capital = parseFloat(document.getElementById('mcx-paper-capital').value) || 100000;
+      const instrumentsRaw = document.getElementById('mcx-paper-instruments').value.trim();
+      const instruments = instrumentsRaw ? instrumentsRaw.split(',').map(s => s.trim()).filter(Boolean) : null;
+      const btn = document.getElementById('btn-mcx-paper-start');
+      if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i><span>Starting...</span>'; }
+      try {
+        const res = await fetch('/api/paper/mcx-trend-rider/start', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ capital: capital, instruments: instruments })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || 'start failed');
+        window._mcxPaperRunning = true;
+        syncMcxPaperUI(data);
+        renderStrategyCards();
+        if (!window._mcxPaperPollTimer) window._mcxPaperPollTimer = setInterval(pollMcxPaperStatus, 15000);
+      } catch (e) {
+        showModalError('Could not start paper trading', e.message || e);
+      } finally {
+        if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-satellite-dish"></i><span>START PAPER TRADING</span>'; }
+      }
+    }
+
+    async function stopMcxPaper() {
+      if (!confirm('Stop the MCX Trend Rider paper session? The trade log and balance are kept.')) return;
+      try {
+        const res = await fetch('/api/paper/mcx-trend-rider/stop', { method: 'POST' });
+        const data = await res.json();
+        window._mcxPaperRunning = false;
+        if (window._mcxPaperPollTimer) { clearInterval(window._mcxPaperPollTimer); window._mcxPaperPollTimer = null; }
+        syncMcxPaperUI(data);
+        renderStrategyCards();
+      } catch (e) { showModalError('Stop failed', e.message || e); }
+    }
+
+    async function cardStopMcxPaper() {
+      if (!confirm('Stop the MCX Trend Rider paper session? The trade log and balance are kept.')) return;
+      try {
+        await fetch('/api/paper/mcx-trend-rider/stop', { method: 'POST' });
+      } catch (e) { /* ignore */ }
+      window._mcxPaperRunning = false;
+      if (window._mcxPaperPollTimer) { clearInterval(window._mcxPaperPollTimer); window._mcxPaperPollTimer = null; }
+      renderStrategyCards();
+    }
+
+    // ---------------------------------------------------------------------
+    // Lorentzian Classification ML: dedicated live paper-trading controls
+    // ---------------------------------------------------------------------
+    async function refreshLorentzianPaperStatus() {
+      try {
+        const res = await fetch('/api/paper/lorentzian-ml/status');
+        if (res.status === 404) { window._lorentzianPaperRunning = false; syncLorentzianPaperUI(null); return; }
+        const data = await res.json();
+        const wasRunning = window._lorentzianPaperRunning;
+        window._lorentzianPaperRunning = data.status === 'RUNNING';
+        syncLorentzianPaperUI(data);
+        if (wasRunning !== window._lorentzianPaperRunning) renderStrategyCards();
+        if (window._lorentzianPaperRunning && !window._lorentzianPaperPollTimer) {
+          window._lorentzianPaperPollTimer = setInterval(pollLorentzianPaperStatus, 15000);
+        }
+      } catch (e) { /* silent: status view only */ }
+    }
+
+    function syncLorentzianPaperUI(data) {
+      const startBtn = document.getElementById('btn-lorentzian-paper-start');
+      const statusBox = document.getElementById('lorentzian-paper-status');
+      const running = !!(data && data.status === 'RUNNING');
+      if (startBtn) startBtn.classList.toggle('hidden', running);
+      if (statusBox) statusBox.classList.toggle('hidden', !running);
+      if (data) renderLorentzianStatusText(data);
+    }
+
+    function renderLorentzianStatusText(data) {
+      const el = document.getElementById('lorentzian-paper-status-text');
+      if (!el) return;
+      const bal = (data.balance || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 });
+      const trades = (data.trades || []).length;
+      const positions = Object.values(data.positions || {});
+      const open = positions.length
+        ? positions.map(p => `${p.ticker} ${p.side} x${p.quantity}@${(p.entry_price||0).toFixed(2)}`).join(', ')
+        : 'flat';
+      const err = data.last_error ? ` | <span class="text-rose-400">${data.last_error}</span>` : '';
+      el.innerHTML = `Balance: ₹${bal} | Closed trades: ${trades} | Open: ${open}${err}`;
+      renderLorentzianTradesTable(data);
+    }
+
+    function renderLorentzianTradesTable(data) {
+      const tbody = document.getElementById('modal-trades-tbody');
+      if (!tbody) return;
+      const rows = [];
+      Object.values(data.positions || {}).forEach(p => {
+        rows.push(`<tr class="bg-purple-950/30"><td class="py-2 px-3 font-mono text-[10px]">OPEN</td><td class="py-2 px-3">${p.ticker} ${p.side}</td><td class="py-2 px-3">${p.quantity}</td><td class="py-2 px-3">${p.entry_date||'--'}</td><td class="py-2 px-3">${(p.entry_price||0).toFixed(2)}</td><td class="py-2 px-3">--</td><td class="py-2 px-3">--</td><td class="py-2 px-3 text-right text-purple-300">OPEN</td></tr>`);
+      });
+      (data.trades || []).slice().reverse().forEach(t => {
+        const pnlClass = t.pnl >= 0 ? 'text-emerald-400' : 'text-rose-400';
+        rows.push(`<tr><td class="py-2 px-3 font-mono text-[10px]">ML-${t.ticker}-${t.entry_date}</td><td class="py-2 px-3">${t.ticker} ${t.side}</td><td class="py-2 px-3">${t.quantity}</td><td class="py-2 px-3">${t.entry_date}</td><td class="py-2 px-3">${t.entry_price.toFixed(2)}</td><td class="py-2 px-3">${t.exit_date}</td><td class="py-2 px-3">${t.exit_price.toFixed(2)}</td><td class="py-2 px-3 text-right ${pnlClass}">₹${t.pnl.toFixed(0)}</td></tr>`);
+      });
+      tbody.innerHTML = rows.length ? rows.join('') :
+        '<tr><td colspan="8" class="text-center py-6 text-gray-500">Waiting for the first daily signal — entries, exits and PnL stream in here.</td></tr>';
+      document.getElementById('modal-trades-count').textContent = `${(data.trades || []).length} records`;
+    }
+
+    async function pollLorentzianPaperStatus() {
+      try {
+        const res = await fetch('/api/paper/lorentzian-ml/status');
+        if (res.status === 404) {
+          window._lorentzianPaperRunning = false;
+          if (window._lorentzianPaperPollTimer) { clearInterval(window._lorentzianPaperPollTimer); window._lorentzianPaperPollTimer = null; }
+          syncLorentzianPaperUI(null);
+          return;
+        }
+        const data = await res.json();
+        const wasRunning = window._lorentzianPaperRunning;
+        window._lorentzianPaperRunning = data.status === 'RUNNING';
+        syncLorentzianPaperUI(data);
+        if (wasRunning !== window._lorentzianPaperRunning) renderStrategyCards();
+        if (!window._lorentzianPaperRunning && window._lorentzianPaperPollTimer) {
+          clearInterval(window._lorentzianPaperPollTimer); window._lorentzianPaperPollTimer = null;
+        }
+      } catch (e) { /* silent */ }
+    }
+
+    async function startLorentzianPaper() {
+      const capital = parseFloat(document.getElementById('lorentzian-paper-capital').value) || 100000;
+      const tickersRaw = document.getElementById('lorentzian-paper-tickers').value.trim();
+      const tickers = tickersRaw ? tickersRaw.split(',').map(s => s.trim()).filter(Boolean) : null;
+      const btn = document.getElementById('btn-lorentzian-paper-start');
+      if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i><span>Starting...</span>'; }
+      try {
+        const res = await fetch('/api/paper/lorentzian-ml/start', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ capital: capital, tickers: tickers })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || 'start failed');
+        window._lorentzianPaperRunning = true;
+        syncLorentzianPaperUI(data);
+        renderStrategyCards();
+        if (!window._lorentzianPaperPollTimer) window._lorentzianPaperPollTimer = setInterval(pollLorentzianPaperStatus, 15000);
+      } catch (e) {
+        showModalError('Could not start paper trading', e.message || e);
+      } finally {
+        if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-satellite-dish"></i><span>START PAPER TRADING</span>'; }
+      }
+    }
+
+    async function stopLorentzianPaper() {
+      if (!confirm('Stop the Lorentzian ML paper session? The trade log and balance are kept.')) return;
+      try {
+        const res = await fetch('/api/paper/lorentzian-ml/stop', { method: 'POST' });
+        const data = await res.json();
+        window._lorentzianPaperRunning = false;
+        if (window._lorentzianPaperPollTimer) { clearInterval(window._lorentzianPaperPollTimer); window._lorentzianPaperPollTimer = null; }
+        syncLorentzianPaperUI(data);
+        renderStrategyCards();
+      } catch (e) { showModalError('Stop failed', e.message || e); }
+    }
+
+    async function cardStopLorentzianPaper() {
+      if (!confirm('Stop the Lorentzian ML paper session? The trade log and balance are kept.')) return;
+      try {
+        await fetch('/api/paper/lorentzian-ml/stop', { method: 'POST' });
+      } catch (e) { /* ignore */ }
+      window._lorentzianPaperRunning = false;
+      if (window._lorentzianPaperPollTimer) { clearInterval(window._lorentzianPaperPollTimer); window._lorentzianPaperPollTimer = null; }
       renderStrategyCards();
     }
 
