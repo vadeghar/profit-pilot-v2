@@ -1269,6 +1269,69 @@ def stop_four_indicator_paper():
     return {"status": "STOPPED", **sess.status()}
 
 
+EQUITY_SWING_VCP_PAPER_SESSIONS: Dict[str, Any] = {}
+
+
+class EquitySwingVCPPaperStartRequest(BaseModel):
+    capital: float = 100000.0
+    symbols: Optional[List[str]] = None
+    poll_interval_seconds: int = 3600
+    data_provider: str = "yfinance"
+    params: Optional[Dict[str, Any]] = None
+
+
+@app.post("/api/paper/equity-swing-vcp/start")
+def start_equity_swing_vcp_paper(req: EquitySwingVCPPaperStartRequest):
+    """Start the dedicated Equity Swing VCP live PAPER-trading session.
+
+    A daily-bar strategy: each poll replays the real EquitySwingVCPStrategy
+    over each watched symbol's full history (see
+    execution/equity_swing_vcp_paper_trader.py) and only acts on signals
+    newer than the last one already processed. No real orders are placed.
+    """
+    from execution.equity_swing_vcp_paper_trader import (
+        EquitySwingVCPPaperSession, EquitySwingVCPPaperTrader, default_equity_universe,
+    )
+
+    if "equity_swing_vcp" in EQUITY_SWING_VCP_PAPER_SESSIONS and \
+       EQUITY_SWING_VCP_PAPER_SESSIONS["equity_swing_vcp"].status().get("status") == "RUNNING":
+        raise HTTPException(status_code=400, detail="Equity Swing VCP paper session already running")
+
+    try:
+        provider = ProviderFactory.get(req.data_provider)
+        gate = getattr(provider, "ensure_authenticated", None)
+        if callable(gate):
+            gate()
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Data provider '{req.data_provider}' not usable: {e}")
+
+    trader = EquitySwingVCPPaperTrader(
+        provider, symbols=req.symbols or default_equity_universe(), capital=req.capital,
+        params=req.params or {},
+    )
+    sess = EquitySwingVCPPaperSession(trader, poll_interval_seconds=req.poll_interval_seconds)
+    EQUITY_SWING_VCP_PAPER_SESSIONS["equity_swing_vcp"] = sess
+    sess.start()
+    return {"status": "PAPER_RUNNING", "live_trading": False, **sess.status()}
+
+
+@app.get("/api/paper/equity-swing-vcp/status")
+def equity_swing_vcp_paper_status():
+    sess = EQUITY_SWING_VCP_PAPER_SESSIONS.get("equity_swing_vcp")
+    if not sess:
+        raise HTTPException(status_code=404, detail="No Equity Swing VCP paper session has been started")
+    return sess.status()
+
+
+@app.post("/api/paper/equity-swing-vcp/stop")
+def stop_equity_swing_vcp_paper():
+    sess = EQUITY_SWING_VCP_PAPER_SESSIONS.get("equity_swing_vcp")
+    if not sess:
+        raise HTTPException(status_code=404, detail="No Equity Swing VCP paper session has been started")
+    sess.stop("manual")
+    return {"status": "STOPPED", **sess.status()}
+
+
 def _is_market_hours_ist() -> bool:
     """Check if current time is within market hours (09:15 - 15:30 IST)."""
     from utils.timezone import now_ist, EQUITY_OPEN_MIN, EQUITY_CLOSE_MIN
@@ -1808,6 +1871,27 @@ trading-platform status</pre>
                 </button>
               </div>
             </div>
+            <div id="vcp-paper-box" class="hidden p-2 bg-gray-950/60 border border-emerald-500/30 rounded-lg text-[11px] space-y-1.5">
+              <div class="text-emerald-300 font-bold flex items-center space-x-1.5"><i class="fa-solid fa-satellite-dish"></i><span>Live paper trading — daily replay of the real strategy, no real orders</span></div>
+              <div>
+                <label class="block text-gray-500 mb-0.5">Capital (₹)</label>
+                <input id="vcp-paper-capital" type="number" value="100000" step="10000" class="w-full bg-gray-900 border border-gray-700 rounded px-2 py-1 text-white font-mono text-[11px] focus:outline-none focus:border-emerald-500">
+              </div>
+              <div>
+                <label class="block text-gray-500 mb-0.5">Symbols (comma-separated, blank = default universe)</label>
+                <input id="vcp-paper-symbols" type="text" placeholder="NSE:RELIANCE, NSE:HDFCBANK, ..." class="w-full bg-gray-900 border border-gray-700 rounded px-2 py-1 text-white font-mono text-[11px] focus:outline-none focus:border-emerald-500">
+              </div>
+              <button onclick="startVcpPaper()" id="btn-vcp-paper-start" class="w-full py-1.5 mt-1 bg-gradient-to-r from-emerald-500 to-cyan-500 hover:from-emerald-400 hover:to-cyan-400 text-gray-950 font-bold rounded-lg shadow transition flex items-center justify-center space-x-2">
+                <i class="fa-solid fa-satellite-dish"></i><span>START PAPER TRADING</span>
+              </button>
+              <div id="vcp-paper-status" class="hidden mt-1 p-2 bg-emerald-950/60 border border-emerald-500/30 rounded-lg space-y-1.5">
+                <div class="text-emerald-300 font-bold flex items-center space-x-1.5"><span class="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span><span>PAPER SESSION RUNNING</span></div>
+                <div id="vcp-paper-status-text" class="text-gray-300 font-mono text-[10px]">--</div>
+                <button onclick="stopVcpPaper()" class="w-full py-1.5 mt-1 bg-gradient-to-r from-rose-500 to-rose-600 hover:from-rose-400 hover:to-rose-500 text-gray-950 font-bold rounded-lg shadow transition flex items-center justify-center space-x-2">
+                  <i class="fa-solid fa-stop"></i><span>STOP PAPER SESSION</span>
+                </button>
+              </div>
+            </div>
           </div>
 
         </div>
@@ -2118,6 +2202,7 @@ trading-platform status</pre>
         refreshOiRunningState();
         setInterval(refreshOiRunningState, 30000);
         refreshFourIndicatorPaperStatus();
+        refreshVcpPaperStatus();
       } catch (err) {
         console.error('Failed to load strategy catalog:', err);
       }
@@ -2132,7 +2217,8 @@ trading-platform status</pre>
         // Fixed size responsive card with cursor pointer
         const isOIPaperRunning = !!(window._oiRunning && window._oiRunning[s.id]);
         const isFiPaperRunning = !!(window._fiPaperRunning && s.id === 'four_indicator_system');
-        const cardBorderClass = (isOIPaperRunning || isFiPaperRunning) ? 'border-emerald-500/60' : 'border-gray-800 hover:border-cyan-500/60';
+        const isVcpPaperRunning = !!(window._vcpPaperRunning && s.id === 'equity_swing_vcp');
+        const cardBorderClass = (isOIPaperRunning || isFiPaperRunning || isVcpPaperRunning) ? 'border-emerald-500/60' : 'border-gray-800 hover:border-cyan-500/60';
         // Card stays clickable while running so the live paper trades can be inspected in the modal.
         // Only the "Run Paper Live" action is disabled while a session is active.
         card.className = `glass-card p-5 rounded-2xl border ${cardBorderClass} transition-all duration-200 hover:-translate-y-1 cursor-pointer flex flex-col justify-between h-[340px] group`;
@@ -2182,13 +2268,15 @@ trading-platform status</pre>
             <div class="text-[11px] font-mono">
               <span class="text-gray-500">Benchmark:</span>
               <span class="font-bold text-emerald-400 ml-1">${s.historical_stats.return_pct}</span>
-              ${(isOIPaperRunning || isFiPaperRunning) ? '<div class="mt-1 text-[10px] font-bold text-emerald-300 flex items-center space-x-1"><span class="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span><span>PAPER RUNNING</span></div>' : ''}
+              ${(isOIPaperRunning || isFiPaperRunning || isVcpPaperRunning) ? '<div class="mt-1 text-[10px] font-bold text-emerald-300 flex items-center space-x-1"><span class="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span><span>PAPER RUNNING</span></div>' : ''}
                ${(s.paper_only_live && !isOIPaperRunning) ? '<div class="mt-1 text-[9px] text-amber-500">Paper Live Only</div>' : ''}
             </div>
             ${isOIPaperRunning
               ? `<button onclick="event.stopPropagation(); cardStopOiPaper('${s.id}')" class="px-3 py-1 bg-rose-500/20 hover:bg-rose-500 text-rose-300 hover:text-white font-bold text-xs rounded-lg transition flex items-center space-x-1"><i class="fa-solid fa-stop text-[10px]"></i><span>Stop</span></button>`
               : isFiPaperRunning
               ? `<button onclick="event.stopPropagation(); cardStopFourIndicatorPaper()" class="px-3 py-1 bg-rose-500/20 hover:bg-rose-500 text-rose-300 hover:text-white font-bold text-xs rounded-lg transition flex items-center space-x-1"><i class="fa-solid fa-stop text-[10px]"></i><span>Stop</span></button>`
+              : isVcpPaperRunning
+              ? `<button onclick="event.stopPropagation(); cardStopVcpPaper()" class="px-3 py-1 bg-rose-500/20 hover:bg-rose-500 text-rose-300 hover:text-white font-bold text-xs rounded-lg transition flex items-center space-x-1"><i class="fa-solid fa-stop text-[10px]"></i><span>Stop</span></button>`
               : `<button class="px-3 py-1 bg-cyan-500/20 hover:bg-cyan-500 group-hover:bg-cyan-500 text-cyan-300 group-hover:text-gray-950 font-bold text-xs rounded-lg transition flex items-center space-x-1"><span>Test</span><i class="fa-solid fa-arrow-right text-[10px]"></i></button>`}
           </div>
         `;
@@ -2302,6 +2390,13 @@ trading-platform status</pre>
       if (fiBox) {
         if (s.id === 'four_indicator_system') { fiBox.classList.remove('hidden'); refreshFourIndicatorPaperStatus(); }
         else { fiBox.classList.add('hidden'); if (window._fiPaperPollTimer) { clearInterval(window._fiPaperPollTimer); window._fiPaperPollTimer = null; } }
+      }
+
+      // Equity Swing VCP: independent paper-trading box (co-exists with Run Backtest)
+      const vcpBox = document.getElementById('vcp-paper-box');
+      if (vcpBox) {
+        if (s.id === 'equity_swing_vcp') { vcpBox.classList.remove('hidden'); refreshVcpPaperStatus(); }
+        else { vcpBox.classList.add('hidden'); if (window._vcpPaperPollTimer) { clearInterval(window._vcpPaperPollTimer); window._vcpPaperPollTimer = null; } }
       }
 
       // For paper-only strategies (index_oi_momentum), hide the Run Backtest button
@@ -3428,6 +3523,129 @@ trading-platform status</pre>
       } catch (e) { /* ignore */ }
       window._fiPaperRunning = false;
       if (window._fiPaperPollTimer) { clearInterval(window._fiPaperPollTimer); window._fiPaperPollTimer = null; }
+      renderStrategyCards();
+    }
+
+    // ---------------------------------------------------------------------
+    // Equity Swing VCP: dedicated live paper-trading controls
+    // ---------------------------------------------------------------------
+    async function refreshVcpPaperStatus() {
+      try {
+        const res = await fetch('/api/paper/equity-swing-vcp/status');
+        if (res.status === 404) { window._vcpPaperRunning = false; syncVcpPaperUI(null); return; }
+        const data = await res.json();
+        const wasRunning = window._vcpPaperRunning;
+        window._vcpPaperRunning = data.status === 'RUNNING';
+        syncVcpPaperUI(data);
+        if (wasRunning !== window._vcpPaperRunning) renderStrategyCards();
+        if (window._vcpPaperRunning && !window._vcpPaperPollTimer) {
+          window._vcpPaperPollTimer = setInterval(pollVcpPaperStatus, 15000);
+        }
+      } catch (e) { /* silent: status view only */ }
+    }
+
+    function syncVcpPaperUI(data) {
+      const startBtn = document.getElementById('btn-vcp-paper-start');
+      const statusBox = document.getElementById('vcp-paper-status');
+      const running = !!(data && data.status === 'RUNNING');
+      if (startBtn) startBtn.classList.toggle('hidden', running);
+      if (statusBox) statusBox.classList.toggle('hidden', !running);
+      if (data) renderVcpStatusText(data);
+    }
+
+    function renderVcpStatusText(data) {
+      const el = document.getElementById('vcp-paper-status-text');
+      if (!el) return;
+      const bal = (data.balance || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 });
+      const trades = (data.trades || []).length;
+      const positions = Object.values(data.positions || {});
+      const open = positions.length
+        ? positions.map(p => `${p.symbol} x${p.shares}@${(p.entry_price||0).toFixed(2)}`).join(', ')
+        : 'flat';
+      const err = data.last_error ? ` | <span class="text-rose-400">${data.last_error}</span>` : '';
+      el.innerHTML = `Balance: ₹${bal} | Closed trades: ${trades} | Open: ${open}${err}`;
+      renderVcpTradesTable(data);
+    }
+
+    function renderVcpTradesTable(data) {
+      const tbody = document.getElementById('modal-trades-tbody');
+      if (!tbody) return;
+      const rows = [];
+      Object.values(data.positions || {}).forEach(p => {
+        rows.push(`<tr class="bg-emerald-950/30"><td class="py-2 px-3 font-mono text-[10px]">OPEN</td><td class="py-2 px-3">${p.symbol}</td><td class="py-2 px-3">${p.shares}</td><td class="py-2 px-3">${p.entry_date||'--'}</td><td class="py-2 px-3">${(p.entry_price||0).toFixed(2)}</td><td class="py-2 px-3">--</td><td class="py-2 px-3">--</td><td class="py-2 px-3 text-right text-emerald-300">OPEN</td></tr>`);
+      });
+      (data.trades || []).slice().reverse().forEach(t => {
+        const pnlClass = t.pnl >= 0 ? 'text-emerald-400' : 'text-rose-400';
+        rows.push(`<tr><td class="py-2 px-3 font-mono text-[10px]">VCP-${t.symbol}-${t.entry_date}</td><td class="py-2 px-3">${t.symbol}</td><td class="py-2 px-3">${t.shares}</td><td class="py-2 px-3">${t.entry_date}</td><td class="py-2 px-3">${t.entry_price.toFixed(2)}</td><td class="py-2 px-3">${t.exit_date}</td><td class="py-2 px-3">${t.exit_price.toFixed(2)}</td><td class="py-2 px-3 text-right ${pnlClass}">₹${t.pnl.toFixed(0)}</td></tr>`);
+      });
+      tbody.innerHTML = rows.length ? rows.join('') :
+        '<tr><td colspan="8" class="text-center py-6 text-gray-500">Waiting for the first daily signal — entries, exits and PnL stream in here.</td></tr>';
+      document.getElementById('modal-trades-count').textContent = `${(data.trades || []).length} records`;
+    }
+
+    async function pollVcpPaperStatus() {
+      try {
+        const res = await fetch('/api/paper/equity-swing-vcp/status');
+        if (res.status === 404) {
+          window._vcpPaperRunning = false;
+          if (window._vcpPaperPollTimer) { clearInterval(window._vcpPaperPollTimer); window._vcpPaperPollTimer = null; }
+          syncVcpPaperUI(null);
+          return;
+        }
+        const data = await res.json();
+        const wasRunning = window._vcpPaperRunning;
+        window._vcpPaperRunning = data.status === 'RUNNING';
+        syncVcpPaperUI(data);
+        if (wasRunning !== window._vcpPaperRunning) renderStrategyCards();
+        if (!window._vcpPaperRunning && window._vcpPaperPollTimer) {
+          clearInterval(window._vcpPaperPollTimer); window._vcpPaperPollTimer = null;
+        }
+      } catch (e) { /* silent */ }
+    }
+
+    async function startVcpPaper() {
+      const capital = parseFloat(document.getElementById('vcp-paper-capital').value) || 100000;
+      const symbolsRaw = document.getElementById('vcp-paper-symbols').value.trim();
+      const symbols = symbolsRaw ? symbolsRaw.split(',').map(s => s.trim()).filter(Boolean) : null;
+      const btn = document.getElementById('btn-vcp-paper-start');
+      if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i><span>Starting...</span>'; }
+      try {
+        const res = await fetch('/api/paper/equity-swing-vcp/start', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ capital: capital, symbols: symbols })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || 'start failed');
+        window._vcpPaperRunning = true;
+        syncVcpPaperUI(data);
+        renderStrategyCards();
+        if (!window._vcpPaperPollTimer) window._vcpPaperPollTimer = setInterval(pollVcpPaperStatus, 15000);
+      } catch (e) {
+        showModalError('Could not start paper trading', e.message || e);
+      } finally {
+        if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-satellite-dish"></i><span>START PAPER TRADING</span>'; }
+      }
+    }
+
+    async function stopVcpPaper() {
+      if (!confirm('Stop the Equity Swing VCP paper session? The trade log and balance are kept.')) return;
+      try {
+        const res = await fetch('/api/paper/equity-swing-vcp/stop', { method: 'POST' });
+        const data = await res.json();
+        window._vcpPaperRunning = false;
+        if (window._vcpPaperPollTimer) { clearInterval(window._vcpPaperPollTimer); window._vcpPaperPollTimer = null; }
+        syncVcpPaperUI(data);
+        renderStrategyCards();
+      } catch (e) { showModalError('Stop failed', e.message || e); }
+    }
+
+    async function cardStopVcpPaper() {
+      if (!confirm('Stop the Equity Swing VCP paper session? The trade log and balance are kept.')) return;
+      try {
+        await fetch('/api/paper/equity-swing-vcp/stop', { method: 'POST' });
+      } catch (e) { /* ignore */ }
+      window._vcpPaperRunning = false;
+      if (window._vcpPaperPollTimer) { clearInterval(window._vcpPaperPollTimer); window._vcpPaperPollTimer = null; }
       renderStrategyCards();
     }
 
