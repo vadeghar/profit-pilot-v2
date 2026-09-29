@@ -119,6 +119,8 @@ class FakeBreezeFourIndicator:
     """Serves the rally/reversal spot path plus a simple decreasing CE premium
     curve centered so the strike probe resolves at (or near) ATM immediately."""
 
+    name = "breeze"
+
     def __init__(self):
         self.requested_days: list[date] = []
 
@@ -194,6 +196,8 @@ def _spot_ohlc_selloff(ts: datetime):
 class FakeBreezeFourIndicatorPut:
     """Same shape as FakeBreezeFourIndicator, but a selloff spot path plus a
     PE premium curve centered so the strike probe resolves at/near ATM."""
+
+    name = "breeze"
 
     def __init__(self):
         self.requested_days: list[date] = []

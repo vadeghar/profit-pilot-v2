@@ -411,11 +411,22 @@ def run_backtest(provider: Any, start: date = date(2026, 1, 1), end: date | None
                  calendar: TradingCalendar | None = None,
                  expiry_path: str | Path | None = "nifty_expiries.json",
                  fetcher: TradingDayFetcher | None = None,
+                 use_cache: bool = True, cache: Any = None,
                  progress: Callable[[MonthTrade], None] | None = None) -> dict[str, Any]:
-    """Backtest every monthly cycle whose entry day falls in [start, end]."""
+    """Backtest every monthly cycle whose entry day falls in [start, end].
+
+    ``provider`` must be Breeze - it is the only provider with expired NIFTY
+    option-contract history. Past trading days are served from the shared
+    disk cache by default (``use_cache=True``).
+    """
+    from market_data.cache import default_cache
+    from market_data.policy import require_breeze_provider
+    require_breeze_provider(provider, context="nifty_no_brainer_runner.run_backtest")
     end = end or date.today()
     calendar = calendar or TradingCalendar()
-    fetcher = fetcher or TradingDayFetcher(provider, calendar)
+    if fetcher is None:
+        resolved_cache = cache if cache is not None else (default_cache() if use_cache else None)
+        fetcher = TradingDayFetcher(provider, calendar, cache=resolved_cache)
     metadata = load_expiry_metadata(expiry_path) if expiry_path and Path(expiry_path).exists() else None
     charge_cfg = charges if charges is not None else ChargeConfig()
     balance = capital
@@ -465,9 +476,11 @@ def run_backtest(provider: Any, start: date = date(2026, 1, 1), end: date | None
                    "slippage_points": slippage_points, "costs_per_trade": costs_per_trade,
                    "max_shift_steps": max_shift_steps, "cap_stop_loss": cap_stop_loss, "stop_tolerance": stop_tolerance,
                    "fixed_margin": fixed_margin, "margin_method": margin_method},
-        "data_source": {"provider": "breeze", "local_candle_cache": False,
+        "data_source": {"provider": "breeze", "local_candle_cache": fetcher.cache is not None,
                         "requests": fetcher.requests,
-                        "non_trading_days_skipped": len(fetcher.skipped_days)},
+                        "non_trading_days_skipped": len(fetcher.skipped_days),
+                        **({"cache_hits": fetcher.cache.hits, "cache_misses": fetcher.cache.misses}
+                           if fetcher.cache is not None else {})},
         "months": [asdict(t) for t in trades],
         "summary": {**summarize(trades), "initial_capital": capital, "final_balance": balance},
     }

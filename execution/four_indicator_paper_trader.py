@@ -81,7 +81,11 @@ class FourIndicatorPaperTrader:
                  config: Optional[FourIndicatorConfig] = None, charges: Optional[ChargeConfig] = None,
                  state_path: Optional[Path] = None, calendar: Optional[TradingCalendar] = None,
                  lookback_days: int = DEFAULT_LOOKBACK_DAYS,
+                 use_cache: bool = True, cache: Any = None,
                  on_event: Optional[Callable[[str, dict], None]] = None):
+        from market_data.cache import default_cache
+        from market_data.policy import require_breeze_provider
+        require_breeze_provider(provider, context="FourIndicatorPaperTrader")
         self.provider = provider
         self.capital = float(capital)
         self.capital_per_lot = float(capital_per_lot)
@@ -92,6 +96,7 @@ class FourIndicatorPaperTrader:
         self.state_path = Path(state_path or DEFAULT_STATE_PATH)
         self.calendar = calendar or TradingCalendar()
         self.lookback_days = lookback_days
+        self.cache = cache if cache is not None else (default_cache() if use_cache else None)
         self.on_event = on_event
         self.logger = Logger("execution.four_indicator_paper_trader")
         self._lock = threading.Lock()
@@ -152,7 +157,8 @@ class FourIndicatorPaperTrader:
             return self.status()
 
     def _poll_locked(self, now: datetime) -> None:
-        fetcher = TradingDayFetcher(self.provider, self.calendar, throttle_seconds=0.3, retries=1)
+        fetcher = TradingDayFetcher(self.provider, self.calendar, throttle_seconds=0.3, retries=1,
+                                    cache=self.cache)
         fetch_start = self.calendar.previous_trading_day(now.date() - timedelta(days=1))
         seen = 0
         while seen < self.lookback_days and fetch_start > now.date() - timedelta(days=self.lookback_days * 4 + 10):

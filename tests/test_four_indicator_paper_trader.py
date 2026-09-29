@@ -41,6 +41,8 @@ class FakeBreezeLive:
     tolerant of a request window that runs past the data it knows about
     (a live poll's ``now`` is usually mid-candle)."""
 
+    name = "breeze"
+
     def __init__(self):
         self.requested: list[tuple] = []
 

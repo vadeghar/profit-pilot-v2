@@ -66,16 +66,26 @@ def _d(value: date | datetime | str) -> date:
 
 
 class TradingDayFetcher:
-    """Fetch normalized candles one trading day at a time, straight from Breeze."""
+    """Fetch normalized candles one trading day at a time, straight from Breeze.
+
+    When ``cache`` is given (see ``market_data.cache.CandleCache``), a full
+    trading day already in the past is served from disk without ever
+    touching the network; only a cache miss (or "today", which is never
+    cached) reaches the provider. Exchange history - including an expired
+    option contract's - never changes once the session has closed, so a
+    past-day hit is permanent.
+    """
 
     def __init__(self, provider: Any, calendar: TradingCalendar | None = None,
                  throttle_seconds: float = 0.6, retries: int = 1,
-                 sleep: Callable[[float], None] = _time.sleep):
+                 sleep: Callable[[float], None] = _time.sleep,
+                 cache: Any = None):
         self.provider = provider
         self.calendar = calendar or TradingCalendar()
         self.throttle_seconds = throttle_seconds
         self.retries = retries
         self._sleep = sleep
+        self.cache = cache
         self.requests = 0
         self.skipped_days: set[date] = set()
 
@@ -90,12 +100,19 @@ class TradingDayFetcher:
                 lo = max(start, datetime.combine(day, SESSION_OPEN, IST))
                 hi = min(end, datetime.combine(day, SESSION_CLOSE, IST))
                 if lo <= hi:
-                    for candle in self._one_day(instrument, timeframe, lo, hi):
+                    full_day = (lo == datetime.combine(day, SESSION_OPEN, IST)
+                               and hi == datetime.combine(day, SESSION_CLOSE, IST))
+                    for candle in self._one_day(instrument, timeframe, lo, hi, day, full_day):
                         out[candle.timestamp] = candle
             day += timedelta(days=1)
         return [out[k] for k in sorted(out)]
 
-    def _one_day(self, instrument: Any, timeframe: str, lo: datetime, hi: datetime) -> list[NormalizedCandle]:
+    def _one_day(self, instrument: Any, timeframe: str, lo: datetime, hi: datetime,
+                day: date, full_day: bool) -> list[NormalizedCandle]:
+        if self.cache is not None and full_day:
+            cached = self.cache.get_day(self.provider.name, instrument, timeframe, day)
+            if cached is not None:
+                return cached
         for attempt in range(self.retries + 1):
             self.requests += 1
             try:
@@ -107,6 +124,8 @@ class TradingDayFetcher:
                 rows = []
             self._sleep(self.throttle_seconds)
             if rows:
+                if self.cache is not None and full_day:
+                    self.cache.put_day(self.provider.name, instrument, timeframe, day, rows)
                 return rows
             if attempt < self.retries:
                 self._sleep(1.5)

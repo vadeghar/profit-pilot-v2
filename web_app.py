@@ -530,6 +530,19 @@ def get_platform_status():
     }
 
 
+@app.get("/api/cache/stats")
+def get_cache_stats():
+    """Candle cache hit/miss counters (this process) plus how many day-entries are on disk."""
+    from market_data.cache import default_cache
+    cache = default_cache()
+    with cache._connect() as conn:
+        total_days = conn.execute("SELECT COUNT(*) FROM candle_days").fetchone()[0]
+        by_provider = dict(conn.execute(
+            "SELECT provider, COUNT(*) FROM candle_days GROUP BY provider").fetchall())
+    return {**cache.stats(), "cached_days_total": total_days, "cached_days_by_provider": by_provider,
+           "cache_dir": str(cache.cache_dir)}
+
+
 @app.post("/api/backtest/oi-momentum")
 def run_oi_momentum_backtest_api(req: BacktestRequest):
     """Tick-level OI-momentum backtest over one selected index."""

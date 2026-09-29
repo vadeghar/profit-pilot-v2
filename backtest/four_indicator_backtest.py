@@ -21,7 +21,9 @@ from datetime import date, datetime, time, timedelta
 from typing import Any, Callable, Optional
 
 from backtest.charges import ChargeConfig, Fill, option_charges
+from market_data.cache import CandleCache, default_cache
 from market_data.option_symbol import get_option_symbol
+from market_data.policy import require_breeze_provider
 from market_data.trading_days import SESSION_CLOSE, TradingCalendar, TradingDayFetcher
 from platform_config import get_index_lot_size
 from strategies.four_indicator_system import FourIndicatorConfig, FourIndicatorSignalEngine
@@ -188,11 +190,21 @@ def run_four_indicator_backtest(provider: Any, start: date, end: date, *,
                                 fetcher: Optional[TradingDayFetcher] = None,
                                 charges: Optional[ChargeConfig] = None,
                                 warmup_days: int = 10,
+                                use_cache: bool = True, cache: Optional[CandleCache] = None,
                                 on_event: Optional[Callable[[str, dict], None]] = None,
                                 progress: Optional[Callable[[TradeResult], None]] = None) -> dict[str, Any]:
-    """Backtest every Four Indicator System entry whose signal falls in [start, end]."""
+    """Backtest every Four Indicator System entry whose signal falls in [start, end].
+
+    ``provider`` must be Breeze - it is the only provider with expired NIFTY
+    option-contract history. Past trading days are served from the shared
+    disk cache by default (``use_cache=True``); pass ``cache=None`` and
+    ``use_cache=False`` together to force a fully live re-fetch.
+    """
+    require_breeze_provider(provider, context="run_four_indicator_backtest")
     calendar = calendar or TradingCalendar()
-    fetcher = fetcher or TradingDayFetcher(provider, calendar)
+    if fetcher is None:
+        resolved_cache = cache if cache is not None else (default_cache() if use_cache else None)
+        fetcher = TradingDayFetcher(provider, calendar, cache=resolved_cache)
     lot = lot_size or DEFAULT_LOT_SIZE
     charge_cfg = charges if charges is not None else ChargeConfig()
     cfg = config or FourIndicatorConfig(timeframe=timeframe)
@@ -284,8 +296,10 @@ def run_four_indicator_backtest(provider: Any, start: date, end: date, *,
             "bollinger_period": cfg.bollinger_period, "bollinger_std": cfg.bollinger_std,
             "enable_calls": cfg.enable_calls, "enable_puts": cfg.enable_puts,
         },
-        "data_source": {"provider": "breeze", "local_candle_cache": False, "requests": fetcher.requests,
-                        "non_trading_days_skipped": len(fetcher.skipped_days)},
+        "data_source": {"provider": "breeze", "local_candle_cache": fetcher.cache is not None,
+                        "requests": fetcher.requests, "non_trading_days_skipped": len(fetcher.skipped_days),
+                        **({"cache_hits": fetcher.cache.hits, "cache_misses": fetcher.cache.misses}
+                           if fetcher.cache is not None else {})},
         "trades": [asdict(t) for t in trades],
         "summary": summarize(trades, capital, balance),
         "equity_curve": equity,

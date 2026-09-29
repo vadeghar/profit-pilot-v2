@@ -15,6 +15,8 @@ HOLIDAYS = ["2026-01-26"]  # Monday
 class FakeBreeze:
     """Serves bars for NIFTY spot and NIFTY calls on the given expiries."""
 
+    name = "breeze"
+
     def __init__(self, expiries, prices, spot=24_830.0):
         self.expiries, self.prices, self.spot = set(expiries), prices, spot
         self.requested_days: list[date] = []
@@ -103,6 +105,7 @@ def test_window_past_end_date_is_reported_open():
 
 def test_dead_session_aborts_run():
     class Dead:
+        name = "breeze"
         def get_historical_candles(self, *a, **k):
             raise RuntimeError("Breeze authentication failed: Session key is expired")
     rep = run(Dead(), date(2026, 1, 1), date(2026, 6, 1))
