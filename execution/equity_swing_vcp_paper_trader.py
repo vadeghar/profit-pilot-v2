@@ -36,6 +36,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 import platform_config
 from core.models import OrderSide
+from market_data.rate_limiter import get_limiter
 from platform_config import get_all_instruments, get_indices
 from strategies.equity_swing_vcp import EquitySwingVCPStrategy
 from utils import Logger
@@ -133,7 +134,8 @@ class EquitySwingVCPPaperTrader:
 
     def _poll_locked(self, now: datetime) -> None:
         start = now - timedelta(days=self.lookback_days)
-        bench_rows = self.provider.get_historical_candles(self.benchmark_symbol, "1d", start, now)
+        with get_limiter(getattr(self.provider, "name", "unknown")):
+            bench_rows = self.provider.get_historical_candles(self.benchmark_symbol, "1d", start, now)
         for symbol in self.symbols:
             try:
                 self._poll_symbol(symbol, bench_rows, start, now)
@@ -146,7 +148,8 @@ class EquitySwingVCPPaperTrader:
         return inst == self.benchmark_symbol.upper() or inst == self.benchmark_symbol.split(":", 1)[-1].upper()
 
     def _poll_symbol(self, symbol: str, bench_rows, start: datetime, now: datetime) -> None:
-        rows = [c for c in self.provider.get_historical_candles(symbol, "1d", start, now) if c.timestamp <= now]
+        with get_limiter(getattr(self.provider, "name", "unknown")):
+            rows = [c for c in self.provider.get_historical_candles(symbol, "1d", start, now) if c.timestamp <= now]
         if not rows:
             return
         strat = self.strategy_factory({**self.params, "capital": self.state["balance"]})

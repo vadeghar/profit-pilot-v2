@@ -38,6 +38,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
 import platform_config
+from market_data.rate_limiter import get_limiter
 from strategies.mcx_trend_rider import COMMODITY_SPECS, MCXTrendRiderStrategy
 from utils import Logger
 from utils.timezone import ensure_ist, now_ist
@@ -135,8 +136,9 @@ class MCXTrendRiderPaperTrader:
                 self.logger.warning(f"{instrument}: {e}")
 
     def _poll_instrument(self, instrument: str, start: datetime, now: datetime) -> None:
-        rows = [c for c in self.provider.get_historical_candles(instrument, "1d", start, now)
-               if c.timestamp <= now]
+        with get_limiter(getattr(self.provider, "name", "unknown")):
+            rows = [c for c in self.provider.get_historical_candles(instrument, "1d", start, now)
+                   if c.timestamp <= now]
         if not rows:
             return
         strat = self.strategy_factory({**self.params, "capital": self.state["balance"]})

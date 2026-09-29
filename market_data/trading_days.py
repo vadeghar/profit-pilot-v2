@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterable, Iterator
 
 from market_data.normalize import NormalizedCandle, ensure_normalized_candles
+from market_data.rate_limiter import get_limiter
 from utils.timezone import IST, ensure_ist
 
 HOLIDAY_FILE = Path(__file__).resolve().parents[1] / "nse_holidays.json"
@@ -116,8 +117,9 @@ class TradingDayFetcher:
         for attempt in range(self.retries + 1):
             self.requests += 1
             try:
-                rows = ensure_normalized_candles(
-                    self.provider.get_historical_candles(instrument, timeframe, lo, hi), "breeze day fetch")
+                with get_limiter(getattr(self.provider, "name", "unknown")):
+                    rows = ensure_normalized_candles(
+                        self.provider.get_historical_candles(instrument, timeframe, lo, hi), "breeze day fetch")
             except RuntimeError as exc:
                 if NO_DATA_MARKER not in str(exc):
                     raise  # auth/session failures must stop the run

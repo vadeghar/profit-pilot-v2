@@ -37,6 +37,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
 import platform_config
+from market_data.rate_limiter import get_limiter
 from platform_config import get_indices
 from strategies.lorentzian_ml import LorentzianMLStrategy
 from utils import Logger
@@ -139,7 +140,8 @@ class LorentzianMLPaperTrader:
                 self.logger.warning(f"{ticker}: {e}")
 
     def _poll_ticker(self, strat: Any, ticker: str, start: datetime, now: datetime) -> None:
-        rows = [c for c in self.provider.get_historical_candles(ticker, "1d", start, now) if c.timestamp <= now]
+        with get_limiter(getattr(self.provider, "name", "unknown")):
+            rows = [c for c in self.provider.get_historical_candles(ticker, "1d", start, now) if c.timestamp <= now]
         if not rows:
             return
         last_date = self.state["last_processed_date"].get(ticker)

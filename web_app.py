@@ -29,6 +29,7 @@ from strategies import StrategyRegistry
 from backtest import BacktestEngine, BacktestConfig
 from brokers import MockBroker, BrokerFactory
 from execution import ExecutionEngine, RiskManager
+from execution.registry import RunnerRegistry
 from market_data import MarketDataManager, ProviderFactory
 from utils import format_inr
 import platform_config
@@ -541,6 +542,21 @@ def get_cache_stats():
             "SELECT provider, COUNT(*) FROM candle_days GROUP BY provider").fetchall())
     return {**cache.stats(), "cached_days_total": total_days, "cached_days_by_provider": by_provider,
            "cache_dir": str(cache.cache_dir)}
+
+
+@app.get("/api/runners")
+def list_runners():
+    """Every live/paper strategy runner currently registered, across all
+    strategies - one place to see what's running instead of checking each
+    strategy's own status endpoint individually."""
+    runners = RunnerRegistry.list_all()
+    return {"runners": runners, "running_count": sum(1 for r in runners if r["running"])}
+
+
+@app.post("/api/runners/stop-all")
+def stop_all_runners():
+    """Emergency stop: stop every registered live/paper session at once."""
+    return {"results": RunnerRegistry.stop_all(reason="stop_all_api")}
 
 
 @app.post("/api/backtest/oi-momentum")
@@ -1153,6 +1169,7 @@ def start_oi_paper(req: OIPaperStartRequest):
         raise HTTPException(status_code=400, detail="Confirm at least one variant (base / expiry).")
     sess = OIPaperSession(idx, modes, req.capital, req.params or {})
     OI_PAPER_SESSIONS[sess.id] = sess
+    RunnerRegistry.register("index_oi_momentum", sess.id, sess)
     sess.start()
     return {"status": "PAPER_RUNNING", "live_trading": False, **sess.status()}
 
@@ -1176,6 +1193,7 @@ def paper_stop(session_id: str):
     if not sess:
         raise HTTPException(status_code=404, detail="Paper session not found")
     sess.stop("manual")
+    RunnerRegistry.unregister("index_oi_momentum", session_id)
     return {"status": "STOPPED", **sess.status()}
 
 
@@ -1248,6 +1266,7 @@ def start_four_indicator_paper(req: FourIndicatorPaperStartRequest):
     )
     sess = FourIndicatorPaperSession(trader, poll_interval_seconds=req.poll_interval_seconds)
     FOUR_INDICATOR_PAPER_SESSIONS["four_indicator_system"] = sess
+    RunnerRegistry.register("four_indicator_system", "four_indicator_system", sess)
     sess.start()
     return {"status": "PAPER_RUNNING", "live_trading": False, **sess.status()}
 
@@ -1266,6 +1285,7 @@ def stop_four_indicator_paper():
     if not sess:
         raise HTTPException(status_code=404, detail="No Four Indicator System paper session has been started")
     sess.stop("manual")
+    RunnerRegistry.unregister("four_indicator_system", "four_indicator_system")
     return {"status": "STOPPED", **sess.status()}
 
 
@@ -1311,6 +1331,7 @@ def start_equity_swing_vcp_paper(req: EquitySwingVCPPaperStartRequest):
     )
     sess = EquitySwingVCPPaperSession(trader, poll_interval_seconds=req.poll_interval_seconds)
     EQUITY_SWING_VCP_PAPER_SESSIONS["equity_swing_vcp"] = sess
+    RunnerRegistry.register("equity_swing_vcp", "equity_swing_vcp", sess)
     sess.start()
     return {"status": "PAPER_RUNNING", "live_trading": False, **sess.status()}
 
@@ -1329,6 +1350,7 @@ def stop_equity_swing_vcp_paper():
     if not sess:
         raise HTTPException(status_code=404, detail="No Equity Swing VCP paper session has been started")
     sess.stop("manual")
+    RunnerRegistry.unregister("equity_swing_vcp", "equity_swing_vcp")
     return {"status": "STOPPED", **sess.status()}
 
 
@@ -1374,6 +1396,7 @@ def start_mcx_trend_rider_paper(req: MCXTrendRiderPaperStartRequest):
     )
     sess = MCXTrendRiderPaperSession(trader, poll_interval_seconds=req.poll_interval_seconds)
     MCX_TREND_RIDER_PAPER_SESSIONS["mcx_trend_rider"] = sess
+    RunnerRegistry.register("mcx_trend_rider", "mcx_trend_rider", sess)
     sess.start()
     return {"status": "PAPER_RUNNING", "live_trading": False, **sess.status()}
 
@@ -1392,6 +1415,7 @@ def stop_mcx_trend_rider_paper():
     if not sess:
         raise HTTPException(status_code=404, detail="No MCX Trend Rider paper session has been started")
     sess.stop("manual")
+    RunnerRegistry.unregister("mcx_trend_rider", "mcx_trend_rider")
     return {"status": "STOPPED", **sess.status()}
 
 
@@ -1436,6 +1460,7 @@ def start_lorentzian_ml_paper(req: LorentzianMLPaperStartRequest):
     )
     sess = LorentzianMLPaperSession(trader, poll_interval_seconds=req.poll_interval_seconds)
     LORENTZIAN_ML_PAPER_SESSIONS["lorentzian_ml"] = sess
+    RunnerRegistry.register("lorentzian_ml", "lorentzian_ml", sess)
     sess.start()
     return {"status": "PAPER_RUNNING", "live_trading": False, **sess.status()}
 
@@ -1454,6 +1479,7 @@ def stop_lorentzian_ml_paper():
     if not sess:
         raise HTTPException(status_code=404, detail="No Lorentzian ML paper session has been started")
     sess.stop("manual")
+    RunnerRegistry.unregister("lorentzian_ml", "lorentzian_ml")
     return {"status": "STOPPED", **sess.status()}
 
 
@@ -1500,6 +1526,7 @@ def start_auto_paper_session():
             params=config["params"]
         )
         OI_PAPER_SESSIONS[sess.id] = sess
+        RunnerRegistry.register("index_oi_momentum", sess.id, sess)
         sess.start()
         return sess.status()
     except Exception as e:
