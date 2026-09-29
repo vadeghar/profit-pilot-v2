@@ -41,7 +41,12 @@ def test_resolve_weekly_expiry_rolls_back_on_holiday():
 
 
 class _StubFetcher:
-    """Just enough of TradingDayFetcher's interface for the strike probe."""
+    """Just enough of TradingDayFetcher's interface for the strike probe.
+
+    The real fetcher now pulls a contract's *full day* (see _day_series) and
+    slices the timestamp needed, so this stub serves a flat day of candles
+    rather than a single row at ``start``.
+    """
 
     def __init__(self, premium_fn):
         self.premium_fn = premium_fn
@@ -53,7 +58,11 @@ class _StubFetcher:
         premium = self.premium_fn(strike)
         if premium is None:
             return []
-        return [NormalizedCandle(start, premium, premium, premium, premium, 1, str(instrument), timeframe)]
+        rows, ts = [], start
+        while ts <= end:
+            rows.append(NormalizedCandle(ts, premium, premium, premium, premium, 1, str(instrument), timeframe))
+            ts += timedelta(minutes=5)
+        return rows
 
 
 def test_find_strike_for_target_premium_converges_toward_target():

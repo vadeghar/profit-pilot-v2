@@ -159,6 +159,10 @@ class FourIndicatorPaperTrader:
     def _poll_locked(self, now: datetime) -> None:
         fetcher = TradingDayFetcher(self.provider, self.calendar, throttle_seconds=0.3, retries=1,
                                     cache=self.cache)
+        # Scoped to this single poll only: today's option series is still
+        # forming, so a memo must never survive across polls or it would
+        # serve a stale (incomplete) premium on the next one.
+        day_cache: dict = {}
         fetch_start = self.calendar.previous_trading_day(now.date() - timedelta(days=1))
         seen = 0
         while seen < self.lookback_days and fetch_start > now.date() - timedelta(days=self.lookback_days * 4 + 10):
@@ -183,21 +187,22 @@ class FourIndicatorPaperTrader:
             if cutoff and ts.isoformat() <= cutoff:
                 continue
             if result["action"] == "ENTER":
-                self._handle_entry(fetcher, result, ts)
+                self._handle_entry(fetcher, result, ts, day_cache)
             elif result["action"] == "EXIT" and self.state.get("open_trade"):
-                self._handle_exit(fetcher, result, ts, reason="supertrend_flip")
+                self._handle_exit(fetcher, result, ts, "supertrend_flip", day_cache)
             self.state["last_processed_ts"] = ts.isoformat()
             cutoff = ts.isoformat()
 
-        self._maybe_square_off(fetcher, now)
+        self._maybe_square_off(fetcher, now, day_cache)
 
-    def _handle_entry(self, fetcher: TradingDayFetcher, result: dict, ts: datetime) -> None:
+    def _handle_entry(self, fetcher: TradingDayFetcher, result: dict, ts: datetime,
+                      day_cache: dict) -> None:
         if self.state.get("open_trade"):
             return  # already holding a position: never stack entries
         side = result["side"]
         expiry = resolve_weekly_expiry(ts.date(), self.calendar)
         found = find_strike_for_target_premium(fetcher, expiry, result["price"], ts, side,
-                                               self.target_premium_pct)
+                                               self.target_premium_pct, day_cache)
         if found is None:
             self._emit("entry_skipped", {"time": ts.isoformat(), "side": side, "reason": "no_option_data"})
             return
@@ -237,13 +242,14 @@ class FourIndicatorPaperTrader:
         self.logger.info(f"PAPER EXIT {reason} pnl={open_trade['pnl']:.0f} "
                          f"balance={self.state['balance']:.0f}")
 
-    def _handle_exit(self, fetcher: TradingDayFetcher, result: dict, ts: datetime, reason: str) -> None:
+    def _handle_exit(self, fetcher: TradingDayFetcher, result: dict, ts: datetime, reason: str,
+                     day_cache: dict) -> None:
         open_trade = self.state["open_trade"]
         expiry = date.fromisoformat(open_trade["expiry"])
-        premium = _premium_at(fetcher, expiry, open_trade["strike"], open_trade["side"], ts)
+        premium = _premium_at(fetcher, expiry, open_trade["strike"], open_trade["side"], ts, day_cache)
         self._close(ts, premium, reason)
 
-    def _maybe_square_off(self, fetcher: TradingDayFetcher, now: datetime) -> None:
+    def _maybe_square_off(self, fetcher: TradingDayFetcher, now: datetime, day_cache: dict) -> None:
         open_trade = self.state.get("open_trade")
         if not open_trade:
             return
@@ -253,7 +259,7 @@ class FourIndicatorPaperTrader:
         if ist_minutes(now) < SQUARE_OFF_TIME.hour * 60 + SQUARE_OFF_TIME.minute:
             return
         expiry = date.fromisoformat(open_trade["expiry"])
-        premium = _premium_at(fetcher, expiry, open_trade["strike"], open_trade["side"], now)
+        premium = _premium_at(fetcher, expiry, open_trade["strike"], open_trade["side"], now, day_cache)
         self._close(now, premium, "intraday_square_off")
 
     # -- read-only status -------------------------------------------------------

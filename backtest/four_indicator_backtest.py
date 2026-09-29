@@ -83,14 +83,39 @@ def round_to_strike_step(value: float, step: int = STRIKE_STEP) -> int:
     return int(round(value / step) * step)
 
 
+DayCache = dict  # {(expiry, strike, option_type, day): {timestamp: close}}
+
+
+def _day_series(fetcher: TradingDayFetcher, expiry: date, strike: int, option_type: str,
+                day: date, day_cache: Optional["DayCache"] = None) -> dict:
+    """A contract's full-session candle series for one day, memoized both
+    in-process (``day_cache``, always - so repeated lookups within one run
+    never re-fetch even with disk caching disabled) and on disk via the
+    fetcher's ``TradingDayFetcher`` cache (so a strike probed for an entry
+    costs one fetch total, reused for free at exit/square-off and again on
+    any future re-run of the same range).
+    """
+    key = (expiry, strike, option_type, day)
+    if day_cache is not None and key in day_cache:
+        return day_cache[key]
+    lo, hi = datetime.combine(day, time(9, 15), IST), datetime.combine(day, SESSION_CLOSE, IST)
+    rows = fetcher.fetch(_option_request(expiry, strike, option_type), "5m", lo, hi)
+    series = {r.timestamp: float(r.close) for r in rows}
+    if day_cache is not None:
+        day_cache[key] = series
+    return series
+
+
 def _premium_at(fetcher: TradingDayFetcher, expiry: date, strike: int, option_type: str,
-                at: datetime) -> Optional[float]:
-    rows = fetcher.fetch(_option_request(expiry, strike, option_type), "5m", at, at + timedelta(minutes=15))
-    return float(rows[0].close) if rows else None
+                at: datetime, day_cache: Optional["DayCache"] = None) -> Optional[float]:
+    series = _day_series(fetcher, expiry, strike, option_type, at.date(), day_cache)
+    candidates = sorted(ts for ts in series if at <= ts <= at + timedelta(minutes=15))
+    return series[candidates[0]] if candidates else None
 
 
 def find_strike_for_target_premium(fetcher: TradingDayFetcher, expiry: date, spot: float,
-                                   at: datetime, option_type: str = "CE", target_pct: float = 0.01
+                                   at: datetime, option_type: str = "CE", target_pct: float = 0.01,
+                                   day_cache: Optional["DayCache"] = None
                                    ) -> Optional[tuple[int, float]]:
     """Probe real premiums outward from ATM for the strike closest to
     ``target_pct`` of spot - the source system's "1% of underlying" rule.
@@ -111,7 +136,7 @@ def find_strike_for_target_premium(fetcher: TradingDayFetcher, expiry: date, spo
         if strike <= 0 or strike in tried:
             break
         tried.add(strike)
-        premium = _premium_at(fetcher, expiry, strike, option_type, at)
+        premium = _premium_at(fetcher, expiry, strike, option_type, at, day_cache)
         if premium is None:
             break
         if best is None or abs(premium - target) < abs(best[1] - target):
@@ -209,6 +234,7 @@ def run_four_indicator_backtest(provider: Any, start: date, end: date, *,
     charge_cfg = charges if charges is not None else ChargeConfig()
     cfg = config or FourIndicatorConfig(timeframe=timeframe)
     engine = FourIndicatorSignalEngine(cfg)
+    day_cache: DayCache = {}  # in-process memo: one full-day fetch per (expiry,strike,side,day)
 
     fetch_start = _warmup_start(start, calendar, warmup_days)
     spot_rows = fetcher.fetch("NSE:NIFTY", timeframe,
@@ -246,7 +272,8 @@ def run_four_indicator_backtest(provider: Any, start: date, end: date, *,
         if result and result["action"] == "ENTER" and ts.date() >= start:
             side = result["side"]
             expiry = resolve_weekly_expiry(ts.date(), calendar)
-            found = find_strike_for_target_premium(fetcher, expiry, result["price"], ts, side, target_premium_pct)
+            found = find_strike_for_target_premium(fetcher, expiry, result["price"], ts, side,
+                                                   target_premium_pct, day_cache)
             if found is None:
                 engine.in_position = False  # could not actually resolve a tradable contract
                 emit("entry_skipped", {"time": ts.isoformat(), "side": side, "reason": "no_option_data"})
@@ -265,7 +292,7 @@ def run_four_indicator_backtest(provider: Any, start: date, end: date, *,
 
         if result and result["action"] == "EXIT" and open_trade is not None:
             exit_premium = _premium_at(fetcher, open_trade["expiry"], open_trade["strike"],
-                                       open_trade["side"], ts)
+                                       open_trade["side"], ts, day_cache)
             close_trade(ts, exit_premium, "supertrend_flip")
             continue
 
@@ -275,7 +302,7 @@ def run_four_indicator_backtest(provider: Any, start: date, end: date, *,
             past_cutoff = ts.timetz().replace(tzinfo=None) >= SQUARE_OFF_TIME
             if same_session_day and past_cutoff:
                 exit_premium = _premium_at(fetcher, open_trade["expiry"], open_trade["strike"],
-                                           open_trade["side"], ts)
+                                           open_trade["side"], ts, day_cache)
                 close_trade(ts, exit_premium, "intraday_square_off")
                 engine.in_position = False
 
