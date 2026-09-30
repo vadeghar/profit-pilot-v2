@@ -65,14 +65,22 @@ Stop from the dashboard ends them). Older strategies' paper sessions must be res
 - **Angel One** logs in by itself (API key, client code, MPIN and TOTP secret from `.env`).
   If Angel requires a registered static IP for your API key, register the server's public IP in the
   SmartAPI dashboard.
-- **ICICI Breeze** needs a fresh session token every day. Either paste it into `.env` as before, or
-  enable the headless auto-login (asks for the OTP on Telegram; needs `BREEZE_*` and `TELEGRAM_*`
-  in `.env`):
+- **ICICI Breeze** needs a fresh session token every day. `breeze-login.timer` runs
+  `deploy/linux/breeze_login.sh` at **08:25 IST Mon-Fri** (NSE holidays are skipped): headless
+  login, ICICI sends an OTP, the Telegram bot asks for it - **reply with the OTP within ~90 s** - then
+  the new token is written to `.env` and verified against the Breeze API. Needs `BREEZE_*` and
+  `TELEGRAM_*` in `.env` and a Playwright Chromium (`.venv/bin/python -m playwright install chromium`).
 
   ```bash
-  cd ~/automation_engines && .venv/bin/python -m playwright install --with-deps chromium
-  sudo systemctl enable --now breeze-login.timer      # runs Mon-Fri 08:40 IST
+  sudo systemctl enable --now breeze-login.timer
+  systemctl list-timers breeze-login.timer            # next run
+  sudo systemctl start breeze-login.service           # run it now (answer the Telegram OTP)
+  journalctl -u breeze-login -n 50                    # result
   ```
+
+  A new Breeze login invalidates the previous session of the same API key. If another project on the
+  server uses the same Breeze account, let this one login serve both (set `SYNC_ENV_FILES` in
+  `breeze-login.service`) instead of running two logins a day.
 
 ## 5. Server clock
 

@@ -1,5 +1,6 @@
 # Daily ICICI Breeze session refresh (headless Playwright; the OTP is requested via Telegram).
-# Optional: enable with `sudo systemctl enable --now breeze-login.timer` once TELEGRAM_* is in .env.
+# Installed with deploy/linux/breeze-login.timer. Log: journalctl -u breeze-login
+# To keep another project on the same Breeze account in sync, uncomment SYNC_ENV_FILES.
 
 [Unit]
 Description=Refresh the ICICI Breeze session token
@@ -11,4 +12,7 @@ Type=oneshot
 User=__USER__
 WorkingDirectory=__APP_DIR__
 Environment=TZ=Asia/Kolkata
-ExecStart=__APP_DIR__/.venv/bin/python tools/breeze/breeze_auto_login.py
+Environment=PYTHONUNBUFFERED=1
+# Environment="SYNC_ENV_FILES=/home/__USER__/.hermes/.env"
+ExecStart=/bin/bash __APP_DIR__/deploy/linux/breeze_login.sh
+TimeoutStartSec=600

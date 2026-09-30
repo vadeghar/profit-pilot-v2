@@ -1,9 +1,10 @@
 [Unit]
-Description=Refresh the ICICI Breeze session every trading-day morning
+Description=Refresh the ICICI Breeze session every weekday at 08:25 IST (holidays are skipped by the script)
 
 [Timer]
-OnCalendar=Mon..Fri 08:40 Asia/Kolkata
-Persistent=true
+OnCalendar=Mon..Fri 08:25 Asia/Kolkata
+Persistent=false
+AccuracySec=30s
 
 [Install]
 WantedBy=timers.target
