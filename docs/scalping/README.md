@@ -61,7 +61,9 @@ Warm-up: signals need 16-21 minutes of history per contract, so the first possib
 | `POST /api/ticks/start` / `stop` | manual recorder control (stop refuses while a scalper runs) |
 | `POST /api/backtest/stream` with `strategy_id=scalp_*` | tick-replay backtest (dashboard RUN BACKTEST) |
 
-Paper state (balance + full trade log) persists in `data/forward_test/scalping/<id>.json`.
+Paper state (balance + full trade log) persists in `data/forward_test/scalping/<id>.json`. A session
+that was running when the server stopped (restart, crash, reboot) resumes automatically at startup;
+only a Stop from the dashboard ends it. Linux deployment: [deploy/linux/README.md](../../deploy/linux/README.md).
 
 ## Execution realism
 

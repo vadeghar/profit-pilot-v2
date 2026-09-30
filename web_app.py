@@ -1727,6 +1727,16 @@ async def startup_event():
     # trading days while the server runs (TICK_AUTO_RECORD=0 disables).
     from market_data.tick_recorder import get_hub
     get_hub().start_scheduler()
+    # Scalping paper sessions that were running before a restart/reboot resume by themselves.
+    from execution.scalping_paper_trader import ScalpPaperSession, sessions_to_resume
+    for item in sessions_to_resume():
+        try:
+            sess = ScalpPaperSession(item["strategy_id"], capital=item["capital"], overrides=item["overrides"])
+            sess.start()
+            SCALP_PAPER_SESSIONS[item["strategy_id"]] = sess
+            RunnerRegistry.register(item["strategy_id"], item["strategy_id"], sess)
+        except Exception as e:
+            print(f"could not resume scalping session {item['strategy_id']}: {e}", flush=True)
 
 
 @app.get("/api/forward-test/status/{strategy_id}")

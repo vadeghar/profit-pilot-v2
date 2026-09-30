@@ -1,0 +1,26 @@
+# systemd unit: dashboard + tick recorder + all paper sessions in one process.
+# Installed by deploy/linux/bootstrap.sh (placeholders __USER__ / __APP_DIR__ / __PORT__ are filled in).
+# Binds to 127.0.0.1 only: reach it through Tailscale (`tailscale serve`) or an SSH tunnel.
+
+[Unit]
+Description=Automation Engines trading dashboard (paper trading + tick recorder)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=__USER__
+WorkingDirectory=__APP_DIR__
+Environment=TZ=Asia/Kolkata
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONIOENCODING=utf-8
+ExecStart=__APP_DIR__/.venv/bin/python -m uvicorn web_app:app --host 127.0.0.1 --port __PORT__
+Restart=always
+RestartSec=10
+TimeoutStopSec=30
+LimitNOFILE=65536
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

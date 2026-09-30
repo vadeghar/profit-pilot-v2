@@ -32,7 +32,8 @@ class ScalpPaperSession:
         self.hub = hub or get_hub()
         self.path = Path(state_dir or STATE_DIR) / f"{strategy_id}.json"
         self.state = self._load(capital)
-        cfg = self.cls.default_config().update(overrides)
+        self.overrides = dict(overrides or {})
+        cfg = self.cls.default_config().update(self.overrides)
         self.engine = self.cls({}, capital=self.state["balance"], config=cfg, on_event=self._on_engine_event)
         self.engine.capital = self.state["capital"]
         self._q: queue.Queue = queue.Queue(maxsize=500_000)
@@ -76,6 +77,9 @@ class ScalpPaperSession:
         self._thread = threading.Thread(target=self._loop, daemon=True, name=f"scalp-{self.strategy_id}")
         self._thread.start()
         self.status_text, self.stop_reason, self.started_at = "RUNNING", None, now_ist().isoformat()
+        self.state["running"] = True  # resumed automatically after a service restart
+        self.state["overrides"] = self.overrides
+        self._save()
         err = self.hub.ensure_recording()
         if err:
             self.last_error = f"tick recorder: {err}"
@@ -91,6 +95,7 @@ class ScalpPaperSession:
             if self.engine.pos and self.engine.last_tick_at:
                 self.engine.finish(self.engine.last_tick_at)
         self.status_text, self.stop_reason = "STOPPED", reason
+        self.state["running"] = reason == "shutdown"  # a service shutdown is not a user stop
         self._save()
 
     # ------------------------------------------------------------ tick path
@@ -131,6 +136,18 @@ class ScalpPaperSession:
             "started_at": self.started_at, "stop_reason": self.stop_reason, "last_error": self.last_error,
             "config": snap["config"], "recorder": self.hub.status(),
         }
+
+
+def sessions_to_resume(state_dir: Optional[Path] = None) -> list[dict]:
+    """Persisted sessions that were running when the process last stopped."""
+    folder = Path(state_dir or STATE_DIR)
+    out = []
+    for sid in SCALP_STRATEGIES:
+        st = persisted_status(sid, folder)
+        if st and st.get("running"):
+            out.append({"strategy_id": sid, "capital": st.get("capital", 100_000.0),
+                        "overrides": st.get("overrides") or {}})
+    return out
 
 
 def persisted_status(strategy_id: str, state_dir: Optional[Path] = None) -> Optional[dict]:

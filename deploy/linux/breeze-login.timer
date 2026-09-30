@@ -1,0 +1,9 @@
+[Unit]
+Description=Refresh the ICICI Breeze session every trading-day morning
+
+[Timer]
+OnCalendar=Mon..Fri 08:40 Asia/Kolkata
+Persistent=true
+
+[Install]
+WantedBy=timers.target

@@ -173,6 +173,36 @@ def test_oi_volume_burst_needs_opposite_side_unwinding():
     assert e.pos is None and not e.trades
 
 
+class FakeHub:
+    def __init__(self):
+        self.subs = {}
+
+    def subscribe(self, on_tick, on_instruments=None):
+        self.subs[len(self.subs)] = on_tick
+        return len(self.subs) - 1
+
+    def unsubscribe(self, sid):
+        self.subs.pop(sid, None)
+
+    def ensure_recording(self):
+        return None
+
+    def status(self):
+        return {"running": False}
+
+
+def test_running_sessions_resume_after_restart_but_stopped_ones_do_not(tmp_path):
+    from execution.scalping_paper_trader import ScalpPaperSession, sessions_to_resume
+    a = ScalpPaperSession("scalp_trap_fade", capital=50_000, overrides={"sl_pct": 0.08}, hub=FakeHub(), state_dir=tmp_path)
+    b = ScalpPaperSession("scalp_pcr_velocity", capital=100_000, hub=FakeHub(), state_dir=tmp_path)
+    a.start()
+    b.start()
+    b.stop("manual")
+    resume = sessions_to_resume(tmp_path)  # process "dies" here with a still running
+    assert resume == [{"strategy_id": "scalp_trap_fade", "capital": 50_000, "overrides": {"sl_pct": 0.08}}]
+    a.stop("manual")
+
+
 def test_every_strategy_is_registered_and_runs_on_quiet_ticks():
     for sid, cls in SCALP_STRATEGIES.items():
         e = cls(insts(), capital=100_000)
