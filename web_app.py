@@ -2700,6 +2700,12 @@ trading-platform status</pre>
         const pc = document.getElementById('modal-progress-container');
         if (pc) pc.classList.remove('hidden');
         renderPaperTradesTable({ paper_trades: [], open_paper_position_details: [] });
+        // Re-show the WS health panel (subscribed symbols + live LTP/OI table) and
+        // resume polling -- without this, reopening the modal on an already-running
+        // session left the panel hidden and stale until the next manual start.
+        const successAlert = document.getElementById('modal-forward-success-alert');
+        if (successAlert) successAlert.classList.remove('hidden');
+        startOiPollLoopIfNeeded();
       }
     }
 
@@ -3464,14 +3470,14 @@ trading-platform status</pre>
         if (alert && msg) {
           const exp = Object.entries(data.expiry_today || {}).map(([k,v]) => `${k}: ${v ? 'EXPIRY TODAY' : 'base'}`).join(' | ');
           const autoStopAt = data.stop_at_ist || '15:30 IST';
-          msg.innerHTML = `<div class="font-bold text-emerald-300">Forward Test Activated Successfully!</div><div class="mt-1">PAPER session ${data.session_id} RUNNING (paper only, no real orders). Variants: ${(data.variants||[]).join(', ')}. ${exp}. Feed: Angel One WebSocket2 SNAP_QUOTE(mode=3) live ticks on FUT+CE+PE (strategy evaluates every tick). Auto square-off: ${autoStopAt} (or press Stop). Status: /api/paper/oi-momentum/status/${data.session_id}</div><div id="oi-subs-table" class="mt-2 text-[11px]"></div>`;
+          msg.innerHTML = `<div class="font-bold text-emerald-300">Forward Test Activated Successfully!</div><div class="mt-1">PAPER session ${data.session_id} RUNNING (paper only, no real orders). Variants: ${(data.variants||[]).join(', ')}. ${exp}. Feed: Angel One WebSocket2 SNAP_QUOTE(mode=3) live ticks on FUT+CE+PE (strategy evaluates every tick). Auto square-off: ${autoStopAt} (or press Stop). Subscribed symbols + live LTP/OI below.</div>`;
           alert.classList.remove('hidden');
         }
         window._oiPaperSessionId = data.session_id;
         window._oiRunning = window._oiRunning || {};
         window._oiRunning[currentModalStrat.id] = data.session_id;
         syncOiPaperControls(true);
-        pollOiPaperStatus();
+        startOiPollLoopIfNeeded();
         setTimeout(refreshOiRunningState, 1000);
       } catch (err) {
         showModalError('Paper Session Error', err.message || err);
@@ -3524,18 +3530,41 @@ trading-platform status</pre>
         if ((lp.ticks ?? 0) > (c.ticks || 0)) { c.ticks = lp.ticks; oiLegTick(); }
         if (lp.tick_age_s !== undefined && lp.tick_age_s !== null) c.tick_age_s = lp.tick_age_s;
       });
-      rows.innerHTML = idxs.map(ix => {
+      const fmtOi = (v) => (v && v > 0) ? Number(v).toLocaleString('en-IN') : '<span class="text-gray-500">—</span>';
+      const legOiKey = { fut: 'fut_oi', ce: 'ce_oi', pe: 'pe_oi' };
+      const legLabelSym = (s, leg) => leg === 'fut'
+        ? (s.fut_symbol || s.fut_token || '—')
+        : (s[`${leg}_symbol`] || s[`${leg}_token`] || '<span class="text-amber-300">resolving…</span>');
+      const legRows = [];
+      idxs.forEach(ix => {
         const s = (data.subscriptions || {})[ix] || {};
         const hh = h[ix] || {};
         const c = cache[ix] || {};
+        const lp = px[ix] || {};
         const hAge = (c.tick_age_s !== undefined && c.tick_age_s !== null) ? c.tick_age_s : oiWsAgeSec(hh.last_tick_at);
         const pill = (!data.running) ? '<span class="text-gray-500">■ stopped</span>' : (hAge !== null && hAge < 90) ? `<span class="text-emerald-400">● live (${hAge}s)</span>` : '<span class="text-amber-300">● waiting</span>';
-        const flash = (leg) => c[leg + '_flash'] ? ' style="background:rgba(6,182,212,0.25);border-radius:4px;padding:0 4px;"' : '';
-        const legRow = (label, sym, val) => `<div>${label}: ${sym} (<span class="text-emerald-300 font-bold"${flash(val)}>${fmt(c[val])}</span>)</div>`;
-        const row = `<div class="border-t border-white/5 pt-1 pb-1"><div class="flex flex-wrap gap-x-3 items-center"><span class="text-cyan-300 font-bold w-20">${ix}</span><span>${pill}</span><span class="text-gray-400">ticks:${hh.ticks ?? c.ticks ?? 0}</span><span class="text-gray-500">ATM:${s.atm_strike ?? '—'}</span></div><div class="mt-0.5 space-y-0.5 text-gray-200">${legRow('FUT', s.fut_symbol || s.fut_token || '—', 'fut')}${legRow('CE', s.ce_symbol || s.ce_token || '<span class="text-amber-300">resolving…</span>', 'ce')}${legRow('PE', s.pe_symbol || s.pe_token || '<span class="text-amber-300">resolving…</span>', 'pe')}</div></div>`;
+        const flash = (leg) => c[leg + '_flash'] ? 'background:rgba(6,182,212,0.25);border-radius:4px;' : '';
+        ['fut', 'ce', 'pe'].forEach(leg => {
+          legRows.push(`<tr class="border-t border-white/5">
+            <td class="pr-2 py-0.5 font-bold text-cyan-300">${ix}</td>
+            <td class="pr-2 py-0.5 uppercase text-gray-400">${leg}${leg !== 'fut' ? ` @${s.atm_strike ?? '—'}` : ''}</td>
+            <td class="pr-2 py-0.5 text-gray-200">${legLabelSym(s, leg)}</td>
+            <td class="pr-2 py-0.5 text-right font-bold text-emerald-300" style="${flash(leg)}">${fmt(c[leg])}</td>
+            <td class="pr-2 py-0.5 text-right text-gray-300">${fmtOi(lp[legOiKey[leg]])}</td>
+            <td class="pr-2 py-0.5 text-right text-gray-400">${hh.ticks ?? c.ticks ?? 0}</td>
+            <td class="py-0.5">${pill}</td>
+          </tr>`);
+        });
         ['fut', 'ce', 'pe'].forEach(leg => { c[leg + '_flash'] = false; });
-        return row;
-      }).join('');
+      });
+      rows.innerHTML = `<table class="w-full">
+        <thead><tr class="text-gray-500 text-left">
+          <th class="pr-2 py-0.5">Index</th><th class="pr-2 py-0.5">Leg</th><th class="pr-2 py-0.5">Symbol</th>
+          <th class="pr-2 py-0.5 text-right">LTP</th><th class="pr-2 py-0.5 text-right">OI</th>
+          <th class="pr-2 py-0.5 text-right">Ticks</th><th class="py-0.5">Status</th>
+        </tr></thead>
+        <tbody>${legRows.join('')}</tbody>
+      </table>`;
     }
     async function stopOiPaperSession() {
       const sid = window._oiPaperSessionId;
@@ -3565,9 +3594,18 @@ trading-platform status</pre>
         if (sid && !window._oiRunning['index_oi_momentum']) window._oiPaperSessionId = null;
       } catch (e) { /* silent */ }
     }
+    // Kick off the poll loop only if one isn't already chaining via setTimeout --
+    // pollOiPaperStatus() reschedules itself every 3s while the session runs, so
+    // calling it again from a second entry point (e.g. reopening the modal)
+    // would otherwise stack a duplicate polling chain on top of the live one.
+    function startOiPollLoopIfNeeded() {
+      if (window._oiPollLoopActive) return;
+      window._oiPollLoopActive = true;
+      pollOiPaperStatus();
+    }
     async function pollOiPaperStatus() {
       const sid = window._oiPaperSessionId;
-      if (!sid) return;
+      if (!sid) { window._oiPollLoopActive = false; return; }
       try {
         const res = await fetch(`/api/paper/oi-momentum/status/${sid}`);
         const data = await res.json();
@@ -3578,11 +3616,6 @@ trading-platform status</pre>
           const autoStopRaw = data.stop_at_ist || '15:30 IST';
           const autoStop = autoStopRaw.split(' ').slice(1).join(' ') || autoStopRaw;
           label.innerHTML = `<i class="fa-solid fa-satellite-dish fa-spin text-cyan-400"></i><span>PAPER live: ${data.ticks_seen} ticks | ${data.paper_trades_count} paper trades | open: ${(data.open_paper_positions||[]).join(', ')||'flat'} | auto-stop ${autoStop} | NO real orders</span>`;
-        }
-        const subsEl = document.getElementById('oi-subs-table');
-        if (subsEl && data.subscriptions) {
-          const rows = Object.values(data.subscriptions).map(s => `<tr class="border-t border-white/10"><td class="pr-2 py-0.5 font-bold text-cyan-300">${s.index||''}</td><td class="pr-2 py-0.5">FUT: ${s.fut_symbol||s.fut_token||'—'}</td><td class="pr-2 py-0.5">ATM ${s.atm_strike??'—'} CE: ${s.ce_symbol||s.ce_token||'<span class="text-red-400">pending</span>'} </td><td class="py-0.5">PE: ${s.pe_symbol||s.pe_token||'<span class="text-red-400">pending</span>'}</td></tr>`).join('');
-          subsEl.innerHTML = `<div class="text-slate-300 font-semibold mb-1">Feed Source: ${data.feed_source||'Angel One WebSocket2'} | WS ticks: ${data.ws_ticks??0}</div><table class="w-full">${rows||'<tr><td class="text-amber-300">Discovering tokens…</td></tr>'}</table>`;
         }
         if (data.errors && data.errors.length) {
           const last = data.errors[data.errors.length-1];
@@ -3607,13 +3640,14 @@ trading-platform status</pre>
           const endDot = document.getElementById('oi-ws-dot');
           if (endDot) endDot.className = 'inline-block w-2 h-2 rounded-full bg-rose-500';
           window._oiPaperSessionId = null;
+          window._oiPollLoopActive = false;
           syncOiPaperControls(false);
           // Session over: drop the stale "running" panel so the modal shows idle state
           const staleStatus = document.querySelector('#oi-variant-box .paper-status');
           if (staleStatus) staleStatus.remove();
           refreshOiRunningState();
         }
-      } catch (e) { /* silent: session view only */ }
+      } catch (e) { setTimeout(pollOiPaperStatus, 3000); /* transient fetch error: retry, don't kill the loop */ }
         // keep per-index tick ages fresh between polls (1s repaint, no fetch)
         if (!window._oiAgeTimer) { window._oiAgeTimer = setInterval(() => {
           const sid = window._oiPaperSessionId;
