@@ -6,7 +6,8 @@
 #  * optionally copies the token into other .env files that use the SAME Breeze account
 #    (SYNC_ENV_FILES="/path/a/.env /path/b/.env"), because a new login invalidates the old session.
 set -euo pipefail
-APP_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
+APP_DIR="${APP_DIR:-$(cd "$(dirname "$0")/../.." && pwd)}"
+export TZ=Asia/Kolkata
 cd "$APP_DIR"
 PY=.venv/bin/python
 

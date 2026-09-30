@@ -71,6 +71,18 @@ Stop from the dashboard ends them). Older strategies' paper sessions must be res
   the new token is written to `.env` and verified against the Breeze API. Needs `BREEZE_*` and
   `TELEGRAM_*` in `.env` and a Playwright Chromium (`.venv/bin/python -m playwright install chromium`).
 
+  **Active on the server: a user crontab entry** (no sudo needed; the server clock is UTC, so
+  08:25 IST = 02:55 UTC):
+
+  ```bash
+  55 2 * * 1-5 APP_DIR=/home/lakshman/automation_engines /bin/bash /home/lakshman/ae-units/breeze_login.sh >> /home/lakshman/automation_engines/logs/breeze_login.log 2>&1
+  ```
+
+  Run it by hand (answer the Telegram OTP): `APP_DIR=~/automation_engines bash ~/ae-units/breeze_login.sh`;
+  result in `~/automation_engines/logs/breeze_login.log`.
+
+  Alternative - systemd timer instead of cron (don't run both):
+
   ```bash
   sudo systemctl enable --now breeze-login.timer
   systemctl list-timers breeze-login.timer            # next run
