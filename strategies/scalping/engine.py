@@ -49,8 +49,10 @@ class ScalpConfig:
     trail_pct: float = 0.08         # trail this far below the peak
     time_stop_min: int = 5
     time_stop_min_gain: float = 0.05
-    risk_pct: float = 0.015         # capital at risk per trade (to the stop)
-    max_lots: int = 10
+    sizing: str = "capital"         # "capital": deploy deploy_pct of the balance; "risk": risk risk_pct to the stop
+    deploy_pct: float = 1.0         # share of the current balance spent on premium per trade (compounds)
+    risk_pct: float = 0.015         # capital at risk per trade (to the stop), sizing="risk" only
+    max_lots: int = 27              # NSE freeze limit for NIFTY: 1,800 units / 65 per lot
     slippage_ticks: int = 1
     no_quote_slippage: float = 0.5
     vwap_exit: bool = False         # exit when LTP closes below the option's VWAP
@@ -238,7 +240,7 @@ class ScalpEngine:
     strategy_id = "scalp"
     name = "Scalp"
 
-    def __init__(self, instruments: dict[str, Instrument], *, capital: float = 100_000.0,
+    def __init__(self, instruments: dict[str, Instrument], *, capital: float = 50_000.0,
                  config: Optional[ScalpConfig] = None, on_event: Optional[Callable[[str, dict], None]] = None):
         self.cfg = config or self.default_config()
         self.insts = instruments
@@ -257,6 +259,7 @@ class ScalpEngine:
         self.last_tick_at: Optional[datetime] = None
         self.ticks = 0
         self.signals_seen = 0
+        self.skips: list[dict] = []  # signals not taken because one lot cost more than the balance
         self.charge_cfg = ChargeConfig(brokerage_per_order=self.cfg.brokerage_per_order)
 
     @classmethod
@@ -390,14 +393,19 @@ class ScalpEngine:
             return
         px = self._buy_px(se)
         lot = inst.lot or 1
-        risk_per_lot = px * self.cfg.sl_pct * lot
-        lots = int(self.balance * self.cfg.risk_pct // risk_per_lot) if risk_per_lot > 0 else 0
-        lots = max(1, min(lots, self.cfg.max_lots))
-        if px * lot * lots > self.balance:  # never spend more premium than the account holds
-            lots = int(self.balance // (px * lot))
-            if lots < 1:
-                self._emit("skip", {"time": ts.isoformat(), "why": "insufficient balance for one lot"})
-                return
+        cost_per_lot = px * lot
+        if self.cfg.sizing == "risk":
+            risk_per_lot = px * self.cfg.sl_pct * lot
+            lots = max(1, int(self.balance * self.cfg.risk_pct // risk_per_lot)) if risk_per_lot > 0 else 0
+        else:  # compounding: deploy a share of the CURRENT balance, so wins grow and losses shrink the next size
+            lots = int(self.balance * self.cfg.deploy_pct // cost_per_lot) if cost_per_lot > 0 else 0
+        lots = min(lots, self.cfg.max_lots, int(self.balance // cost_per_lot) if cost_per_lot > 0 else 0)
+        if lots < 1:  # never spend more premium than the account holds
+            self.skips.append({"time": ts.isoformat(), "symbol": inst.symbol, "premium": round(px, 2),
+                               "cost_per_lot": round(cost_per_lot, 2), "balance": round(self.balance, 2), "why": why})
+            self._emit("skip", {"time": ts.isoformat(), "why": f"one lot of {inst.symbol} costs "
+                                f"Rs {cost_per_lot:,.0f} > balance Rs {self.balance:,.0f}"})
+            return
         self.pos = Position(tok, inst.symbol, kind, strike, lots * lot, lots, px, se.ltp, self._mid(se), ts,
                             px * (1 - self.cfg.sl_pct), px * (1 + self.cfg.target_pct), px, why)
         self.day_trades += 1
@@ -460,6 +468,6 @@ class ScalpEngine:
                 "balance": round(self.balance, 2), "position": self.position_dict(),
                 "trades": [asdict(t) for t in self.trades], "day": self.day,
                 "day_trades": self.day_trades, "day_losses": self.day_losses, "ticks": self.ticks,
-                "signals": self.signals_seen,
+                "signals": self.signals_seen, "skipped": len(self.skips), "last_skips": self.skips[-5:],
                 "last_tick_at": self.last_tick_at.isoformat() if self.last_tick_at else None,
                 "config": asdict(self.cfg)}

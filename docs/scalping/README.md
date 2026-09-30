@@ -38,7 +38,7 @@ tools/scalping/import_breeze_1s.py  rebuilds past days from Breeze 1-second bars
    09:12 IST on every trading day and stops at 15:32 (compressing the day's file). No clicks needed;
    set `TICK_AUTO_RECORD=0` in the environment to disable. Angel credentials come from `.env`
    (`ANGEL_API_KEY`, `ANGEL_CLIENT_CODE`, `ANGEL_PASSWORD_OR_MPIN`, `ANGEL_TOTP_SECRET`).
-2. **Start a strategy:** open its card, set capital (and stop / target / risk in the parameter
+2. **Start a strategy:** open its card, set capital (default Rs 50,000; stop / target / capital deployed in the parameter
    panel), click **START PAPER SCALPING**. It runs in the background until you stop it - across days;
    outside market hours it simply waits for ticks. Each card shows "PAPER RUNNING" and a Stop button.
 3. **Backtest:** open a card, pick a date range and click **RUN BACKTEST**. It replays every
@@ -72,8 +72,11 @@ only a Stop from the dashboard ends it. Linux deployment: [deploy/linux/README.m
 - Breeze 1-second days have no quotes: fills use LTP +/- 0.5 points.
 - Charges: brokerage Rs 20/order, STT on the sell premium (0.15% from Apr-2026), exchange, SEBI,
   stamp, GST - `backtest/charges.py`.
-- Sizing: lots = floor(balance x risk_pct / (entry x stop% x lot size)), min 1, max 10, never more
-  premium than the balance.
+- Capital: Rs 50,000 by default (paper and backtest), editable on each card.
+- Sizing compounds: lots = floor(current balance x deploy_pct / (entry price x lot size)), max 27 lots
+  (NSE freeze limit 1,800 / 65). With deploy_pct = 1 the whole balance is deployed, so every win grows and
+  every loss shrinks the next trade. A signal is skipped (and counted on the card) when one lot costs more
+  than the balance. `sizing="risk"` switches to risking `risk_pct` of the balance to the stop instead.
 
 ## Known limitations
 

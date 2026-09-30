@@ -10,7 +10,7 @@ Entry (all true on a closed 15-second bucket, evaluated on the rolling 1-minute 
 Optional (off by default, as it is listed as a monitored signal, not an entry rule):
   LTP breaking the previous 5-minute high.
 Exits: target +20%, stop -10%, trail to the previous 1-minute low, exit on LTP below VWAP,
-5-minute time stop, 15:00 hard exit. Risk: 3 trades / day, stop after 2 losses, 1.5% risk per trade.
+5-minute time stop, 15:00 hard exit. Risk: 3 trades / day, stop after 2 losses; sizing compounds the whole balance (engine default).
 """
 from __future__ import annotations
 
@@ -36,7 +36,7 @@ class OiVolumeBurst(ScalpEngine):
     def default_config(cls) -> ScalpConfig:
         return ScalpConfig(entry_start="09:20", entry_end="14:45", square_off="15:00", max_trades=3, max_losses=2,
                            sl_pct=0.10, target_pct=0.20, trail_trigger=9.99, time_stop_min=5,
-                           time_stop_min_gain=0.05, risk_pct=0.015, vwap_exit=True, trail_prev_minute_low=True)
+                           time_stop_min_gain=0.05, vwap_exit=True, trail_prev_minute_low=True)
 
     def signal(self, ts: datetime, spot: float, atm: float) -> Optional[tuple[str, float, str]]:
         step = self.cfg.strike_step

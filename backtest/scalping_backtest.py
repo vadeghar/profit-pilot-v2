@@ -23,7 +23,7 @@ def available_days(start: date, end: date, root: Optional[Path] = None) -> list[
     return [(d, best_source(d, root)) for d in days if start <= d <= end]
 
 
-def run_scalping_backtest(strategy_id: str, start: date, end: date, *, capital: float = 100_000.0,
+def run_scalping_backtest(strategy_id: str, start: date, end: date, *, capital: float = 50_000.0,
                           overrides: Optional[dict] = None, root: Optional[Path] = None,
                           on_event: Optional[Callable[[str, dict], None]] = None,
                           progress: Optional[Callable[[date, int, int], None]] = None) -> dict[str, Any]:
@@ -64,7 +64,8 @@ def run_scalping_backtest(strategy_id: str, start: date, end: date, *, capital: 
                             "Judge it on recorded Angel tick days.")
     return {"strategy_id": strategy_id, "name": cls.name, "start": start.isoformat(), "end": end.isoformat(),
             "capital": capital, "final_balance": engine.balance, "config": asdict(cfg), "days": day_rows,
-            "ticks": ticks_total, "trades": trades, "summary": summarize(trades, capital), "warnings": warnings}
+            "ticks": ticks_total, "trades": trades, "summary": {**summarize(trades, capital), "skipped_signals": len(engine.skips)},
+            "skips": engine.skips[-50:], "warnings": warnings}
 
 
 def summarize(trades: list[dict], capital: float) -> dict[str, Any]:

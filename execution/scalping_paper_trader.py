@@ -25,7 +25,7 @@ STATE_DIR = Path(platform_config.FORWARD_TEST_DIR) / "scalping"
 
 
 class ScalpPaperSession:
-    def __init__(self, strategy_id: str, capital: float = 100_000.0, overrides: Optional[dict] = None,
+    def __init__(self, strategy_id: str, capital: float = 50_000.0, overrides: Optional[dict] = None,
                  hub: Optional[TickHub] = None, state_dir: Optional[Path] = None):
         self.strategy_id = strategy_id
         self.cls = SCALP_STRATEGIES[strategy_id]
@@ -132,6 +132,7 @@ class ScalpPaperSession:
             "live_trading": False, "capital": self.state["capital"], "balance": round(self.state["balance"], 2),
             "position": snap["position"], "trades": self.state["trades"], "today": snap["day"],
             "day_trades": snap["day_trades"], "day_losses": snap["day_losses"], "ticks": snap["ticks"],
+            "skipped": snap["skipped"], "last_skips": snap["last_skips"],
             "last_tick_at": snap["last_tick_at"], "queue": self._q.qsize(), "dropped": self.dropped,
             "started_at": self.started_at, "stop_reason": self.stop_reason, "last_error": self.last_error,
             "config": snap["config"], "recorder": self.hub.status(),
@@ -145,7 +146,7 @@ def sessions_to_resume(state_dir: Optional[Path] = None) -> list[dict]:
     for sid in SCALP_STRATEGIES:
         st = persisted_status(sid, folder)
         if st and st.get("running"):
-            out.append({"strategy_id": sid, "capital": st.get("capital", 100_000.0),
+            out.append({"strategy_id": sid, "capital": st.get("capital", 50_000.0),
                         "overrides": st.get("overrides") or {}})
     return out
 

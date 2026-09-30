@@ -24,7 +24,7 @@ quotes, the tick rule). **Big print** = a traded tick whose LTQ >= 5x the runnin
 | Target | +20% of premium | +20% of premium |
 | Trailing | from +10%: stop = max(entry, peak - 8%) | stop raised to the previous 1-minute low |
 | Other exits | 5-min time stop if the peak never reached +5% | LTP below VWAP; 5-min time stop (< +5%) |
-| Risk per trade | 1.5% of balance to the stop | 1.5% of balance to the stop |
+| Capital / sizing | Rs 50,000; whole current balance per trade (compounding) | same |
 
 All thresholds are parameters (`ScalpConfig`); stop, target, risk, trade and loss limits and
 slippage are editable on each card.
@@ -91,5 +91,5 @@ entry rules; it is available as `OiVolumeBurst.REQUIRE_BREAKOUT` (off by default
   so each card runs independently.
 - Fills at real bid/ask instead of LTP +/- 0.5 when quotes exist; charges from the platform table
   (STT 0.15% from Apr-2026) instead of the script's 0.1%.
-- Sizing by risk (1.5% of balance) instead of a fixed 1 lot.
+- Sizing by the whole compounding balance (Rs 50,000 start) instead of a fixed 1 lot.
 - Empty 15-second buckets carry the last price/OI forward (the script merged gaps into one bucket).

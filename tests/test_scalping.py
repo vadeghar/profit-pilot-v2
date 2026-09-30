@@ -121,8 +121,29 @@ def test_time_stop_and_square_off():
     assert late.trades and late.trades[-1].reason == "SQUARE_OFF"
 
 
+def test_capital_sizing_compounds_from_10000():
+    cfg = ScalpConfig(cooldown_min=0, time_stop_min=60, target_pct=0.20)
+    e = OneShot(insts(), capital=10_000, config=cfg)
+    feed(e, 6 * 60, 100.0)
+    assert e.pos.lots == 1  # 10,000 // (100.10 * 65 = 6,506.5)
+    feed(e, 60, lambda s: 100 + s, start=e.last_tick_at + timedelta(seconds=1))  # target hit: ~+20%
+    t = e.trades[0]
+    assert t.reason == "TARGET" and e.balance == pytest.approx(10_000 + sum(x.net for x in e.trades)) and e.balance > 11_000
+    # the next size comes from the grown balance: 20,000 would buy 3 lots of the same contract
+    bigger = OneShot(insts(), capital=20_000, config=cfg)
+    feed(bigger, 6 * 60, 100.0)
+    assert bigger.pos.lots == 3  # 20,000 // 6,506.5
+
+
+def test_signal_skipped_when_one_lot_costs_more_than_the_balance():
+    e = OneShot(insts(), capital=10_000, config=ScalpConfig())
+    feed(e, 6 * 60, 200.0)  # one lot = 200.10 * 65 = 13,006 > 10,000
+    assert e.pos is None and e.skips and e.skips[0]["cost_per_lot"] > 10_000
+
+
 def test_max_trades_per_day_and_risk_sizing():
-    cfg = ScalpConfig(max_trades=1, risk_pct=0.015, sl_pct=0.10, time_stop_min=1, time_stop_min_gain=0.5, cooldown_min=0)
+    cfg = ScalpConfig(sizing="risk", max_trades=1, risk_pct=0.015, sl_pct=0.10, time_stop_min=1,
+                      time_stop_min_gain=0.5, cooldown_min=0)
     e = OneShot(insts(), capital=100_000, config=cfg)
     feed(e, 6 * 60, 100.0)
     assert e.pos.lots == 2  # floor(1,500 / (100.10 * 10% * 65)) = 2

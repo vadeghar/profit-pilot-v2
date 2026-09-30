@@ -466,15 +466,15 @@ for _sid, _name, _icon, _color, _desc in _SCALP_CARDS:
         "id": _sid, "name": _name, "badge": "Tick Scalper", "badge_color": _color, "icon": _icon,
         "description": _desc, "asset_class": "NIFTY Weekly Options (Intraday)", "data_provider": "Angel ticks",
         "default_symbols": "NIFTY", "allowed_symbols": [{"label": "NIFTY weekly options", "value": "NIFTY"}],
-        "default_timeframe": "1m", "default_capital": 100000.0,
+        "default_timeframe": "1m", "default_capital": 50000.0,
         "default_start_date": (__import__("datetime").date.today() - __import__("datetime").timedelta(days=14)).isoformat(),
         "default_end_date": __import__("datetime").date.today().isoformat(),
-        "default_params": {"sl_pct": 0.10, "target_pct": 0.20, "risk_pct": 0.015, "max_trades": 3,
+        "default_params": {"sl_pct": 0.10, "target_pct": 0.20, "deploy_pct": 1.0, "max_trades": 3,
                            "max_losses": 2, "slippage_ticks": 1},
         "param_schema": [
             {"key": "sl_pct", "label": "Stop loss (% of premium)", "type": "number", "default": 0.10, "step": 0.01},
             {"key": "target_pct", "label": "Target (% of premium)", "type": "number", "default": 0.20, "step": 0.01},
-            {"key": "risk_pct", "label": "Risk per trade (% of capital)", "type": "number", "default": 0.015, "step": 0.005},
+            {"key": "deploy_pct", "label": "Capital deployed per trade (1 = whole balance, compounds)", "type": "number", "default": 1.0, "step": 0.1},
             {"key": "max_trades", "label": "Max trades / day", "type": "number", "default": 3, "step": 1},
             {"key": "max_losses", "label": "Stop after N losses", "type": "number", "default": 2, "step": 1},
             {"key": "slippage_ticks", "label": "Extra slippage (ticks of Rs 0.05)", "type": "number", "default": 1, "step": 1},
@@ -1571,7 +1571,7 @@ SCALP_PAPER_SESSIONS: Dict[str, Any] = {}
 
 
 class ScalpPaperStartRequest(BaseModel):
-    capital: float = Field(default=100000.0, gt=0, allow_inf_nan=False)
+    capital: float = Field(default=50000.0, gt=0, allow_inf_nan=False)
     params: Optional[Dict[str, Any]] = None
 
 
@@ -2220,7 +2220,7 @@ trading-platform status</pre>
               <div class="text-emerald-300 font-bold flex items-center space-x-1.5"><i class="fa-solid fa-satellite-dish"></i><span>Live paper scalping — runs on its own in the background, no real orders</span></div>
               <div>
                 <label class="block text-gray-500 mb-0.5">Capital (₹)</label>
-                <input id="scalp-paper-capital" type="number" value="100000" step="10000" class="w-full bg-gray-900 border border-gray-700 rounded px-2 py-1 text-white font-mono text-[11px] focus:outline-none focus:border-emerald-500">
+                <input id="scalp-paper-capital" type="number" value="50000" step="5000" class="w-full bg-gray-900 border border-gray-700 rounded px-2 py-1 text-white font-mono text-[11px] focus:outline-none focus:border-emerald-500">
               </div>
               <button onclick="startScalpPaper()" id="btn-scalp-paper-start" class="w-full py-1.5 mt-1 bg-gradient-to-r from-emerald-500 to-cyan-500 hover:from-emerald-400 hover:to-cyan-400 text-gray-950 font-bold rounded-lg shadow transition flex items-center justify-center space-x-2">
                 <i class="fa-solid fa-satellite-dish"></i><span>START PAPER SCALPING</span>
@@ -2918,7 +2918,11 @@ trading-platform status</pre>
       const scalpBox = document.getElementById('scalp-paper-box');
       if (scalpBox) {
         if (window._scalpPollTimer) { clearInterval(window._scalpPollTimer); window._scalpPollTimer = null; }
-        if (s.scalper) { scalpBox.classList.remove('hidden'); refreshScalpPaperStatus(s.id); }
+        if (s.scalper) {
+          scalpBox.classList.remove('hidden');
+          document.getElementById('scalp-paper-capital').value = s.default_capital || 50000;
+          refreshScalpPaperStatus(s.id);
+        }
         else scalpBox.classList.add('hidden');
       }
 
@@ -4057,7 +4061,8 @@ trading-platform status</pre>
         const p = data.position;
         const open = p ? `${escHtml(p.symbol)} ${p.lots} lot(s) @ ₹${p.entry} (LTP ${p.ltp}, SL ${p.sl}, TGT ${p.target})` : 'flat';
         const err = data.last_error ? ` | <span class="text-rose-400">${escHtml(data.last_error)}</span>` : '';
-        el.innerHTML = `Balance ${bal} | today ${data.day_trades ?? 0} trades, ${data.day_losses ?? 0} losses | ticks ${(data.ticks || 0).toLocaleString('en-IN')} | open: ${open}${err}`;
+        const skipped = data.skipped ? ` | <span class="text-amber-300" title="Signals not taken: one lot cost more than the balance">${data.skipped} skipped (premium > balance)</span>` : '';
+        el.innerHTML = `Balance ${bal} | today ${data.day_trades ?? 0} trades, ${data.day_losses ?? 0} losses | ticks ${(data.ticks || 0).toLocaleString('en-IN')} | open: ${open}${skipped}${err}`;
       }
       if (data.status === 'RUNNING' || (data.trades || []).length) renderScalpTradesTable(data);
     }
@@ -4080,7 +4085,7 @@ trading-platform status</pre>
     async function startScalpPaper() {
       const sid = currentModalStrat && currentModalStrat.id;
       if (!sid) return;
-      const capital = parseFloat(document.getElementById('scalp-paper-capital').value) || 100000;
+      const capital = parseFloat(document.getElementById('scalp-paper-capital').value) || 50000;
       const params = {};
       (currentModalStrat.param_schema || []).forEach(p => {
         const el = document.getElementById(`param-${p.key}`);
