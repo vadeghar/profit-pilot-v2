@@ -1,0 +1,161 @@
+{
+  "generated": "2026-09-30",
+  "strategies": {
+    "four_indicator_system": {
+      "verdict": "DEPRECATE",
+      "why": "loses money after costs (net PF 0.93, net -Rs 48,487)",
+      "run": "5m",
+      "horizon": "Intraday",
+      "window": [
+        "2025-01-01",
+        "2026-09-29"
+      ],
+      "trades": 346,
+      "win_rate": 0.3931,
+      "profit_factor": 0.927,
+      "expectancy": -140.14,
+      "net_pnl": -48486.84,
+      "return_pct": -0.4849,
+      "max_dd_pct": 0.812,
+      "costs": 72161.59,
+      "capital": 100000.0
+    },
+    "nifty_no_brainer": {
+      "verdict": "DEPRECATE",
+      "why": "loses money after costs (net PF 0.66, net -Rs 4,235)",
+      "run": "monthly",
+      "horizon": "Short term",
+      "window": [
+        "2025-01-01",
+        "2026-09-29"
+      ],
+      "trades": 15,
+      "win_rate": 0.5333,
+      "profit_factor": 0.663,
+      "expectancy": -282.33,
+      "net_pnl": -4234.94,
+      "return_pct": -0.0423,
+      "max_dd_pct": 0.0913,
+      "costs": 11868.36,
+      "capital": 100000.0
+    },
+    "index_oi_momentum": {
+      "verdict": "EXPERIMENTAL",
+      "why": "not backtestable on real data (no historical tick OI); keep in paper trading only until it has a live track record"
+    },
+    "mcx_trend_rider": {
+      "verdict": "DEPRECATE",
+      "why": "as configured (Rs 1 lakh, forced 1 lot) the account is wiped out: max drawdown 139.5% of capital; thin edge (net PF 1.08 < 1.3); deep drawdown (139.5%)",
+      "run": "1d",
+      "horizon": "Short term",
+      "window": [
+        "2023-10-01",
+        "2026-09-29"
+      ],
+      "trades": 48,
+      "win_rate": 0.2917,
+      "profit_factor": 1.082,
+      "expectancy": 1663.87,
+      "net_pnl": 79865.7,
+      "return_pct": 0.7987,
+      "max_dd_pct": 1.3945,
+      "costs": 39606.17,
+      "capital": 100000.0
+    },
+    "equity_swing_vcp": {
+      "verdict": "DEPRECATE",
+      "why": "loses money after costs (net PF 0.42, net -Rs 7,505)",
+      "run": "1d",
+      "horizon": "Short term",
+      "window": [
+        "2023-10-01",
+        "2026-09-29"
+      ],
+      "trades": 23,
+      "win_rate": 0.4348,
+      "profit_factor": 0.419,
+      "expectancy": -326.31,
+      "net_pnl": -7505.05,
+      "return_pct": -0.0751,
+      "max_dd_pct": 0.1325,
+      "costs": 2580.33,
+      "capital": 100000.0
+    },
+    "lorentzian_ml": {
+      "verdict": "DEPRECATE",
+      "why": "profitable but earns only 1.2% a year net - below the 6% risk-free hurdle (bank FD)",
+      "run": "1w",
+      "horizon": "Short term",
+      "window": [
+        "2023-10-01",
+        "2026-09-29"
+      ],
+      "trades": 102,
+      "win_rate": 0.5098,
+      "profit_factor": 1.319,
+      "expectancy": 645.53,
+      "net_pnl": 65844.51,
+      "return_pct": 0.0366,
+      "max_dd_pct": 0.0211,
+      "costs": 31601.35,
+      "capital": 1800000.0
+    },
+    "ema_crossover": {
+      "verdict": "DEPRECATE",
+      "why": "loses money after costs (net PF 0.96, net -Rs 56,728)",
+      "run": "1d",
+      "horizon": "Short term",
+      "window": [
+        "2023-10-01",
+        "2026-09-29"
+      ],
+      "trades": 567,
+      "win_rate": 0.2875,
+      "profit_factor": 0.956,
+      "expectancy": -100.05,
+      "net_pnl": -56728.35,
+      "return_pct": -0.0315,
+      "max_dd_pct": 0.1865,
+      "costs": 173437.86,
+      "capital": 1800000.0
+    },
+    "rsi": {
+      "verdict": "DEPRECATE",
+      "why": "profitable but earns only 2.6% a year net - below the 6% risk-free hurdle (bank FD); all of the 1w profit comes from shorts (Rs 1,46,024 over 27 trades, avg hold 213 d), which cannot be carried overnight in cash equities; the long side alone nets -Rs 4,528",
+      "run": "1w",
+      "horizon": "Short term",
+      "window": [
+        "2023-10-01",
+        "2026-09-29"
+      ],
+      "trades": 61,
+      "win_rate": 0.6066,
+      "profit_factor": 1.402,
+      "expectancy": 2319.6,
+      "net_pnl": 141495.48,
+      "return_pct": 0.0786,
+      "max_dd_pct": 0.0736,
+      "costs": 22252.08,
+      "capital": 1800000.0
+    },
+    "breakout": {
+      "verdict": "DEPRECATE",
+      "why": "loses money after costs (net PF 0.91, net -Rs 80,630)",
+      "run": "1d",
+      "horizon": "Short term",
+      "window": [
+        "2023-10-01",
+        "2026-09-29"
+      ],
+      "trades": 278,
+      "win_rate": 0.3957,
+      "profit_factor": 0.906,
+      "expectancy": -290.04,
+      "net_pnl": -80630.47,
+      "return_pct": -0.0448,
+      "max_dd_pct": 0.1665,
+      "costs": 83712.07,
+      "capital": 1800000.0
+    }
+  }
+}

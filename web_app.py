@@ -478,8 +478,11 @@ class ForwardTestRegisterRequest(BaseModel):
 
 @app.get("/api/catalog")
 def get_strategy_catalog():
-    """Return structured strategy cards metadata with default parameters and symbols"""
-    return {"catalog": list(STRATEGY_CATALOG.values())}
+    """Return structured strategy cards metadata with default parameters and symbols,
+    plus classification flags, status and audited backtest results."""
+    from platform_config.strategy_meta import FLAG_GROUPS, enrich_catalog
+    enrich_catalog(STRATEGY_CATALOG)  # re-read per request: a regenerated audit shows without a restart
+    return {"catalog": list(STRATEGY_CATALOG.values()), "flag_groups": FLAG_GROUPS}
 
 
 @app.get("/api/universe")
@@ -1716,26 +1719,37 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         </span>
       </div>
 
+      <!-- Strategy flag filters (chips rendered from /api/catalog flags) -->
+      <div class="glass-card p-3 rounded-xl border border-gray-800 space-y-2" id="strategy-filter-bar">
+        <div class="flex items-center justify-between">
+          <span class="text-[11px] font-bold text-gray-300 flex items-center space-x-1.5">
+            <i class="fa-solid fa-filter text-cyan-400"></i><span>Filter strategies</span>
+          </span>
+          <div class="flex items-center space-x-3 text-[11px]">
+            <label class="flex items-center space-x-1.5 text-gray-400 cursor-pointer select-none">
+              <input type="checkbox" id="show-deprecated-toggle" onchange="toggleShowDeprecated(this.checked)" class="accent-rose-500">
+              <span>Show deprecated</span>
+            </label>
+            <button onclick="clearStrategyFilters()" class="text-cyan-400 hover:text-cyan-300 underline">Clear</button>
+          </div>
+        </div>
+        <div id="strategy-filter-groups" class="space-y-1.5"></div>
+      </div>
+
       <!-- Strategy Cards Grid (Fixed Size Cards) -->
       <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5" id="strategy-cards-grid">
         <!-- Dynamically injected via JavaScript -->
       </div>
 
-      <!-- Recent Simulation Activity Banner -->
-      <div class="glass-card p-4 rounded-xl border border-gray-800 flex items-center justify-between">
-        <div class="flex items-center space-x-3">
-          <div class="w-8 h-8 rounded-lg bg-cyan-950 text-cyan-400 border border-cyan-800 flex items-center justify-center text-sm">
-            <i class="fa-solid fa-clock-rotate-left"></i>
-          </div>
-          <div>
-            <div class="text-xs font-semibold text-white">Latest Verified Benchmark: MCX Trend Rider</div>
-            <div class="text-[11px] text-gray-400">Evaluated on real Angel One historical feed (2024–2026): +46.67% Return, 44.4% Win Rate, Max DD 8.84%</div>
-          </div>
+      <!-- Strategy audit summary (filled from /api/catalog audit fields) -->
+      <div class="glass-card p-4 rounded-xl border border-gray-800 flex items-center space-x-3">
+        <div class="w-8 h-8 rounded-lg bg-cyan-950 text-cyan-400 border border-cyan-800 flex items-center justify-center text-sm">
+          <i class="fa-solid fa-clipboard-check"></i>
         </div>
-        <button onclick="openBacktestModal('mcx_trend_rider')" class="px-3.5 py-1.5 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-gray-950 font-bold text-xs rounded-lg shadow transition flex items-center space-x-1.5">
-          <i class="fa-solid fa-play"></i>
-          <span>Run MCX Backtest</span>
-        </button>
+        <div>
+          <div class="text-xs font-semibold text-white" id="audit-banner-title">Strategy audit</div>
+          <div class="text-[11px] text-gray-400" id="audit-banner-body">Real backtests net of commission, levies, spread and slippage - see docs/strategy_audit/STRATEGY_AUDIT_REPORT.md</div>
+        </div>
       </div>
 
     </div>
@@ -2377,6 +2391,9 @@ trading-platform status</pre>
         const res = await fetch('/api/catalog');
         const data = await res.json();
         catalog = data.catalog;
+        window._flagGroups = data.flag_groups || [];
+        renderStrategyFilters();
+        renderAuditBanner();
         window._oiRunning = window._oiRunning || {};
         // Expose the universe for autocomplete symbol fields.
         // Server-injected from platform_config/universe.yaml (window.__GLOBAL_UNIVERSE__);
@@ -2404,16 +2421,90 @@ trading-platform status</pre>
       }
     }
 
+    // ---- strategy flag filters (OR within a group, AND across groups) ----
+    const FLAG_GROUP_LABELS = { horizon: 'Horizon', segment: 'Segment', instrument: 'Instrument', direction: 'Direction',
+                                bias: 'Bias', hedging: 'Hedging', style: 'Style' };
+    function loadStrategyFilterState() {
+      let saved = {};
+      try { saved = JSON.parse(localStorage.getItem('strategyFilters') || '{}'); } catch (e) { saved = {}; }
+      window._strategyFilters = {};
+      Object.entries(saved.groups || {}).forEach(([g, vals]) => { window._strategyFilters[g] = new Set(vals); });
+      window._showDeprecated = !!saved.showDeprecated;
+    }
+    function saveStrategyFilterState() {
+      const groups = {};
+      Object.entries(window._strategyFilters || {}).forEach(([g, set]) => { if (set.size) groups[g] = [...set]; });
+      try { localStorage.setItem('strategyFilters', JSON.stringify({ groups, showDeprecated: !!window._showDeprecated })); } catch (e) {}
+    }
+    function renderStrategyFilters() {
+      if (!window._strategyFilters) loadStrategyFilterState();
+      const box = document.getElementById('strategy-filter-groups');
+      const toggle = document.getElementById('show-deprecated-toggle');
+      if (toggle) toggle.checked = !!window._showDeprecated;
+      if (!box) return;
+      box.innerHTML = (window._flagGroups || []).map(group => {
+        const values = [...new Set(catalog.flatMap(s => (s.flags && s.flags[group]) || []))].sort();
+        if (!values.length) return '';
+        const active = window._strategyFilters[group] || new Set();
+        const chips = values.map(v => {
+          const on = active.has(v);
+          const cls = on ? 'bg-cyan-500 text-gray-950 border-cyan-400' : 'bg-gray-900 text-gray-300 border-gray-700 hover:border-cyan-500/60';
+          return `<button type="button" data-group="${group}" data-value="${v}" onclick="toggleStrategyFilter(this.dataset.group, this.dataset.value)" class="px-2 py-0.5 rounded-full border text-[10px] font-mono transition ${cls}">${v}</button>`;
+        }).join('');
+        return `<div class="flex flex-wrap items-center gap-1.5"><span class="text-[10px] uppercase tracking-wide text-gray-500 w-20">${FLAG_GROUP_LABELS[group] || group}</span>${chips}</div>`;
+      }).join('');
+    }
+    function toggleStrategyFilter(group, value) {
+      const f = window._strategyFilters;
+      f[group] = f[group] || new Set();
+      if (f[group].has(value)) f[group].delete(value); else f[group].add(value);
+      saveStrategyFilterState();
+      renderStrategyFilters();
+      renderStrategyCards();
+    }
+    function toggleShowDeprecated(on) {
+      window._showDeprecated = !!on;
+      saveStrategyFilterState();
+      renderStrategyCards();
+    }
+    function clearStrategyFilters() {
+      window._strategyFilters = {};
+      saveStrategyFilterState();
+      renderStrategyFilters();
+      renderStrategyCards();
+    }
+    function renderAuditBanner() {
+      const title = document.getElementById('audit-banner-title');
+      const body = document.getElementById('audit-banner-body');
+      if (!title || !body) return;
+      const count = st => catalog.filter(s => s.status === st).length;
+      const generated = (catalog.find(s => s.audit && s.audit.generated) || {}).audit;
+      title.textContent = `Strategy audit${generated ? ' (' + generated.generated + ')' : ''}: ${count('active')} active, ${count('experimental')} experimental, ${count('deprecated')} deprecated`;
+      body.textContent = 'Real backtests net of commission, levies, spread and slippage. Hover a status badge for the reason; full report: docs/strategy_audit/STRATEGY_AUDIT_REPORT.md';
+    }
+    function strategyPassesFilters(s) {
+      if (s.status === 'deprecated' && !window._showDeprecated) return false;
+      return Object.entries(window._strategyFilters || {}).every(([g, set]) =>
+        !set.size || ((s.flags && s.flags[g]) || []).some(v => set.has(v)));
+    }
+
     function renderStrategyCards() {
       const grid = document.getElementById('strategy-cards-grid');
       grid.innerHTML = '';
+      if (!window._strategyFilters) loadStrategyFilterState();
+      const visible = catalog.filter(strategyPassesFilters);
 
       const countEl = document.getElementById('registered-strategies-count');
       if (countEl) {
-        countEl.textContent = `${catalog.length} Registered Strateg${catalog.length === 1 ? 'y' : 'ies'}`;
+        const hidden = catalog.length - visible.length;
+        countEl.textContent = `${visible.length} of ${catalog.length} Strateg${catalog.length === 1 ? 'y' : 'ies'}` + (hidden ? ` (${hidden} hidden)` : '');
+      }
+      if (!visible.length) {
+        grid.innerHTML = '<div class="col-span-full text-center text-xs text-gray-500 py-10">No strategy matches these filters.</div>';
+        return;
       }
 
-      catalog.forEach(s => {
+      visible.forEach(s => {
         const card = document.createElement('div');
         // Fixed size responsive card with cursor pointer
         const isOIPaperRunning = !!(window._oiRunning && window._oiRunning[s.id]);
@@ -2424,13 +2515,27 @@ trading-platform status</pre>
         const cardBorderClass = (isOIPaperRunning || isFiPaperRunning || isVcpPaperRunning || isMcxPaperRunning || isLorentzianPaperRunning) ? 'border-emerald-500/60' : 'border-gray-800 hover:border-cyan-500/60';
         // Card stays clickable while running so the live paper trades can be inspected in the modal.
         // Only the "Run Paper Live" action is disabled while a session is active.
-        card.className = `glass-card p-5 rounded-2xl border ${cardBorderClass} transition-all duration-200 hover:-translate-y-1 cursor-pointer flex flex-col justify-between h-[340px] group`;
+        const isDeprecated = s.status === 'deprecated';
+        card.className = `glass-card p-5 rounded-2xl border ${cardBorderClass} transition-all duration-200 hover:-translate-y-1 cursor-pointer flex flex-col justify-between min-h-[380px] group ${isDeprecated ? 'opacity-60' : ''}`;
         card.onclick = () => openBacktestModal(s.id);
 
         const badgeBg = s.badge_color === 'emerald' ? 'bg-emerald-950 text-emerald-400 border-emerald-800' :
                         s.badge_color === 'cyan' ? 'bg-cyan-950 text-cyan-400 border-cyan-800' :
                         s.badge_color === 'purple' ? 'bg-purple-950 text-purple-400 border-purple-800' :
                         'bg-amber-950 text-amber-400 border-amber-800';
+        const statusCls = { active: 'bg-emerald-950 text-emerald-300 border-emerald-700',
+                            experimental: 'bg-amber-950 text-amber-300 border-amber-700',
+                            deprecated: 'bg-rose-950 text-rose-300 border-rose-700' }[s.status] || 'bg-gray-900 text-gray-300 border-gray-700';
+        const statusBadge = s.status
+          ? `<span class="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded border ${statusCls}" title="${(s.status_reason || '').replace(/"/g, '&quot;')}">${s.status}</span>`
+          : '';
+        const f = s.flags || {};
+        const pillValues = [...(f.horizon || []), ...(f.segment || []), ...(f.instrument || []), ...(f.direction || []), ...(f.hedging || []).filter(v => v === 'Hedged')];
+        const flagPills = pillValues.map(v => `<span class="text-[9px] font-mono px-1.5 py-0.5 rounded bg-gray-900 text-gray-400 border border-gray-800">${v}</span>`).join('');
+        const audit = s.audit || null;
+        const auditLine = audit && audit.trades !== undefined
+          ? `<span class="text-gray-500">Audited:</span><span class="font-bold ${audit.net_pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'} ml-1">${s.historical_stats.return_pct}</span><span class="text-gray-500 ml-1">${s.historical_stats.sharpe}</span>`
+          : `<span class="text-gray-500">Audited:</span><span class="font-bold text-amber-400 ml-1">${audit ? s.historical_stats.return_pct : 'Not audited'}</span>`;
 
         card.innerHTML = `
           <div>
@@ -2448,8 +2553,9 @@ trading-platform status</pre>
               </div>
             </div>
 
-            <h3 class="font-bold text-sm text-white group-hover:text-cyan-400 transition mb-1">${s.name}</h3>
-            <p class="text-[11px] text-gray-400 line-clamp-3 mb-3">${s.description}</p>
+            <h3 class="font-bold text-sm text-white group-hover:text-cyan-400 transition mb-1 flex items-center gap-1.5">${s.name}${statusBadge}</h3>
+            <p class="text-[11px] text-gray-400 line-clamp-3 mb-2">${s.description}</p>
+            <div class="flex flex-wrap gap-1 mb-2">${flagPills}</div>
 
             <div class="space-y-1.5 text-[11px] font-mono bg-gray-950/60 p-2.5 rounded-lg border border-gray-800/80 mb-3">
               <div class="flex justify-between text-gray-400">
@@ -2468,9 +2574,8 @@ trading-platform status</pre>
           </div>
 
           <div class="pt-2 border-t border-gray-800 flex items-center justify-between">
-            <div class="text-[11px] font-mono">
-              <span class="text-gray-500">Benchmark:</span>
-              <span class="font-bold text-emerald-400 ml-1">${s.historical_stats.return_pct}</span>
+            <div class="text-[11px] font-mono" title="${audit && audit.window ? 'Real backtest ' + audit.window.join(' to ') + ' (' + audit.run + '), net of all costs' : ''}">
+              ${auditLine}
               ${(isOIPaperRunning || isFiPaperRunning || isVcpPaperRunning || isMcxPaperRunning || isLorentzianPaperRunning) ? '<div class="mt-1 text-[10px] font-bold text-emerald-300 flex items-center space-x-1"><span class="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span><span>PAPER RUNNING</span></div>' : ''}
                ${(s.paper_only_live && !isOIPaperRunning) ? '<div class="mt-1 text-[9px] text-amber-500">Paper Live Only</div>' : ''}
             </div>

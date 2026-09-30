@@ -1,0 +1,93 @@
+# Strategy classification flags - hand-maintained, one entry per STRATEGY_CATALOG id.
+#
+# The dashboard renders every list below as filter chips (OR within a group,
+# AND across groups). `status` is taken from the generated audit
+# (platform_config/strategy_audit.json: KEEP -> active, WATCH/EXPERIMENTAL ->
+# experimental, DEPRECATE -> deprecated) unless `status_override` is set here.
+# Deprecated strategies are hidden on the dashboard unless "Show deprecated" is on.
+#
+# horizon = what the strategy is built for:
+#   Intraday   - positions opened and closed in the same session
+#   Short term - swing / positional, days to ~2 months
+#   Long term  - held for months
+
+four_indicator_system:
+  segment: [Derivative]
+  instrument: [Options]
+  direction: [Directional]
+  bias: [Long/Short]
+  hedging: [Unhedged]
+  style: [Momentum, Option buying]
+  horizon: [Intraday]
+
+nifty_no_brainer:
+  segment: [Derivative]
+  instrument: [Options]
+  direction: [Non-directional]
+  bias: [Neutral]
+  hedging: [Hedged]
+  style: [Option selling, Ratio spread]
+  horizon: [Short term]
+
+index_oi_momentum:
+  segment: [Derivative]
+  instrument: [Options]
+  direction: [Directional]
+  bias: [Long/Short]
+  hedging: [Unhedged]
+  style: [Momentum, Option buying, Order flow]
+  horizon: [Intraday]
+
+mcx_trend_rider:
+  segment: [Commodity, Derivative]
+  instrument: [Futures]
+  direction: [Directional]
+  bias: [Long/Short]
+  hedging: [Unhedged]
+  style: [Trend following, Breakout]
+  horizon: [Short term]
+
+equity_swing_vcp:
+  segment: [Equity]
+  instrument: [Cash]
+  direction: [Directional]
+  bias: [Long only]
+  hedging: [Unhedged]
+  style: [Breakout, Momentum]
+  horizon: [Short term]
+
+lorentzian_ml:
+  segment: [Equity]
+  instrument: [Cash, Futures]
+  direction: [Directional]
+  bias: [Long/Short]
+  hedging: [Unhedged]
+  style: [Machine learning]
+  horizon: [Short term]
+
+ema_crossover:
+  segment: [Equity]
+  instrument: [Cash, Futures]
+  direction: [Directional]
+  bias: [Long/Short]
+  hedging: [Unhedged]
+  style: [Trend following]
+  horizon: [Short term]
+
+rsi:
+  segment: [Equity]
+  instrument: [Cash, Futures]
+  direction: [Directional]
+  bias: [Long/Short]
+  hedging: [Unhedged]
+  style: [Mean reversion]
+  horizon: [Short term]
+
+breakout:
+  segment: [Equity]
+  instrument: [Cash, Futures]
+  direction: [Directional]
+  bias: [Long/Short]
+  hedging: [Unhedged]
+  style: [Breakout, Trend following]
+  horizon: [Short term]
