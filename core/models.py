@@ -94,10 +94,11 @@ class Tick:
     """Market tick data"""
     instrument: str
     timestamp: datetime
-    ltp: float
+    last_price: float
     volume: int = 0
-    bid: Optional[float] = None
-    ask: Optional[float] = None
+    last_quantity: int = 0
+    bid_price: Optional[float] = None
+    ask_price: Optional[float] = None
     oi: Optional[int] = None
     oi_day_high: Optional[int] = None
     oi_day_low: Optional[int] = None
