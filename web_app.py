@@ -440,6 +440,51 @@ STRATEGY_CATALOG = {
 }
 
 
+# NIFTY option scalpers: tick-driven (Angel One SnapQuote ticks recorded to
+# data/ticks, replayed for backtests). See docs/scalping/.
+_SCALP_CARDS = [
+    ("scalp_writer_squeeze", "S1 Writer Squeeze", "fa-arrows-up-to-line", "rose",
+     "OI-wall breach: when spot is within 20 pts of the highest-OI strike, the wall's OI drops >=3% in 3 min "
+     "while the opposite side is written, ATM volume spikes 2.5x, the ATM option breaks its 5-min high above "
+     "VWAP and futures confirm (price + OI up) - buy the ATM option."),
+    ("scalp_stealth_accum", "S2 Stealth Accumulation", "fa-user-secret", "purple",
+     "Spot boxed within 20 pts for 15 min while the ATM/next option shows CVD >= 20% of volume, >=3 big LTQ "
+     "prints and a 2x volume spike with real OI change - buy on the box breakout."),
+    ("scalp_pcr_velocity", "S3 Delta-PCR Velocity", "fa-gauge-high", "cyan",
+     "Two consecutive 3-minute windows of call-OI unwinding + put-OI building across ATM+/-2 (or the reverse), "
+     "ATM volume 2x, option above VWAP and futures moving the same way - buy the ATM option."),
+    ("scalp_trap_fade", "S4 Trap Fade", "fa-shuffle", "amber",
+     "Fake breakout of the 15-min range: spot pokes out and falls back, futures OI flat, the breakout side's "
+     "writers add >=3% OI on a 2x volume spike - buy the opposite ATM option."),
+    ("scalp_oi_volume_burst", "OI + Volume Burst", "fa-burst", "emerald",
+     "ATM/ITM/OTM option with a 3x 1-min volume spike + LTQ burst (5 big prints in 10 s), long buildup or "
+     "short covering, opposite ATM OI unwinding >=2% in 3 min and LTP above VWAP. Target +20%, stop -10%, "
+     "trail at the previous 1-min low, VWAP and 5-min time exits."),
+]
+for _sid, _name, _icon, _color, _desc in _SCALP_CARDS:
+    STRATEGY_CATALOG[_sid] = {
+        "id": _sid, "name": _name, "badge": "Tick Scalper", "badge_color": _color, "icon": _icon,
+        "description": _desc, "asset_class": "NIFTY Weekly Options (Intraday)", "data_provider": "Angel ticks",
+        "default_symbols": "NIFTY", "allowed_symbols": [{"label": "NIFTY weekly options", "value": "NIFTY"}],
+        "default_timeframe": "1m", "default_capital": 100000.0,
+        "default_start_date": (__import__("datetime").date.today() - __import__("datetime").timedelta(days=14)).isoformat(),
+        "default_end_date": __import__("datetime").date.today().isoformat(),
+        "default_params": {"sl_pct": 0.10, "target_pct": 0.20, "risk_pct": 0.015, "max_trades": 3,
+                           "max_losses": 2, "slippage_ticks": 1},
+        "param_schema": [
+            {"key": "sl_pct", "label": "Stop loss (% of premium)", "type": "number", "default": 0.10, "step": 0.01},
+            {"key": "target_pct", "label": "Target (% of premium)", "type": "number", "default": 0.20, "step": 0.01},
+            {"key": "risk_pct", "label": "Risk per trade (% of capital)", "type": "number", "default": 0.015, "step": 0.005},
+            {"key": "max_trades", "label": "Max trades / day", "type": "number", "default": 3, "step": 1},
+            {"key": "max_losses", "label": "Stop after N losses", "type": "number", "default": 2, "step": 1},
+            {"key": "slippage_ticks", "label": "Extra slippage (ticks of Rs 0.05)", "type": "number", "default": 1, "step": 1},
+        ],
+        "historical_stats": {"return_pct": "Needs tick data", "win_rate": "-", "max_dd": "-", "sharpe": "-"},
+        "scalper": True,
+        "paper_only_live": False,
+    }
+
+
 class BacktestRequest(BaseModel):
     strategy_id: str
     instrument: str
@@ -799,6 +844,42 @@ def start_backtest_stream(req: BacktestRequest, background_tasks: BackgroundTask
         slippage_percent=req.slippage_percent,
         commission_percent=req.commission_percent
     )
+
+    # Tick scalpers replay recorded ticks (data/ticks), never candles.
+    from strategies.scalping import SCALP_STRATEGIES
+    if req.strategy_id in SCALP_STRATEGIES:
+        from backtest.scalping_backtest import run_scalping_backtest, to_ui_result as scalp_ui_result
+        job_id = job_manager.create_job(bt_config, None)
+
+        def run_scalp_backtest_job():
+            job = job_manager.get_job(job_id)
+            if not job:
+                return
+            job.status = "running"
+            job_manager.add_event(job_id, "backtest_started", {"strategy_id": req.strategy_id})
+
+            def on_day(day, i, n):
+                job_manager.add_event(job_id, "progress", {"progress": min(99.0, i / n * 100),
+                                                           "instrument": f"NIFTY ticks {day} ({i}/{n} days)"})
+
+            def on_engine(kind, payload):
+                if kind == "exit":
+                    t = payload["trade"]
+                    job_manager.add_event(job_id, "trade_exit", {
+                        "instrument": t["symbol"], "side": "BUY", "entry_price": t["entry"], "exit_price": t["exit"],
+                        "pnl": t["net"], "duration": t["hold_sec"], "quantity": t["qty"], "reason": t["reason"],
+                        "timestamp": t["exit_time"]})
+            try:
+                report = run_scalping_backtest(req.strategy_id, start.date(), end.date(), capital=float(req.capital),
+                                               overrides=req.params or {}, progress=on_day, on_event=on_engine)
+                result = scalp_ui_result(report)
+                job.result, job.status = result, "completed"
+                job_manager.add_event(job_id, "backtest_completed", {"result": result})
+            except Exception as exc:
+                job.status = "failed"
+                job_manager.add_event(job_id, "backtest_failed", {"error": str(exc)})
+        background_tasks.add_task(run_scalp_backtest_job)
+        return {"job_id": job_id, "status": "started"}
 
     # NIFTY No Brainer is a dynamic three-leg option strategy: it cannot use the
     # generic single-instrument candle engine.  It always reads Breeze live
@@ -1486,6 +1567,90 @@ def stop_lorentzian_ml_paper():
     return {"status": "STOPPED", **sess.status()}
 
 
+SCALP_PAPER_SESSIONS: Dict[str, Any] = {}
+
+
+class ScalpPaperStartRequest(BaseModel):
+    capital: float = Field(default=100000.0, gt=0, allow_inf_nan=False)
+    params: Optional[Dict[str, Any]] = None
+
+
+def _scalp_or_404(strategy_id: str):
+    from strategies.scalping import SCALP_STRATEGIES
+    if strategy_id not in SCALP_STRATEGIES:
+        raise HTTPException(status_code=404, detail=f"Unknown scalping strategy {strategy_id!r}")
+
+
+@app.post("/api/paper/scalp/{strategy_id}/start")
+def start_scalp_paper(strategy_id: str, req: ScalpPaperStartRequest):
+    """Start one scalping strategy as its own background PAPER session (no real orders).
+
+    Ticks come from the shared tick hub, which starts recording immediately if
+    the market is open (otherwise at 09:12 IST); the session keeps running
+    across days until stopped.
+    """
+    _scalp_or_404(strategy_id)
+    from execution.scalping_paper_trader import ScalpPaperSession
+    running = SCALP_PAPER_SESSIONS.get(strategy_id)
+    if running and running.status_text == "RUNNING":
+        raise HTTPException(status_code=400, detail="This scalping paper session is already running")
+    sess = ScalpPaperSession(strategy_id, capital=req.capital, overrides=req.params or {})
+    sess.start()
+    SCALP_PAPER_SESSIONS[strategy_id] = sess
+    RunnerRegistry.register(strategy_id, strategy_id, sess)
+    return {"live_trading": False, **sess.status()}
+
+
+@app.get("/api/paper/scalp/{strategy_id}/status")
+def scalp_paper_status(strategy_id: str):
+    _scalp_or_404(strategy_id)
+    sess = SCALP_PAPER_SESSIONS.get(strategy_id)
+    if sess:
+        return sess.status()
+    from execution.scalping_paper_trader import persisted_status
+    from market_data.tick_recorder import get_hub
+    saved = persisted_status(strategy_id) or {}
+    return {"status": "IDLE", "strategy_id": strategy_id, "balance": saved.get("balance"),
+            "capital": saved.get("capital"), "trades": saved.get("trades", []), "position": None,
+            "recorder": get_hub().status()}
+
+
+@app.post("/api/paper/scalp/{strategy_id}/stop")
+def stop_scalp_paper(strategy_id: str):
+    _scalp_or_404(strategy_id)
+    sess = SCALP_PAPER_SESSIONS.get(strategy_id)
+    if not sess:
+        raise HTTPException(status_code=404, detail="This scalping paper session has not been started")
+    sess.stop("manual")
+    RunnerRegistry.unregister(strategy_id, strategy_id)
+    return sess.status()
+
+
+@app.get("/api/ticks/status")
+def tick_recorder_status():
+    from market_data.tick_recorder import get_hub
+    from market_data.tick_store import list_days
+    return {**get_hub().status(), "days": list_days()}
+
+
+@app.post("/api/ticks/start")
+def tick_recorder_start():
+    from market_data.tick_recorder import get_hub
+    try:
+        return get_hub().start()
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Tick recorder could not start: {e}")
+
+
+@app.post("/api/ticks/stop")
+def tick_recorder_stop():
+    from market_data.tick_recorder import get_hub
+    running = [sid for sid, s in SCALP_PAPER_SESSIONS.items() if s.status_text == "RUNNING"]
+    if running:
+        raise HTTPException(status_code=400, detail=f"Stop the running scalping sessions first: {', '.join(running)}")
+    return get_hub().stop(compress=True)
+
+
 def _is_market_hours_ist() -> bool:
     """Check if current time is within market hours (09:15 - 15:30 IST)."""
     from utils.timezone import now_ist, EQUITY_OPEN_MIN, EQUITY_CLOSE_MIN
@@ -1558,6 +1723,10 @@ async def startup_event():
     # Run in a thread pool since start() is blocking
     loop = asyncio.get_event_loop()
     await loop.run_in_executor(None, lambda: start_auto_paper_session())
+    # Tick recorder for the scalping strategies: records 09:12-15:32 IST on
+    # trading days while the server runs (TICK_AUTO_RECORD=0 disables).
+    from market_data.tick_recorder import get_hub
+    get_hub().start_scheduler()
 
 
 @app.get("/api/forward-test/status/{strategy_id}")
@@ -2037,6 +2206,27 @@ trading-platform status</pre>
                 </button>
               </div>
             </div>
+            <div id="scalp-paper-box" class="hidden p-2 bg-gray-950/60 border border-emerald-500/30 rounded-lg text-[11px] space-y-1.5">
+              <div class="text-emerald-300 font-bold flex items-center space-x-1.5"><i class="fa-solid fa-satellite-dish"></i><span>Live paper scalping — runs on its own in the background, no real orders</span></div>
+              <div>
+                <label class="block text-gray-500 mb-0.5">Capital (₹)</label>
+                <input id="scalp-paper-capital" type="number" value="100000" step="10000" class="w-full bg-gray-900 border border-gray-700 rounded px-2 py-1 text-white font-mono text-[11px] focus:outline-none focus:border-emerald-500">
+              </div>
+              <button onclick="startScalpPaper()" id="btn-scalp-paper-start" class="w-full py-1.5 mt-1 bg-gradient-to-r from-emerald-500 to-cyan-500 hover:from-emerald-400 hover:to-cyan-400 text-gray-950 font-bold rounded-lg shadow transition flex items-center justify-center space-x-2">
+                <i class="fa-solid fa-satellite-dish"></i><span>START PAPER SCALPING</span>
+              </button>
+              <div id="scalp-paper-status" class="hidden mt-1 p-2 bg-emerald-950/60 border border-emerald-500/30 rounded-lg space-y-1.5">
+                <div class="text-emerald-300 font-bold flex items-center space-x-1.5"><span class="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span><span>PAPER SESSION RUNNING</span></div>
+                <div id="scalp-paper-status-text" class="text-gray-300 font-mono text-[10px]">--</div>
+                <button onclick="stopScalpPaper()" class="w-full py-1.5 mt-1 bg-gradient-to-r from-rose-500 to-rose-600 hover:from-rose-400 hover:to-rose-500 text-gray-950 font-bold rounded-lg shadow transition flex items-center justify-center space-x-2">
+                  <i class="fa-solid fa-stop"></i><span>STOP PAPER SESSION</span>
+                </button>
+              </div>
+              <div class="pt-1 border-t border-white/5 space-y-0.5">
+                <div id="scalp-recorder-line" class="text-gray-400 font-mono text-[10px]">Tick recorder: --</div>
+                <div id="scalp-days-line" class="text-gray-500 font-mono text-[10px]">Recorded days: --</div>
+              </div>
+            </div>
             <div id="vcp-paper-box" class="hidden p-2 bg-gray-950/60 border border-emerald-500/30 rounded-lg text-[11px] space-y-1.5">
               <div class="text-emerald-300 font-bold flex items-center space-x-1.5"><i class="fa-solid fa-satellite-dish"></i><span>Live paper trading — daily replay of the real strategy, no real orders</span></div>
               <div>
@@ -2416,6 +2606,8 @@ trading-platform status</pre>
         refreshVcpPaperStatus();
         refreshMcxPaperStatus();
         refreshLorentzianPaperStatus();
+        refreshAllScalpRunning();
+        setInterval(refreshAllScalpRunning, 30000);
       } catch (err) {
         console.error('Failed to load strategy catalog:', err);
       }
@@ -2512,7 +2704,8 @@ trading-platform status</pre>
         const isVcpPaperRunning = !!(window._vcpPaperRunning && s.id === 'equity_swing_vcp');
         const isMcxPaperRunning = !!(window._mcxPaperRunning && s.id === 'mcx_trend_rider');
         const isLorentzianPaperRunning = !!(window._lorentzianPaperRunning && s.id === 'lorentzian_ml');
-        const cardBorderClass = (isOIPaperRunning || isFiPaperRunning || isVcpPaperRunning || isMcxPaperRunning || isLorentzianPaperRunning) ? 'border-emerald-500/60' : 'border-gray-800 hover:border-cyan-500/60';
+        const isScalpRunning = !!(window._scalpRunning && window._scalpRunning[s.id]);
+        const cardBorderClass = (isOIPaperRunning || isFiPaperRunning || isVcpPaperRunning || isMcxPaperRunning || isLorentzianPaperRunning || isScalpRunning) ? 'border-emerald-500/60' : 'border-gray-800 hover:border-cyan-500/60';
         // Card stays clickable while running so the live paper trades can be inspected in the modal.
         // Only the "Run Paper Live" action is disabled while a session is active.
         const isDeprecated = s.status === 'deprecated';
@@ -2576,7 +2769,7 @@ trading-platform status</pre>
           <div class="pt-2 border-t border-gray-800 flex items-center justify-between">
             <div class="text-[11px] font-mono" title="${audit && audit.window ? 'Real backtest ' + audit.window.join(' to ') + ' (' + audit.run + '), net of all costs' : ''}">
               ${auditLine}
-              ${(isOIPaperRunning || isFiPaperRunning || isVcpPaperRunning || isMcxPaperRunning || isLorentzianPaperRunning) ? '<div class="mt-1 text-[10px] font-bold text-emerald-300 flex items-center space-x-1"><span class="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span><span>PAPER RUNNING</span></div>' : ''}
+              ${(isOIPaperRunning || isFiPaperRunning || isVcpPaperRunning || isMcxPaperRunning || isLorentzianPaperRunning || isScalpRunning) ? '<div class="mt-1 text-[10px] font-bold text-emerald-300 flex items-center space-x-1"><span class="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span><span>PAPER RUNNING</span></div>' : ''}
                ${(s.paper_only_live && !isOIPaperRunning) ? '<div class="mt-1 text-[9px] text-amber-500">Paper Live Only</div>' : ''}
             </div>
             ${isOIPaperRunning
@@ -2587,6 +2780,8 @@ trading-platform status</pre>
               ? `<button onclick="event.stopPropagation(); cardStopVcpPaper()" class="px-3 py-1 bg-rose-500/20 hover:bg-rose-500 text-rose-300 hover:text-white font-bold text-xs rounded-lg transition flex items-center space-x-1"><i class="fa-solid fa-stop text-[10px]"></i><span>Stop</span></button>`
               : isMcxPaperRunning
               ? `<button onclick="event.stopPropagation(); cardStopMcxPaper()" class="px-3 py-1 bg-rose-500/20 hover:bg-rose-500 text-rose-300 hover:text-white font-bold text-xs rounded-lg transition flex items-center space-x-1"><i class="fa-solid fa-stop text-[10px]"></i><span>Stop</span></button>`
+              : isScalpRunning
+              ? `<button onclick="event.stopPropagation(); stopScalpPaper('${s.id}')" class="px-3 py-1 bg-rose-500/20 hover:bg-rose-500 text-rose-300 hover:text-white font-bold text-xs rounded-lg transition flex items-center space-x-1"><i class="fa-solid fa-stop text-[10px]"></i><span>Stop</span></button>`
               : isLorentzianPaperRunning
               ? `<button onclick="event.stopPropagation(); cardStopLorentzianPaper()" class="px-3 py-1 bg-rose-500/20 hover:bg-rose-500 text-rose-300 hover:text-white font-bold text-xs rounded-lg transition flex items-center space-x-1"><i class="fa-solid fa-stop text-[10px]"></i><span>Stop</span></button>`
               : `<button class="px-3 py-1 bg-cyan-500/20 hover:bg-cyan-500 group-hover:bg-cyan-500 text-cyan-300 group-hover:text-gray-950 font-bold text-xs rounded-lg transition flex items-center space-x-1"><span>Test</span><i class="fa-solid fa-arrow-right text-[10px]"></i></button>`}
@@ -2639,6 +2834,11 @@ trading-platform status</pre>
         ));
       document.getElementById('modal-symbol-input').value = '';
       document.getElementById('modal-selected-symbol').value = '';
+      if (window.modalSymbolOptions.length === 1) {  // single-instrument strategies: nothing to choose
+        const only = window.modalSymbolOptions[0];
+        document.getElementById('modal-symbol-input').value = only.label || only.value;
+        document.getElementById('modal-selected-symbol').value = only.value;
+      }
       renderSymbolOptions(window.modalSymbolOptions);
 
       // Populate Dynamic Parameters Grid
@@ -2702,6 +2902,14 @@ trading-platform status</pre>
       if (fiBox) {
         if (s.id === 'four_indicator_system') { fiBox.classList.remove('hidden'); refreshFourIndicatorPaperStatus(); }
         else { fiBox.classList.add('hidden'); if (window._fiPaperPollTimer) { clearInterval(window._fiPaperPollTimer); window._fiPaperPollTimer = null; } }
+      }
+
+      // Tick scalpers: one generic paper box, bound to whichever scalper is open
+      const scalpBox = document.getElementById('scalp-paper-box');
+      if (scalpBox) {
+        if (window._scalpPollTimer) { clearInterval(window._scalpPollTimer); window._scalpPollTimer = null; }
+        if (s.scalper) { scalpBox.classList.remove('hidden'); refreshScalpPaperStatus(s.id); }
+        else scalpBox.classList.add('hidden');
       }
 
       // Equity Swing VCP: independent paper-trading box (co-exists with Run Backtest)
@@ -3115,7 +3323,11 @@ trading-platform status</pre>
             
             progressBar.style.width = '100%';
             progressPct.textContent = '100%';
-            progressLabel.innerHTML = `<i class="fa-solid fa-check text-emerald-400"></i><span>Backtest completed (${streamingTrades.length} trades)</span>`;
+            const doneTrades = (data.payload && data.payload.result && data.payload.result.total_trades != null)
+              ? data.payload.result.total_trades : streamingTrades.length;
+            const warn = ((data.payload && data.payload.result && data.payload.result.warnings) || []).join(' ');
+            progressLabel.innerHTML = `<i class="fa-solid fa-check text-emerald-400"></i><span>Backtest completed (${doneTrades} trades)</span>` +
+              (warn ? `<span class="text-amber-300 ml-2">${escHtml(warn)}</span>` : '');
 
             // Final render with complete data. The server payload now carries
             // the authoritative result (trades, equity_curve, candles_evaluated,
@@ -3767,6 +3979,135 @@ trading-platform status</pre>
     // ---------------------------------------------------------------------
     // Four Indicator System: dedicated live paper-trading controls
     // ---------------------------------------------------------------------
+    // ---------------------------------------------------------------------
+    // Tick scalpers (5 strategies, one generic box; each runs independently)
+    // ---------------------------------------------------------------------
+    window._scalpRunning = window._scalpRunning || {};
+    function escHtml(v) {
+      return String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    }
+    async function refreshAllScalpRunning() {
+      const ids = catalog.filter(s => s.scalper).map(s => s.id);
+      let changed = false;
+      await Promise.all(ids.map(async sid => {
+        try {
+          const data = await (await fetch(`/api/paper/scalp/${sid}/status`)).json();
+          const on = data.status === 'RUNNING';
+          if (!!window._scalpRunning[sid] !== on) changed = true;
+          window._scalpRunning[sid] = on;
+        } catch (e) { /* status only */ }
+      }));
+      if (changed) renderStrategyCards();
+    }
+    async function refreshScalpPaperStatus(sid) {
+      sid = sid || (currentModalStrat && currentModalStrat.id);
+      if (!sid) return;
+      try {
+        const data = await (await fetch(`/api/paper/scalp/${sid}/status`)).json();
+        if (!currentModalStrat || currentModalStrat.id !== sid) return;
+        const was = !!window._scalpRunning[sid];
+        window._scalpRunning[sid] = data.status === 'RUNNING';
+        syncScalpPaperUI(data);
+        if (was !== window._scalpRunning[sid]) renderStrategyCards();
+        if (window._scalpRunning[sid] && !window._scalpPollTimer) {
+          window._scalpPollTimer = setInterval(() => refreshScalpPaperStatus(sid), 4000);
+        } else if (!window._scalpRunning[sid] && window._scalpPollTimer) {
+          clearInterval(window._scalpPollTimer); window._scalpPollTimer = null;
+        }
+      } catch (e) { /* status only */ }
+      try {
+        const rec = await (await fetch('/api/ticks/status')).json();
+        renderScalpRecorder(rec);
+      } catch (e) { /* status only */ }
+    }
+    function renderScalpRecorder(rec) {
+      const line = document.getElementById('scalp-recorder-line');
+      const days = document.getElementById('scalp-days-line');
+      if (line) {
+        const state = rec.running ? (rec.connected ? '<span class="text-emerald-400">RECORDING</span>' : '<span class="text-amber-300">CONNECTING</span>')
+                                  : '<span class="text-gray-400">idle</span>';
+        const detail = rec.running
+          ? ` | ${(rec.ticks_session || 0).toLocaleString('en-IN')} ticks | ${rec.instruments} instruments | expiry ${escHtml(rec.expiry)}`
+          : ` | auto ${rec.auto_record ? 'ON' : 'OFF'}: ${escHtml(rec.record_window)}`;
+        const err = (rec.errors || []).length ? ` | <span class="text-rose-400">${escHtml(rec.errors[rec.errors.length - 1])}</span>` : '';
+        line.innerHTML = `Tick recorder: ${state}${detail}${err}`;
+      }
+      if (days) {
+        const list = (rec.days || []).map(d => `${d.date} (${d.source === 'angel' ? 'Angel ticks' : 'Breeze 1s'})`);
+        days.textContent = list.length ? `Backtestable days: ${list.join(', ')}` : 'Backtestable days: none yet - recording starts 09:12 IST on the next trading day';
+      }
+    }
+    function syncScalpPaperUI(data) {
+      const running = data.status === 'RUNNING';
+      document.getElementById('btn-scalp-paper-start')?.classList.toggle('hidden', running);
+      document.getElementById('scalp-paper-status')?.classList.toggle('hidden', !running);
+      const el = document.getElementById('scalp-paper-status-text');
+      if (el) {
+        const bal = data.balance != null ? `₹${Number(data.balance).toLocaleString('en-IN', { maximumFractionDigits: 0 })}` : '--';
+        const p = data.position;
+        const open = p ? `${escHtml(p.symbol)} ${p.lots} lot(s) @ ₹${p.entry} (LTP ${p.ltp}, SL ${p.sl}, TGT ${p.target})` : 'flat';
+        const err = data.last_error ? ` | <span class="text-rose-400">${escHtml(data.last_error)}</span>` : '';
+        el.innerHTML = `Balance ${bal} | today ${data.day_trades ?? 0} trades, ${data.day_losses ?? 0} losses | ticks ${(data.ticks || 0).toLocaleString('en-IN')} | open: ${open}${err}`;
+      }
+      if (data.status === 'RUNNING' || (data.trades || []).length) renderScalpTradesTable(data);
+    }
+    function renderScalpTradesTable(data) {
+      const tbody = document.getElementById('modal-trades-tbody');
+      if (!tbody) return;
+      const rows = [];
+      const p = data.position;
+      if (p) {
+        rows.push(`<tr class="bg-cyan-950/30"><td class="py-2 px-3 font-mono text-[10px]">OPEN</td><td class="py-2 px-3">${escHtml(p.symbol)}</td><td class="py-2 px-3">${p.qty}</td><td class="py-2 px-3">${fmtPaperTime(p.entry_time)}</td><td class="py-2 px-3">${p.entry}</td><td class="py-2 px-3">--</td><td class="py-2 px-3">${p.ltp}</td><td class="py-2 px-3 text-right text-cyan-300">₹${Math.round(p.unrealized)}</td></tr>`);
+      }
+      (data.trades || []).slice().reverse().forEach(t => {
+        const cls = t.net >= 0 ? 'text-emerald-400' : 'text-rose-400';
+        rows.push(`<tr title="${escHtml(t.why)}"><td class="py-2 px-3 font-mono text-[10px]">${escHtml(t.reason)}</td><td class="py-2 px-3">${escHtml(t.symbol)}</td><td class="py-2 px-3">${t.qty}</td><td class="py-2 px-3">${fmtPaperTime(t.entry_time)}</td><td class="py-2 px-3">${t.entry}</td><td class="py-2 px-3">${fmtPaperTime(t.exit_time)}</td><td class="py-2 px-3">${t.exit}</td><td class="py-2 px-3 text-right ${cls}">₹${Math.round(t.net)}</td></tr>`);
+      });
+      tbody.innerHTML = rows.length ? rows.join('')
+        : '<tr><td colspan="8" class="text-center py-6 text-gray-500">Waiting for the first live signal - entries, exits and PnL stream in here.</td></tr>';
+      document.getElementById('modal-trades-count').textContent = `${(data.trades || []).length} records`;
+    }
+    async function startScalpPaper() {
+      const sid = currentModalStrat && currentModalStrat.id;
+      if (!sid) return;
+      const capital = parseFloat(document.getElementById('scalp-paper-capital').value) || 100000;
+      const params = {};
+      (currentModalStrat.param_schema || []).forEach(p => {
+        const el = document.getElementById(`param-${p.key}`);
+        if (el && el.value !== '') params[p.key] = parseFloat(el.value);
+      });
+      const btn = document.getElementById('btn-scalp-paper-start');
+      if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i><span>Starting...</span>'; }
+      try {
+        const res = await fetch(`/api/paper/scalp/${sid}/start`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ capital, params })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || 'start failed');
+        window._scalpRunning[sid] = true;
+        syncScalpPaperUI(data);
+        renderStrategyCards();
+        refreshScalpPaperStatus(sid);
+      } catch (e) {
+        showModalError('Could not start paper scalping', e.message || e);
+      } finally {
+        if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-satellite-dish"></i><span>START PAPER SCALPING</span>'; }
+      }
+    }
+    async function stopScalpPaper(sid) {
+      sid = sid || (currentModalStrat && currentModalStrat.id);
+      if (!sid || !confirm('Stop this scalping paper session? Any open paper position is closed at the last price; the trade log is kept.')) return;
+      try {
+        const res = await fetch(`/api/paper/scalp/${sid}/stop`, { method: 'POST' });
+        const data = await res.json();
+        window._scalpRunning[sid] = false;
+        if (window._scalpPollTimer) { clearInterval(window._scalpPollTimer); window._scalpPollTimer = null; }
+        if (currentModalStrat && currentModalStrat.id === sid) syncScalpPaperUI(data);
+        renderStrategyCards();
+      } catch (e) { showModalError('Stop failed', e.message || e); }
+    }
+
     async function refreshFourIndicatorPaperStatus() {
       try {
         const res = await fetch('/api/paper/four-indicator/status');

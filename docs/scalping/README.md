@@ -1,0 +1,86 @@
+# NIFTY Option Tick Scalpers
+
+Five intraday NIFTY option-buying scalpers driven by tick data, each running as its own
+independent background paper session with its own dashboard card:
+
+| Card | Strategy id | Idea |
+|---|---|---|
+| S1 Writer Squeeze | `scalp_writer_squeeze` | Breach of the highest-OI strike while its writers flee and the opposite side is written |
+| S2 Stealth Accumulation | `scalp_stealth_accum` | Spot boxed in 20 pts while an option is quietly bought (CVD, big prints), then breaks out |
+| S3 Delta-PCR Velocity | `scalp_pcr_velocity` | Two consecutive 3-minute windows of call-OI unwinding + put-OI building (or the reverse) |
+| S4 Trap Fade | `scalp_trap_fade` | Fake range breakout with no futures OI and writers absorbing: buy the other side |
+| OI + Volume Burst | `scalp_oi_volume_burst` | Volume spike + LTQ burst + long buildup/short covering + opposite-side OI unwinding + above VWAP |
+
+Exact rules: [STRATEGIES.md](STRATEGIES.md). Tick format and storage: [TICK_DATA.md](TICK_DATA.md).
+Sources: `learning_scalping_strategies.md` + `nifty_orderflow.py` (S1-S4) and the "OI + Volume Burst
+Scalping" spec. **Paper only - these engines never place real orders.**
+
+## How it fits together
+
+```
+Angel One SmartWebSocketV2 (SNAP_QUOTE: LTP, LTQ, volume, OI, best bid/ask)
+        |
+        v
+market_data/tick_recorder.py  TickHub (one connection, NIFTY spot + future + ATM+/-10 CE/PE)
+        |---> data/ticks/angel/<date>/ticks.csv(.gz)       every tick, saved for backtests
+        |---> ScalpPaperSession x5  (execution/scalping_paper_trader.py, one thread + queue each)
+                    |
+                    v
+             strategies/scalping/  ScalpEngine subclasses (15 s buckets, fills at bid/ask, risk limits)
+
+backtest/scalping_backtest.py  replays data/ticks through the SAME engines (live == backtest logic)
+tools/scalping/import_breeze_1s.py  rebuilds past days from Breeze 1-second bars (pseudo-ticks)
+```
+
+## Running it
+
+1. **Keep the dashboard server running during market hours.** The tick recorder starts itself at
+   09:12 IST on every trading day and stops at 15:32 (compressing the day's file). No clicks needed;
+   set `TICK_AUTO_RECORD=0` in the environment to disable. Angel credentials come from `.env`
+   (`ANGEL_API_KEY`, `ANGEL_CLIENT_CODE`, `ANGEL_PASSWORD_OR_MPIN`, `ANGEL_TOTP_SECRET`).
+2. **Start a strategy:** open its card, set capital (and stop / target / risk in the parameter
+   panel), click **START PAPER SCALPING**. It runs in the background until you stop it - across days;
+   outside market hours it simply waits for ticks. Each card shows "PAPER RUNNING" and a Stop button.
+3. **Backtest:** open a card, pick a date range and click **RUN BACKTEST**. It replays every
+   recorded day in the range (real Angel ticks preferred, Breeze 1-second days otherwise).
+   The card's panel lists which days are backtestable.
+4. **Past days:** `python -m tools.scalping.import_breeze_1s --date 2026-09-29 --date 2026-09-26`
+   (about 510 Breeze requests / 6 minutes per day; Breeze allows ~5,000 requests a day).
+
+Warm-up: signals need 16-21 minutes of history per contract, so the first possible entry is around
+09:31 (S1-S4) / 09:36 (OI Burst) even though entries are allowed from 09:20.
+
+## API
+
+| Endpoint | Purpose |
+|---|---|
+| `POST /api/paper/scalp/{id}/start` `{capital, params}` | start one strategy's paper session |
+| `GET /api/paper/scalp/{id}/status` | balance, open position, trades, recorder status (`IDLE` if never started) |
+| `POST /api/paper/scalp/{id}/stop` | stop it (open position closed at the last price) |
+| `GET /api/ticks/status` | recorder state + list of backtestable days |
+| `POST /api/ticks/start` / `stop` | manual recorder control (stop refuses while a scalper runs) |
+| `POST /api/backtest/stream` with `strategy_id=scalp_*` | tick-replay backtest (dashboard RUN BACKTEST) |
+
+Paper state (balance + full trade log) persists in `data/forward_test/scalping/<id>.json`.
+
+## Execution realism
+
+- Buy fills at the **recorded best ask** + `slippage_ticks` x Rs 0.05, sells at the best bid - the
+  spread is paid from real quotes, and reported per trade as `spread_cost` (vs the mid-price).
+- Breeze 1-second days have no quotes: fills use LTP +/- 0.5 points.
+- Charges: brokerage Rs 20/order, STT on the sell premium (0.15% from Apr-2026), exchange, SEBI,
+  stamp, GST - `backtest/charges.py`.
+- Sizing: lots = floor(balance x risk_pct / (entry x stop% x lot size)), min 1, max 10, never more
+  premium than the balance.
+
+## Known limitations
+
+- **LTQ-based signals** (S2 big prints, OI Burst LTQ burst) only mean what the spec intends on real
+  Angel ticks. On Breeze 1-second days "LTQ" is the whole second's volume (median ~54,000 units on
+  the 29-Sep-2026 ATM call, heavy-tailed), so "5 prints >= 5x average within 10 s" essentially never
+  happens: on that imported day OI Burst saw 191 volume spikes and 364 opposite-side unwinds but zero
+  LTQ bursts. Judge S2 and OI Burst on recorded Angel days; the backtest adds a warning otherwise.
+- SnapQuote ticks are exchange snapshots, not every trade; OI updates arrive every 1-3 s, which is
+  why every OI/volume feature is computed on 15-second buckets.
+- None of these strategies has been backtested yet - there is no tick history until the recorder has
+  run (or days are imported). Treat them as experimental until they have a meaningful sample.

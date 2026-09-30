@@ -91,3 +91,49 @@ breakout:
   hedging: [Unhedged]
   style: [Breakout, Trend following]
   horizon: [Short term]
+
+# ---- NIFTY option tick scalpers (docs/scalping/) ----
+scalp_writer_squeeze:
+  segment: [Derivative]
+  instrument: [Options]
+  direction: [Directional]
+  bias: [Long/Short]
+  hedging: [Unhedged]
+  style: [Scalping, Order flow, Option buying]
+  horizon: [Intraday]
+
+scalp_stealth_accum:
+  segment: [Derivative]
+  instrument: [Options]
+  direction: [Directional]
+  bias: [Long/Short]
+  hedging: [Unhedged]
+  style: [Scalping, Order flow, Breakout, Option buying]
+  horizon: [Intraday]
+
+scalp_pcr_velocity:
+  segment: [Derivative]
+  instrument: [Options]
+  direction: [Directional]
+  bias: [Long/Short]
+  hedging: [Unhedged]
+  style: [Scalping, Order flow, Option buying]
+  horizon: [Intraday]
+
+scalp_trap_fade:
+  segment: [Derivative]
+  instrument: [Options]
+  direction: [Directional]
+  bias: [Long/Short]
+  hedging: [Unhedged]
+  style: [Scalping, Mean reversion, Option buying]
+  horizon: [Intraday]
+
+scalp_oi_volume_burst:
+  segment: [Derivative]
+  instrument: [Options]
+  direction: [Directional]
+  bias: [Long/Short]
+  hedging: [Unhedged]
+  style: [Scalping, Momentum, Order flow, Option buying]
+  horizon: [Intraday]
