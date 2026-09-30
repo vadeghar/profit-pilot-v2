@@ -30,6 +30,8 @@ nifty_no_brainer:
   horizon: [Short term]
 
 index_oi_momentum:
+  status_override: deprecated
+  status_reason: "Deprecated by the owner until further notice; no auto-start on app startup. Not part of the tick scalpers."
   segment: [Derivative]
   instrument: [Options]
   direction: [Directional]

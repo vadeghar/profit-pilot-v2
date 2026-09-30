@@ -240,8 +240,9 @@ STRATEGY_CATALOG = {
             "max_dd": "Capped -3%/day",
             "sharpe": "Intraday"
         },
-        # Auto-start on app startup during market hours (09:15-15:30 IST)
-        "auto_start_enabled": True,
+        # Auto-start on app startup during market hours (09:15-15:30 IST) - disabled:
+        # strategy deprecated by the owner until further notice.
+        "auto_start_enabled": False,
         "auto_start_symbols": ["NIFTY", "BANKNIFTY", "SENSEX"],
         "auto_start_variants": ["base", "expiry"],
         "auto_start_capital": 100000.0,
