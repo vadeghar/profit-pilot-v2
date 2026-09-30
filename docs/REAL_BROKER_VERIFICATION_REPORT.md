@@ -20,7 +20,7 @@
 
 ### A. Authentication & Session Generation
 
-- **Client Code:** `S948479`
+- **Client Code:** `YOUR_CLIENT_CODE`
 - **Mechanism:** Automatic time-based one-time password (TOTP) generation via `pyotp` with `ANGEL_TOTP_SECRET`.
 - **Generated Tokens:**
   - `jwtToken`: Successfully acquired.

@@ -12,7 +12,7 @@ The trading platform **DOES use `.env`** for storing broker credentials. The fil
 
 ### ✅ Angel One SmartAPI - WORKING
 - **Status:** Authenticated successfully
-- **Client ID:** S948479
+- **Client ID:** YOUR_CLIENT_CODE
 - **Positions Found:** 1 position (NFO:NIFTY22SEP2623150PE)
 - **Configuration Source:** `.env`
 
@@ -39,8 +39,8 @@ BREEZE_PASSWORD=...
 BREEZE_SESSION_TOKEN=...
 
 # Angel One SmartAPI
-ANGEL_API_KEY=VdyRYhsR
-ANGEL_CLIENT_CODE=S948479
+ANGEL_API_KEY=YOUR_ANGEL_API_KEY
+ANGEL_CLIENT_CODE=YOUR_CLIENT_CODE
 ANGEL_PASSWORD_OR_MPIN=...
 ANGEL_TOTP_SECRET=...
 
@@ -124,8 +124,8 @@ You can also configure brokers using the YAML config file:
 broker:
   active: "angel_one"  # or "mock" or "icici"
   angel_one:
-    api_key: "VdyRYhsR"
-    client_id: "S948479"
+    api_key: "YOUR_ANGEL_API_KEY"
+    client_id: "YOUR_CLIENT_CODE"
     password: "YOUR_PASSWORD"
     totp_secret: "YOUR_TOTP_SECRET"
 ```
@@ -148,8 +148,8 @@ python3 tests/test_broker_credentials.py
 ✓ Loaded 16 environment variables
 
 TESTING ANGEL ONE (SMARTAPI)
-API Key: VdyRYhsR
-Client ID: S948479
+API Key: YOUR_ANGEL_API_KEY
+Client ID: YOUR_CLIENT_CODE
 
 1. Authenticating...
    Status: ✅ SUCCESS
