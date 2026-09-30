@@ -367,16 +367,31 @@ class OIPaperSession:
                     try:
                         r = client.searchScrip(fut_ex, idx)
                         _futs = [d for d in ((r or {}).get("data") or [])
-                                if "FUT" in str(d.get("tradingsymbol", ""))
-                                and idx in str(d.get("tradingsymbol", "")).replace(" ", "")]
+                                if self._is_well_formed_fut_row(d, idx)]
                         _futs.sort(key=lambda d: str(d.get("tradingsymbol", "")))
-                        if _futs:
+                        if not _futs:
+                            # searchScrip is fuzzy (a bare "NIFTY" query pulls in
+                            # NIFTYNXT50/FINNIFTY too and can return malformed rows
+                            # during rollover) -- fall back to the scrip master, same
+                            # pattern as the CE/PE fallback below.
+                            try:
+                                _sm = self._scrip_master(fut_ex)
+                                _r = self._pick_fut_from_master(_sm, idx)
+                                if _r:
+                                    fut_tok, fut_sym = _r
+                                    self.errors.append(f"{idx}: FUT resolved via scrip-master fallback.")
+                            except Exception as _sme:
+                                self.errors.append(f"{idx} FUT scrip-master fallback: {_sme}")
+                        else:
                             fut_tok, fut_sym = str(_futs[0]["symboltoken"]), str(_futs[0].get("tradingsymbol", ""))
+                        if fut_tok:
                             try:
                                 _q = client.ltpData(fut_ex, fut_sym, fut_tok)
                                 fut_px = _paper_safe_float(((_q or {}).get("data") or {}).get("ltp"), 0.0)
                             except Exception as _fqe:
                                 self.errors.append(f"{idx} FUT quote: {_fqe}")
+                        else:
+                            self.errors.append(f"{idx} FUT discovery: no well-formed FUT row found (search + scrip-master).")
                     except Exception as e:
                         self.errors.append(f"{idx} FUT discovery: {e}")
                     # 2) ATM basis: live FUT px wins; index-spot token only if sane
@@ -506,6 +521,46 @@ class OIPaperSession:
             self.errors.append(f"WS feed init failed: {e}")
             self._feed_mode = "quote_fallback"
             return False
+
+    @staticmethod
+    def _is_well_formed_fut_row(d: Dict, idx: str) -> bool:
+        """Guard against malformed searchScrip rows (seen in practice: a bare
+        index-name query like "NIFTY" is fuzzy-matched by Angel's backend and
+        can return a row with two expiries jammed into one tradingsymbol and
+        two symboltokens joined by a space, e.g. tradingsymbol
+        "NIFTY23NOV2629DEC26FUT" / symboltoken "61471 58875"). A real FUT row's
+        symboltoken is purely numeric and its tradingsymbol is short and
+        idx-prefixed."""
+        sym = str(d.get("tradingsymbol", "")).strip()
+        tok = str(d.get("symboltoken", "")).strip()
+        return bool(
+            tok.isdigit()
+            and sym.endswith("FUT")
+            and sym.startswith(idx)
+            and " " not in sym
+            and len(sym) <= len(idx) + 10  # idx + DDMONYY + "FUT", generous
+        )
+
+    @staticmethod
+    def _pick_fut_from_master(rows: List[Dict], idx: str):
+        """Nearest (non-expired) FUT contract for an index from the scrip
+        master, mirroring _pick_from_master's option-side fallback."""
+        from datetime import datetime as _mdt
+        _pool = [d for d in rows
+                 if idx in (str(d.get("symbol", "")) + str(d.get("name", ""))).replace(" ", "").upper()
+                 and str(d.get("instrumenttype", "")).upper() == "FUTIDX"]
+        if not _pool:
+            return None
+
+        def _exp(d):
+            try:
+                return _mdt.strptime(str(d.get("expiry", "")), "%d%b%Y").date().toordinal()
+            except Exception:
+                return 99999999
+        _today = _mdt.now().date().toordinal()
+        _pool.sort(key=lambda d: (_exp(d) < _today, _exp(d), str(d.get("symbol", ""))))
+        best = _pool[0]
+        return str(best.get("token", "")), str(best.get("symbol", ""))
 
     _SCRIP_MASTER_CACHE: Dict[str, Any] = {}
 
