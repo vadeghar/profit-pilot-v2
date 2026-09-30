@@ -1711,8 +1711,8 @@ DASHBOARD_HTML = """<!DOCTYPE html>
           </h2>
           <p class="text-xs text-gray-400 mt-0.5">Click on any strategy card to open the interactive simulation popup with custom date ranges, parameters, and real-time streaming trade logs.</p>
         </div>
-        <span class="text-xs font-mono bg-gray-800 text-gray-300 px-3 py-1 rounded-lg border border-gray-700">
-          4 Registered Strategies
+        <span class="text-xs font-mono bg-gray-800 text-gray-300 px-3 py-1 rounded-lg border border-gray-700" id="registered-strategies-count">
+          Registered Strategies
         </span>
       </div>
 
@@ -2407,6 +2407,11 @@ trading-platform status</pre>
     function renderStrategyCards() {
       const grid = document.getElementById('strategy-cards-grid');
       grid.innerHTML = '';
+
+      const countEl = document.getElementById('registered-strategies-count');
+      if (countEl) {
+        countEl.textContent = `${catalog.length} Registered Strateg${catalog.length === 1 ? 'y' : 'ies'}`;
+      }
 
       catalog.forEach(s => {
         const card = document.createElement('div');
