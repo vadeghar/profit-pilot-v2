@@ -6,6 +6,7 @@ import pytest
 from market_data.tick_recorder import parse_snapquote
 from market_data.tick_store import Instrument, Tick, TickWriter, compress_day, list_days, load_instruments, read_ticks
 from strategies.scalping import SCALP_STRATEGIES, OiVolumeBurst, ScalpConfig, ScalpEngine
+from strategies.scalping.orderflow import PcrVelocity
 from utils.timezone import IST
 
 DAY = date(2026, 9, 29)
@@ -191,6 +192,47 @@ def test_oi_volume_burst_fires_when_all_rules_hold():
 
 def test_oi_volume_burst_needs_opposite_side_unwinding():
     e = burst_session(opp_unwinds=False)
+    assert e.pos is None and not e.trades
+
+
+# ------------------------------------------------------------ S3 PCR velocity
+def pcr_session(pe_unwind_per_sec):
+    """25 quiet minutes, then calls are written (+500 OI/s per strike) while puts shed ``pe_unwind_per_sec``."""
+    strikes = (22450, 22500, 22550, 22600, 22650)
+    ii = insts(strikes=strikes)
+    e = PcrVelocity(ii, capital=100_000)
+    vols = {k: 0 for k in ii}
+    ois = {k: 5e6 for k in ii}
+    pe_px, fut = 100.0, 22570.0
+    for s in range(34 * 60):
+        t = T0 + timedelta(seconds=s)
+        shift = s >= 25 * 60
+        e.on_tick(Tick(t, "IDX", 22550.0))
+        if shift:
+            fut -= 0.02
+            pe_px += 0.02
+        vols["FUT"] += 50
+        e.on_tick(Tick(t, "FUT", fut, 50, vols["FUT"], 1e7))
+        for k in strikes:
+            for kind in ("CE", "PE"):
+                key = f"{k}{kind}"
+                if shift:
+                    ois[key] += 500 if kind == "CE" else -pe_unwind_per_sec
+                atm_pe = key == "22550PE"
+                vols[key] += 300 if (atm_pe and shift) else 50
+                px = pe_px if atm_pe else 100.0
+                e.on_tick(Tick(t, key, px, 50, vols[key], ois[key], px - 0.05, px + 0.05))
+    return e
+
+
+def test_pcr_velocity_buys_the_put_when_puts_unwind_against_call_writing():
+    e = pcr_session(pe_unwind_per_sec=250)   # unwind = 50% of the build
+    p = e.pos or (e.trades[0] if e.trades else None)
+    assert p is not None and (p.kind, p.strike) == ("PE", 22550.0)
+
+
+def test_pcr_velocity_ignores_a_token_unwind():
+    e = pcr_session(pe_unwind_per_sec=25)    # unwind = 5% of the build: below MIN_UNWIND_RATIO
     assert e.pos is None and not e.trades
 
 

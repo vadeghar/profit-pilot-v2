@@ -28,6 +28,7 @@ class OiVolumeBurst(ScalpEngine):
     BASE_MIN = 20
     BURST_TICKS = 5
     BURST_WINDOW_S = 10
+    BURST_LTQ_MULT = 5.0
     OI_WINDOW_MIN = 3
     OPP_UNWIND = -0.02
     REQUIRE_BREAKOUT = False
@@ -60,7 +61,7 @@ class OiVolumeBurst(ScalpEngine):
                 ratio = o.vol_ratio(1, self.BASE_MIN)
                 if ratio < self.VOL_SPIKE:
                     continue
-                if o.big_prints_since(ts - timedelta(seconds=self.BURST_WINDOW_S)) < self.BURST_TICKS:
+                if o.big_prints_since(ts - timedelta(seconds=self.BURST_WINDOW_S), self.BURST_LTQ_MULT) < self.BURST_TICKS:
                     continue
                 dpx, doi = o.dpx(m3), o.doi_abs(m3)
                 if dpx <= 0:

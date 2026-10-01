@@ -55,6 +55,8 @@ Entry: buy that option.
 
 1. Across ATM +/-2 strikes, sum call dOI and put dOI over the latest 3 minutes and the 3 minutes before.
 2. Both windows: call OI falling and put OI rising -> bullish (calls); the reverse -> bearish (puts).
+   In the latest window the falling side must shed at least 20% of what the rising side added
+   (`PcrVelocity.MIN_UNWIND_RATIO`), so a token unwind against heavy writing does not count as a shift.
 3. The ATM option on that side: volume spike x 2, above VWAP; futures price moving the same way over 3 min.
 
 Entry: buy the ATM option.

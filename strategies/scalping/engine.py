@@ -95,7 +95,7 @@ class Series:
         self.cum_pv = 0.0
         self.cum_v = 0
         self.ltq_avg = 0.0
-        self.prints: deque[tuple[datetime, int, bool]] = deque(maxlen=400)  # (ts, ltq, big) per traded tick
+        self.prints: deque[tuple[datetime, int, float]] = deque(maxlen=400)  # (ts, ltq, ltq / running average) per traded tick
 
     def on_tick(self, t: Tick) -> None:
         ltp = t.ltp
@@ -122,10 +122,10 @@ class Series:
             self.cum_pv += ltp * dv
             self.cum_v += dv
             ltq = t.ltq or dv
-            big = bool(self.ltq_avg and ltq >= 5 * self.ltq_avg)
-            if big:
+            mult = ltq / self.ltq_avg if self.ltq_avg else 0.0
+            if mult >= 5:
                 b.big += 1
-            self.prints.append((t.ts, ltq, big))
+            self.prints.append((t.ts, ltq, mult))
             self.ltq_avg = ltq if not self.ltq_avg else 0.98 * self.ltq_avg + 0.02 * ltq
         self.prev_ltp = self.ltp = ltp
 
@@ -190,8 +190,9 @@ class Series:
         avg = self.vol(base, skip=w) / (base / w)
         return self.vol(w) / avg if avg > 0 else 0.0
 
-    def big_prints_since(self, since: datetime) -> int:
-        return sum(1 for ts, _q, big in self.prints if big and ts > since)
+    def big_prints_since(self, since: datetime, mult: float = 5.0) -> int:
+        """Traded ticks after ``since`` whose LTQ was >= ``mult`` x the running average LTQ."""
+        return sum(1 for ts, _q, m in self.prints if m >= mult and ts > since)
 
 
 @dataclass

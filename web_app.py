@@ -452,7 +452,8 @@ _SCALP_CARDS = [
      "Spot boxed within 20 pts for 15 min while the ATM/next option shows CVD >= 20% of volume, >=3 big LTQ "
      "prints and a 2x volume spike with real OI change - buy on the box breakout."),
     ("scalp_pcr_velocity", "S3 Delta-PCR Velocity", "fa-gauge-high", "cyan",
-     "Two consecutive 3-minute windows of call-OI unwinding + put-OI building across ATM+/-2 (or the reverse), "
+     "Two consecutive 3-minute windows of call-OI unwinding + put-OI building across ATM+/-2 (or the reverse; "
+     "the unwind at least 20% of the build), "
      "ATM volume 2x, option above VWAP and futures moving the same way - buy the ATM option."),
     ("scalp_trap_fade", "S4 Trap Fade", "fa-shuffle", "amber",
      "Fake breakout of the 15-min range: spot pokes out and falls back, futures OI flat, the breakout side's "

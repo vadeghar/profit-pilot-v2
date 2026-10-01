@@ -29,11 +29,13 @@ class Recorder:
         self.near = Counter()           # number of conditions true -> occurrences
         self.blockers = Counter()       # for the closest near-misses: which condition failed
         self.best = 0
+        self.width = 0                  # conditions per evaluation
         self.samples: list[str] = []
 
     def record(self, ts, conds: dict[str, bool], label: str) -> None:
         self.evals += 1
         k = sum(conds.values())
+        self.width = max(self.width, len(conds))
         for n, v in conds.items():
             self.passed[n] += v
         self.near[k] += 1
@@ -114,8 +116,8 @@ def _s3(e, ts, spot, atm, rec):
     if None in (ce0, pe0, ce1, pe1):
         return
     f = e.S(e.fut_tok)
-    for kind, sg, shift in (("CE", 1, ce0 < 0 and ce1 < 0 and pe0 > 0 and pe1 > 0),
-                            ("PE", -1, pe0 < 0 and pe1 < 0 and ce0 > 0 and ce1 > 0)):
+    for kind, sg in (("CE", 1), ("PE", -1)):
+        unwind, build = (ce0, pe0) if kind == "CE" else (pe0, ce0)
         t = e.tok(atm, kind)
         if not t or not e.ready(e.S(t)):
             continue
@@ -123,6 +125,7 @@ def _s3(e, ts, spot, atm, rec):
         rec.record(ts, {
             "this-window OI shift": (ce0 < 0 and pe0 > 0) if kind == "CE" else (pe0 < 0 and ce0 > 0),
             "previous-window OI shift": (ce1 < 0 and pe1 > 0) if kind == "CE" else (pe1 < 0 and ce1 > 0),
+            f"unwind >= {e.MIN_UNWIND_RATIO:.0%} of build": unwind < 0 < build and abs(unwind) >= e.MIN_UNWIND_RATIO * build,
             "ATM volume >= 2x": a.vol_ratio(1, 15) >= 2, "ATM > VWAP": a.last().c > a.vwap(),
             "futures moving with trade": sg * f.dpx(a.n(3)) > 0,
         }, f"{kind} ATM {atm:.0f}")
@@ -169,10 +172,11 @@ def _burst(e, ts, spot, atm, rec):
             if not o.has(o.n(20) + o.n(1)):
                 continue
             rec.record(ts, {
-                "volume >= 3x (20-min base)": o.vol_ratio(1, 20) >= 3,
-                "LTQ burst (5 big prints/10s)": o.big_prints_since(ts - timedelta(seconds=10)) >= 5,
+                f"volume >= {e.VOL_SPIKE:g}x ({e.BASE_MIN}-min base)": o.vol_ratio(1, e.BASE_MIN) >= e.VOL_SPIKE,
+                f"LTQ burst ({e.BURST_TICKS} big prints/{e.BURST_WINDOW_S}s)":
+                    o.big_prints_since(ts - timedelta(seconds=e.BURST_WINDOW_S), e.BURST_LTQ_MULT) >= e.BURST_TICKS,
                 "price up over 3m": o.dpx(m3) > 0, "above VWAP": o.last().c > o.vwap(),
-                "opposite ATM OI -2% in 3m": opp.doi(m3) <= -0.02,
+                "opposite ATM OI -2% in 3m": opp.doi(m3) <= e.OPP_UNWIND,
             }, f"{kind} {k:.0f}")
 
 
@@ -208,8 +212,7 @@ def run(day: date, source: str | None = None) -> str:
         out += [f"## {cls.name}", "",
                 f"Evaluations: {rec.evals:,} | trades: {len(eng.trades)} | net PnL: Rs {sum(t.net for t in eng.trades):,.0f}", ""]
         if rec.evals:
-            total = max(rec.near) if rec.near else 0
-            n_conds = len(rec.passed) or 1
+            n_conds = rec.width or 1
             out += ["| Condition | Passed | % of evaluations |", "|---|---|---|"]
             for name, n in rec.passed.most_common():
                 out.append(f"| {name} | {n:,} | {n / rec.evals:.1%} |")

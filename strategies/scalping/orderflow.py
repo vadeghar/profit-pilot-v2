@@ -84,10 +84,16 @@ class StealthAccumulation(_OrderFlowBase):
 
 
 class PcrVelocity(_OrderFlowBase):
-    """S3 - two consecutive 3-minute windows of call-OI unwinding + put-OI building (or the reverse)."""
+    """S3 - two consecutive 3-minute windows of call-OI unwinding + put-OI building (or the reverse).
+
+    The latest window's unwind must be at least MIN_UNWIND_RATIO of the build: on 2026-10-01 the only
+    losing entry had puts shedding 28,860 OI against 408,590 written on calls (7%).
+    """
 
     strategy_id = "scalp_pcr_velocity"
     name = "S3 Delta-PCR Velocity"
+
+    MIN_UNWIND_RATIO = 0.2  # unwinding side's 3-min OI drop as a share of the building side's OI rise
 
     def signal(self, ts: datetime, spot: float, atm: float) -> Signal:
         if not self.fut_tok:
@@ -118,6 +124,9 @@ class PcrVelocity(_OrderFlowBase):
             kind, sg = "PE", -1
         else:
             return None
+        unwind, build = (ce0, pe0) if kind == "CE" else (pe0, ce0)
+        if abs(unwind) < self.MIN_UNWIND_RATIO * build:
+            return None  # a token unwind against heavy writing is noise, not a shift
         t = self.tok(atm, kind)
         if not t:
             return None
