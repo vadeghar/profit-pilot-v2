@@ -87,6 +87,8 @@ only a Stop from the dashboard ends it. Linux deployment: [deploy/linux/README.m
   LTQ bursts. Judge S2 and OI Burst on recorded Angel days; the backtest adds a warning otherwise.
 - SnapQuote ticks are exchange snapshots, not every trade; OI updates arrive every 1-3 s, which is
   why every OI/volume feature is computed on 15-second buckets.
+- **Daily Telegram summary:** `deploy/linux/scalp_summary.sh` (cron, 15:10 IST on trading days) sends each
+  scalper's trades, wins/losses, net P&L and balance, plus the combined total (`tools/scalping/daily_summary.py`).
 - **Daily condition report:** `deploy/linux/condition_report.sh` (cron, 15:40 IST on trading days) writes
   `logs/condition_report_<date>.md` - how often each entry condition held, the closest near-misses and
   what blocked them, for the live rules and for the experimental options.

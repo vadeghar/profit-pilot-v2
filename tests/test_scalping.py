@@ -292,6 +292,23 @@ def test_running_sessions_resume_after_restart_but_stopped_ones_do_not(tmp_path)
     a.stop("manual")
 
 
+def test_daily_summary_reports_each_scalper_and_the_total(tmp_path):
+    import json
+    from tools.scalping.daily_summary import build
+    trade = {"date": "2026-10-01", "symbol": "NIFTY06OCT2622500PE", "lots": 6, "entry": 112.8, "exit": 135.35,
+             "entry_time": "2026-10-01T12:10:15+05:30", "reason": "TARGET", "net": 8627.0}
+    old = {**trade, "date": "2026-09-30", "net": -999.0}
+    (tmp_path / "scalp_writer_squeeze.json").write_text(json.dumps(
+        {"capital": 50000.0, "balance": 57628.0, "running": True, "trades": [old, trade]}))
+    (tmp_path / "scalp_trap_fade.json").write_text(json.dumps(
+        {"capital": 50000.0, "balance": 50000.0, "running": False, "trades": []}))
+    text = build(date(2026, 10, 1), tmp_path)
+    assert "1 trade: 1W / 0L, day <b>+Rs 8,627</b>" in text and "-Rs 999" not in text
+    assert "S4 Trap Fade</b>  (STOPPED)" in text and "never started" in text
+    assert "<b>All scalpers:</b> 1 trades (1W / 0L), day <b>+Rs 8,627</b>" in text
+    assert "Combined balance Rs 107,628 of Rs 100,000 started (+7.6%)" in text
+
+
 def test_every_strategy_is_registered_and_runs_on_quiet_ticks():
     for sid, cls in SCALP_STRATEGIES.items():
         e = cls(insts(), capital=100_000)

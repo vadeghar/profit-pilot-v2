@@ -90,6 +90,17 @@ Stop from the dashboard ends them). Older strategies' paper sessions must be res
 
   Re-run a past day: `DAY=2026-10-01 bash ~/automation_engines/deploy/linux/condition_report.sh`.
 
+  And the **daily scalper summary on Telegram** at 15:10 IST (09:40 UTC), after the 15:00 square-off:
+  per scalper the day's trades, wins/losses, net P&L and balance, then the combined total. Skips NSE
+  holidays; uses `TELEGRAM_BOT_TOKEN` + `TELEGRAM_HOME_CHANNEL` from `.env`.
+
+  ```
+  40 9 * * 1-5 /bin/bash /home/lakshman/automation_engines/deploy/linux/scalp_summary.sh >> /home/lakshman/automation_engines/logs/scalp_summary.log 2>&1
+  ```
+
+  Re-send a day: `DAY=2026-10-01 bash ~/automation_engines/deploy/linux/scalp_summary.sh`;
+  preview without sending: `.venv/bin/python -m tools.scalping.daily_summary --dry-run`.
+
   Alternative - systemd timer instead of cron (don't run both):
 
   ```bash
