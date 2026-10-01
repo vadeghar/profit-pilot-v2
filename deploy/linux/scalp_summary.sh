@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Daily scalper paper-trading summary to Telegram, run from cron at 15:10 IST (09:40 UTC) Mon-Fri,
-# after the 15:00 square-off. Skips NSE holidays. Read-only: it only reads the paper state files.
+# Daily scalper paper-trading summary to Telegram, run from cron at 15:25 IST (09:55 UTC) Mon-Fri,
+# after the last square-off (15:20). Skips NSE holidays. Read-only: it only reads the paper state files.
 #   DAY=2026-10-01 deploy/linux/scalp_summary.sh    # re-send a past day
 set -euo pipefail
 APP_DIR="${APP_DIR:-$(cd "$(dirname "$0")/../.." && pwd)}"

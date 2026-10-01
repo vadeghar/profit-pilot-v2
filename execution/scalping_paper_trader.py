@@ -140,12 +140,15 @@ class ScalpPaperSession:
 
 
 def sessions_to_resume(state_dir: Optional[Path] = None) -> list[dict]:
-    """Persisted sessions that were running when the process last stopped."""
+    """Persisted sessions that were running when the process last stopped, plus AUTO_START
+    strategies that have never been started (a dashboard Stop is remembered and respected)."""
     folder = Path(state_dir or STATE_DIR)
     out = []
-    for sid in SCALP_STRATEGIES:
+    for sid, cls in SCALP_STRATEGIES.items():
         st = persisted_status(sid, folder)
-        if st and st.get("running"):
+        if st is None and getattr(cls, "AUTO_START", False) and not (folder / f"{sid}.json").exists():
+            out.append({"strategy_id": sid, "capital": 50_000.0, "overrides": {}})
+        elif st and st.get("running"):
             out.append({"strategy_id": sid, "capital": st.get("capital", 50_000.0),
                         "overrides": st.get("overrides") or {}})
     return out

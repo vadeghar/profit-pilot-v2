@@ -9,6 +9,7 @@ independent background paper session with its own dashboard card:
 | S2 Stealth Accumulation | `scalp_stealth_accum` | Spot boxed in 20 pts while an option is quietly bought (CVD, big prints), then breaks out |
 | S3 Delta-PCR Velocity | `scalp_pcr_velocity` | Two consecutive 3-minute windows of call-OI unwinding + put-OI building (or the reverse) |
 | S4 Trap Fade | `scalp_trap_fade` | Fake range breakout with no futures OI and writers absorbing: buy the other side |
+| Expiry Trend Breakout | `scalp_expiry_breakout` | Expiry day only: after 11:00 a new day high/low on a >= 0.5% range buys the option nearest Rs 40; stop -30%, target +100% |
 | OI + Volume Burst | `scalp_oi_volume_burst` | Volume spike + LTQ burst + long buildup/short covering + opposite-side OI unwinding + above VWAP |
 
 Exact rules: [STRATEGIES.md](STRATEGIES.md). Tick format and storage: [TICK_DATA.md](TICK_DATA.md).
@@ -87,7 +88,7 @@ only a Stop from the dashboard ends it. Linux deployment: [deploy/linux/README.m
   LTQ bursts. Judge S2 and OI Burst on recorded Angel days; the backtest adds a warning otherwise.
 - SnapQuote ticks are exchange snapshots, not every trade; OI updates arrive every 1-3 s, which is
   why every OI/volume feature is computed on 15-second buckets.
-- **Daily Telegram summary:** `deploy/linux/scalp_summary.sh` (cron, 15:10 IST on trading days) sends each
+- **Daily Telegram summary:** `deploy/linux/scalp_summary.sh` (cron, 15:25 IST on trading days) sends each
   scalper's trades, wins/losses, net P&L and balance, plus the combined total (`tools/scalping/daily_summary.py`).
 - **Daily condition report:** `deploy/linux/condition_report.sh` (cron, 15:40 IST on trading days) writes
   `logs/condition_report_<date>.md` - how often each entry condition held, the closest near-misses and

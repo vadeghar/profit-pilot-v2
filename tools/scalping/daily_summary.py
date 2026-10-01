@@ -6,7 +6,7 @@ losses, net P&L and the running balance, then the combined total. Read-only.
 
     python -m tools.scalping.daily_summary [--date 2026-10-01] [--dry-run]
 
-deploy/linux/scalp_summary.sh runs it from cron after the 15:00 square-off.
+deploy/linux/scalp_summary.sh runs it from cron after the last square-off (15:20).
 Telegram credentials come from the environment or .env (TELEGRAM_BOT_TOKEN,
 TELEGRAM_HOME_CHANNEL or TELEGRAM_CHAT_ID).
 """

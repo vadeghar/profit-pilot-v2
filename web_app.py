@@ -462,8 +462,14 @@ _SCALP_CARDS = [
      "ATM/ITM/OTM option with a 3x 1-min volume spike + LTQ burst (5 big prints in 10 s), long buildup or "
      "short covering, opposite ATM OI unwinding >=2% in 3 min and LTP above VWAP. Target +20%, stop -10%, "
      "trail at the previous 1-min low, VWAP and 5-min time exits."),
+    ("scalp_expiry_breakout", "Expiry Trend Breakout", "fa-calendar-day", "orange",
+     "Trades on the weekly expiry day only. From 11:00, once the index has ranged >= 0.5%, a 1-minute close at "
+     "a new day high buys the CE (new day low: the PE) trading nearest Rs 40. Stop -30%, target +100%, "
+     "square-off 15:20, one trade per direction, 25% of the balance per trade. Starts by itself with the app."),
 ]
+from strategies.scalping import SCALP_STRATEGIES as _SCALP_CLASSES
 for _sid, _name, _icon, _color, _desc in _SCALP_CARDS:
+    _cfg = _SCALP_CLASSES[_sid].default_config()
     STRATEGY_CATALOG[_sid] = {
         "id": _sid, "name": _name, "badge": "Tick Scalper", "badge_color": _color, "icon": _icon,
         "description": _desc, "asset_class": "NIFTY Weekly Options (Intraday)", "data_provider": "Angel ticks",
@@ -471,15 +477,16 @@ for _sid, _name, _icon, _color, _desc in _SCALP_CARDS:
         "default_timeframe": "1m", "default_capital": 50000.0,
         "default_start_date": (__import__("datetime").date.today() - __import__("datetime").timedelta(days=14)).isoformat(),
         "default_end_date": __import__("datetime").date.today().isoformat(),
-        "default_params": {"sl_pct": 0.10, "target_pct": 0.20, "deploy_pct": 1.0, "max_trades": 3,
-                           "max_losses": 2, "slippage_ticks": 1},
+        "default_params": {"sl_pct": _cfg.sl_pct, "target_pct": _cfg.target_pct, "deploy_pct": _cfg.deploy_pct,
+                           "max_trades": _cfg.max_trades, "max_losses": _cfg.max_losses,
+                           "slippage_ticks": _cfg.slippage_ticks},
         "param_schema": [
-            {"key": "sl_pct", "label": "Stop loss (% of premium)", "type": "number", "default": 0.10, "step": 0.01},
-            {"key": "target_pct", "label": "Target (% of premium)", "type": "number", "default": 0.20, "step": 0.01},
-            {"key": "deploy_pct", "label": "Capital deployed per trade (1 = whole balance, compounds)", "type": "number", "default": 1.0, "step": 0.1},
-            {"key": "max_trades", "label": "Max trades / day", "type": "number", "default": 3, "step": 1},
-            {"key": "max_losses", "label": "Stop after N losses", "type": "number", "default": 2, "step": 1},
-            {"key": "slippage_ticks", "label": "Extra slippage (ticks of Rs 0.05)", "type": "number", "default": 1, "step": 1},
+            {"key": "sl_pct", "label": "Stop loss (% of premium)", "type": "number", "default": _cfg.sl_pct, "step": 0.01},
+            {"key": "target_pct", "label": "Target (% of premium)", "type": "number", "default": _cfg.target_pct, "step": 0.01},
+            {"key": "deploy_pct", "label": "Capital deployed per trade (1 = whole balance, compounds)", "type": "number", "default": _cfg.deploy_pct, "step": 0.05},
+            {"key": "max_trades", "label": "Max trades / day", "type": "number", "default": _cfg.max_trades, "step": 1},
+            {"key": "max_losses", "label": "Stop after N losses", "type": "number", "default": _cfg.max_losses, "step": 1},
+            {"key": "slippage_ticks", "label": "Extra slippage (ticks of Rs 0.05)", "type": "number", "default": _cfg.slippage_ticks, "step": 1},
         ],
         "historical_stats": {"return_pct": "Needs tick data", "win_rate": "-", "max_dd": "-", "sharpe": "-"},
         "scalper": True,

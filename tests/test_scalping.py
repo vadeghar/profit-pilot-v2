@@ -237,6 +237,44 @@ def test_pcr_velocity_ignores_a_token_unwind():
     assert e.pos is None and not e.trades
 
 
+# ------------------------------------------------------ expiry trend breakout
+def expiry_session(expiry="2026-09-29"):
+    """Index sits at 22550, dips to 22430 (a 0.53% range), then closes a minute at 22560 after 11:00."""
+    from strategies.scalping import ExpiryTrendBreakout
+    ii = insts()
+    for i in ii.values():
+        if i.kind in ("CE", "PE"):
+            i.expiry = expiry
+    e = ExpiryTrendBreakout(ii, capital=50_000)
+    ce = {"22500CE": 80.0, "22550CE": 40.0, "22600CE": 15.0}
+    vol = 0
+    for s in range(0, 110 * 60, 5):
+        t = T0 + timedelta(seconds=s)
+        m = s / 60
+        spot = 22550.0 if m < 45 else 22430.0 if m < 75 else 22500.0 if m < 107 else 22560.0
+        e.on_tick(Tick(t, "IDX", spot))
+        vol += 50
+        for k in ("22500", "22550", "22600"):
+            px = ce[f"{k}CE"]
+            e.on_tick(Tick(t, f"{k}CE", px, 50, vol, 5e6, px - 0.05, px + 0.05))
+            e.on_tick(Tick(t, f"{k}PE", 300.0, 50, vol, 5e6, 299.95, 300.05))
+    return e
+
+
+def test_expiry_breakout_buys_the_rs40_call_on_a_new_day_high_after_11():
+    e = expiry_session()
+    assert e.pos is not None and (e.pos.kind, e.pos.strike) == ("CE", 22550.0)
+    assert e.pos.t_in.strftime("%H:%M") == "11:03"          # the 11:02 minute closed at a new high
+    assert e.pos.lots == 4                                  # 25% of Rs 50,000 at Rs 40.10 x 65
+    assert e.pos.sl == pytest.approx(40.10 * 0.7) and e.pos.target == pytest.approx(40.10 * 2)
+
+
+def test_expiry_breakout_stays_out_when_it_is_not_expiry_day():
+    e = expiry_session(expiry="06OCT2026")                  # Angel scrip-master date format, a later expiry
+    assert e.pos is None and not e.trades
+    assert expiry_session(expiry="29SEP2026").pos is not None
+
+
 # ------------------------------------------------------ experimental options
 def test_volume_basis_counts_a_snapshot_with_many_small_trades_as_a_big_print():
     def big_prints(basis):
@@ -288,8 +326,13 @@ def test_running_sessions_resume_after_restart_but_stopped_ones_do_not(tmp_path)
     b.start()
     b.stop("manual")
     resume = sessions_to_resume(tmp_path)  # process "dies" here with a still running
-    assert resume == [{"strategy_id": "scalp_trap_fade", "capital": 50_000, "overrides": {"sl_pct": 0.08}}]
+    auto = {"strategy_id": "scalp_expiry_breakout", "capital": 50_000, "overrides": {}}  # AUTO_START, never started
+    assert resume == [{"strategy_id": "scalp_trap_fade", "capital": 50_000, "overrides": {"sl_pct": 0.08}}, auto]
     a.stop("manual")
+    c = ScalpPaperSession("scalp_expiry_breakout", hub=FakeHub(), state_dir=tmp_path)
+    c.start()
+    c.stop("manual")
+    assert sessions_to_resume(tmp_path) == []      # a dashboard Stop is respected after that
 
 
 def test_daily_summary_reports_each_scalper_and_the_total(tmp_path):

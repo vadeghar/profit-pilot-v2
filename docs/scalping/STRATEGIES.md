@@ -26,6 +26,8 @@ quotes, the tick rule). **Big print** = a traded tick whose LTQ >= 5x the runnin
 | Other exits | 5-min time stop if the peak never reached +5% | LTP below VWAP; 5-min time stop (< +5%) |
 | Capital / sizing | Rs 50,000; whole current balance per trade (compounding) | same |
 
+Expiry Trend Breakout has its own limits and exits - see its section.
+
 All thresholds are parameters (`ScalpConfig`); stop, target, risk, trade and loss limits and
 slippage are editable on each card.
 
@@ -86,6 +88,27 @@ If several candidates qualify, the one with the largest volume spike is bought. 
 "LTP breaks the last 5-minute high with a volume spike" among monitored signals but not among the
 entry rules; it is available as `OiVolumeBurst.REQUIRE_BREAKOUT` (off by default). The spec's
 "buy the opposite side on short buildup" alternative is not implemented.
+
+## Expiry Trend Breakout (expiry day only)
+
+Found by testing ~3,600 time/price rule sets on every NIFTY and SENSEX weekly expiry from Sep-2025 to
+Sep-2026 (1-minute Breeze data, `tools/research/`). Blind option buying on expiry lost on average; the
+rule below was profitable on both indices and in both halves of the year.
+
+1. Today is the expiry day of the recorded option chain (other days it never trades).
+2. From 11:00: the index's range so far today (high - low of its 1-minute closes since 09:15) is >= 0.5%.
+3. A 1-minute close above that high buys a CE; below that low, a PE.
+4. Strike by price: the option trading nearest Rs 40 (accepted range Rs 20-64).
+
+One trade per direction per day; stop -30%, target +100%, square-off 15:20; no trailing or time stop.
+Sizing: 25% of the current balance per trade (`deploy_pct`). The paper session starts with the app
+(`AUTO_START`) and stays idle on non-expiry days; a Stop from the dashboard is remembered.
+
+Study result for NIFTY replayed through this engine (`tools/research/replay_expiry_engine.py`, 57 expiry
+days, LTP +/- Rs 0.5 fills): 44 trades, 34% winners, 32% doubled, +10.4% average per trade, longest
+losing streak 6; Rs 50,000 -> Rs 92,785 at 25% per trade with a 47.7% maximum drawdown. The rule is the
+best of many tested, so expect less live. Differences from the study: one position at a time (the study
+allowed a CE and a PE together), and a restart during the session loses the morning's range.
 
 ## Experimental options (off by default)
 

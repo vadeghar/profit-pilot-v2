@@ -139,3 +139,12 @@ scalp_oi_volume_burst:
   hedging: [Unhedged]
   style: [Scalping, Momentum, Order flow, Option buying]
   horizon: [Intraday]
+
+scalp_expiry_breakout:
+  segment: [Derivative]
+  instrument: [Options]
+  direction: [Directional]
+  bias: [Long/Short]
+  hedging: [Unhedged]
+  style: [Scalping, Breakout, Momentum, Option buying, Expiry day]
+  horizon: [Intraday]

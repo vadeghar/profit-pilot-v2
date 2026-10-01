@@ -185,7 +185,18 @@ def _burst(e, ts, spot, atm, rec):
             }, f"{kind} {k:.0f}")
 
 
-PROBES = {"scalp_writer_squeeze": _s1, "scalp_stealth_accum": _s2, "scalp_pcr_velocity": _s3,
+def _expiry(e, ts, spot, atm, rec):
+    if ts.second >= e.cfg.bucket_sec:  # the rule is evaluated on completed 1-minute closes only
+        return
+    for kind in ("CE", "PE"):
+        rec.record(ts, {
+            "expiry day": e.is_expiry_day(), f"day range >= {e.MIN_RANGE:.1%}": e._range >= e.MIN_RANGE,
+            "new day high/low this minute": e._break == kind, "no trade yet this direction": kind not in e._done,
+            f"an option near Rs {e.PREMIUM:g}": e.pick_strike(kind) is not None,
+        }, f"{kind} (range {e._range:.2%})")
+
+
+PROBES = {"scalp_expiry_breakout": _expiry, "scalp_writer_squeeze": _s1, "scalp_stealth_accum": _s2, "scalp_pcr_velocity": _s3,
           "scalp_trap_fade": _s4, "scalp_oi_volume_burst": _burst}
 
 
