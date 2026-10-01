@@ -5,9 +5,12 @@ every evaluation (each closed 15-second bucket where the strategy may enter)
 records which entry conditions held. Shows, per strategy, how often each
 condition passed, the closest near-misses (most conditions true at once) and
 which condition blocked those near-misses - the input for deciding whether a
-threshold is too strict.
+threshold is too strict. A final section replays the experimental options
+(EXPERIMENTS) the same way, so their evidence accumulates day by day.
 
     python -m tools.scalping.condition_report --date 2026-10-01 [--source angel] [--out report.md]
+
+deploy/linux/condition_report.sh runs it from cron after each session.
 """
 from __future__ import annotations
 
@@ -81,6 +84,8 @@ def _s2(e, ts, spot, atm, rec):
         return
     bh, bl = max(b.h for b in box), min(b.l for b in box)
     c = sp.last().c
+    lim = e.box_limit()
+    box_name = f"spot box <= {e.BOX_PTS} pts" if e.cfg.box_rel <= 0 else f"spot box <= {e.cfg.box_rel:g}x median range"
     for kind, sg, brk in (("CE", 1, c > bh), ("PE", -1, c < bl)):
         for k in (atm, atm + sg * e.cfg.strike_step):
             t = e.tok(k, kind)
@@ -89,7 +94,7 @@ def _s2(e, ts, spot, atm, rec):
             o = e.S(t)
             cvd, v, m3 = o.cvd(o.n(15)), o.vol(o.n(15)), o.n(3)
             rec.record(ts, {
-                "spot box <= 20 pts": bh - bl <= 20, "box breakout": brk, "CVD >= 20% of volume": bool(v and cvd >= 0.2 * v),
+                box_name: lim is not None and bh - bl <= lim, "box breakout": brk, "CVD >= 20% of volume": bool(v and cvd >= 0.2 * v),
                 ">= 3 big prints in 3m": o.big(m3) >= 3, "volume >= 2x": o.vol_ratio(1, 15) >= 2,
                 "|dOI| >= 15% of volume": abs(o.doi_abs(m3)) >= 0.15 * max(o.vol(m3), 1),
             }, f"{kind} {k:.0f} (box {bh - bl:.0f} pts)")
@@ -173,7 +178,7 @@ def _burst(e, ts, spot, atm, rec):
                 continue
             rec.record(ts, {
                 f"volume >= {e.VOL_SPIKE:g}x ({e.BASE_MIN}-min base)": o.vol_ratio(1, e.BASE_MIN) >= e.VOL_SPIKE,
-                f"LTQ burst ({e.BURST_TICKS} big prints/{e.BURST_WINDOW_S}s)":
+                f"burst ({e.BURST_TICKS} big prints/{e.BURST_WINDOW_S}s)":
                     o.big_prints_since(ts - timedelta(seconds=e.BURST_WINDOW_S), e.BURST_LTQ_MULT) >= e.BURST_TICKS,
                 "price up over 3m": o.dpx(m3) > 0, "above VWAP": o.last().c > o.vwap(),
                 "opposite ATM OI -2% in 3m": opp.doi(m3) <= e.OPP_UNWIND,
@@ -182,6 +187,52 @@ def _burst(e, ts, spot, atm, rec):
 
 PROBES = {"scalp_writer_squeeze": _s1, "scalp_stealth_accum": _s2, "scalp_pcr_velocity": _s3,
           "scalp_trap_fade": _s4, "scalp_oi_volume_burst": _burst}
+
+
+# Experimental options replayed after the live rules: (label, strategy id, config overrides, class attributes).
+EXPERIMENTS = [
+    ("S2 with volume-based big prints", "scalp_stealth_accum", {"big_print_basis": "volume"}, {}),
+    ("S2 with volume-based big prints + box <= 0.75x the day's median range", "scalp_stealth_accum",
+     {"big_print_basis": "volume", "box_rel": 0.75}, {}),
+    ("OI + Volume Burst with volume-based big prints, 3 in 10 s", "scalp_oi_volume_burst",
+     {"big_print_basis": "volume"}, {"BURST_TICKS": 3}),
+]
+
+
+def _replay(sid: str, insts, ticks, overrides: dict | None = None, attrs: dict | None = None):
+    cls, probe = SCALP_STRATEGIES[sid], PROBES[sid]
+    rec = Recorder([])
+
+    class Probed(cls):
+        def signal(self, ts, spot_, atm):
+            probe(self, ts, spot_, atm, rec)
+            return super().signal(ts, spot_, atm)
+    for k, v in (attrs or {}).items():
+        setattr(Probed, k, v)
+    eng = Probed(insts, capital=50_000, config=cls.default_config().update(overrides))
+    for t in ticks:
+        eng.on_tick(t)
+    eng.finish()
+    return eng, rec
+
+
+def _section(title: str, eng, rec: Recorder) -> list[str]:
+    out = [f"## {title}", "",
+           f"Evaluations: {rec.evals:,} | trades: {len(eng.trades)} | net PnL: Rs {sum(t.net for t in eng.trades):,.0f}", ""]
+    if rec.evals:
+        n_conds = rec.width or 1
+        out += ["| Condition | Passed | % of evaluations |", "|---|---|---|"]
+        for name, n in rec.passed.most_common():
+            out.append(f"| {name} | {n:,} | {n / rec.evals:.1%} |")
+        blockers = ", ".join(f"{n} ({c})" for n, c in rec.blockers.most_common()) or             "none - every condition held (an entry, unless a position/cooldown/daily limit was active)"
+        out += ["", f"Closest approach: **{rec.best} of {n_conds}** conditions true at once "
+                f"({rec.near[rec.best]:,} times). Blocking condition(s) at those moments: {blockers}.", ""]
+        out += [f"- {s}" for s in rec.samples] + [""]
+    for t in eng.trades:
+        out.append(f"- Trade {t.entry_time[11:19]}-{t.exit_time[11:19]} {t.symbol} {t.lots} lots "
+                   f"{t.entry} -> {t.exit} {t.reason} net Rs {t.net:,.0f} ({t.why})")
+    out.append("")
+    return out
 
 
 def run(day: date, source: str | None = None) -> str:
@@ -196,35 +247,10 @@ def run(day: date, source: str | None = None) -> str:
            f"{len(ticks):,} ticks, {len(insts)} instruments, expiry {meta.get('expiry')}. "
            f"NIFTY range {min(spot):,.0f} - {max(spot):,.0f} ({max(spot) - min(spot):,.0f} pts)." if spot else "", ""]
     for sid, cls in SCALP_STRATEGIES.items():
-        probe = PROBES[sid]
-        recs: dict[str, Recorder] = {}
-
-        class Probed(cls):
-            def signal(self, ts, spot_, atm):
-                rec = recs.setdefault("r", Recorder([]))
-                probe(self, ts, spot_, atm, rec)
-                return super().signal(ts, spot_, atm)
-        eng = Probed(insts, capital=50_000)
-        for t in ticks:
-            eng.on_tick(t)
-        eng.finish()
-        rec = recs.get("r") or Recorder([])
-        out += [f"## {cls.name}", "",
-                f"Evaluations: {rec.evals:,} | trades: {len(eng.trades)} | net PnL: Rs {sum(t.net for t in eng.trades):,.0f}", ""]
-        if rec.evals:
-            n_conds = rec.width or 1
-            out += ["| Condition | Passed | % of evaluations |", "|---|---|---|"]
-            for name, n in rec.passed.most_common():
-                out.append(f"| {name} | {n:,} | {n / rec.evals:.1%} |")
-            blockers = ", ".join(f"{n} ({c})" for n, c in rec.blockers.most_common()) or \
-                "none - every condition held (an entry, unless a position/cooldown/daily limit was active)"
-            out += ["", f"Closest approach: **{rec.best} of {n_conds}** conditions true at once "
-                    f"({rec.near[rec.best]:,} times). Blocking condition(s) at those moments: {blockers}.", ""]
-            out += [f"- {s}" for s in rec.samples] + [""]
-        for t in eng.trades:
-            out.append(f"- Trade {t.entry_time[11:19]}-{t.exit_time[11:19]} {t.symbol} {t.lots} lots "
-                       f"{t.entry} -> {t.exit} {t.reason} net Rs {t.net:,.0f} ({t.why})")
-        out.append("")
+        out += _section(cls.name, *_replay(sid, insts, ticks))
+    out += ["# Experimental options (not live)", ""]
+    for label, sid, overrides, attrs in EXPERIMENTS:
+        out += _section(label, *_replay(sid, insts, ticks, overrides, attrs))
     return "\n".join(out)
 
 

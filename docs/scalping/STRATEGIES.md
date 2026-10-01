@@ -87,6 +87,24 @@ If several candidates qualify, the one with the largest volume spike is bought. 
 entry rules; it is available as `OiVolumeBurst.REQUIRE_BREAKOUT` (off by default). The spec's
 "buy the opposite side on short buildup" alternative is not implemented.
 
+## Experimental options (off by default)
+
+Both are `ScalpConfig` fields, so they can be switched per run without a code change. Live paper
+trading uses the defaults; `tools/scalping/condition_report.py` replays them every day in its
+"Experimental options" section so they can be judged on more than one session.
+
+- `big_print_basis = "volume"` - a big print is a snapshot whose **traded volume since the previous
+  snapshot** is >= 5x the running average, instead of one whose last-trade quantity is. Angel sends a
+  snapshot roughly every 1.5-2 s and its LTQ is only the last of the trades in that gap, so the LTQ
+  basis under-counts bursts (on 2026-10-01 the most big prints any strike had in 10 s was 2 by LTQ and
+  4 by volume). Affects S2's big-print rule and OI Burst's burst rule.
+- `box_rel = 0.75` - S2's box limit becomes max(20 pts, 0.75 x the median 15-minute spot range seen so
+  far today), available after 30 minutes of evaluations. A fixed 20 pts cannot be met on a volatile
+  day (2026-10-01: tightest 15-minute range 24 pts, median 51).
+
+On 2026-10-01 neither option produced a trade: S2 was still blocked by its CVD rule and OI Burst by
+its opposite-side rule.
+
 ## Differences from the source script
 
 - One position and one set of daily limits **per strategy** (the script shared them across S1-S4),

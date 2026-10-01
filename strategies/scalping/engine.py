@@ -57,6 +57,9 @@ class ScalpConfig:
     no_quote_slippage: float = 0.5
     vwap_exit: bool = False         # exit when LTP closes below the option's VWAP
     trail_prev_minute_low: bool = False
+    # Experimental, off by default (see docs/scalping/STRATEGIES.md, "Experimental options"):
+    big_print_basis: str = "ltq"    # "ltq": last-trade size; "volume": all volume traded since the previous snapshot
+    box_rel: float = 0.0            # S2: box limit = max(20 pts, box_rel x the day's median 15-min spot range); 0 = fixed
     brokerage_per_order: float = 20.0
 
     def update(self, overrides: Optional[dict]) -> "ScalpConfig":
@@ -79,14 +82,15 @@ class Bucket:
     vol: int = 0
     oi: float = 0.0
     delta: int = 0      # aggressive-buy volume minus aggressive-sell volume
-    big: int = 0        # prints with LTQ >= 5x the running average
+    big: int = 0        # prints >= 5x the running average print size
 
 
 class Series:
     """Per-instrument tick aggregator + features on closed buckets."""
 
-    def __init__(self, bucket_sec: int):
+    def __init__(self, bucket_sec: int, big_basis: str = "ltq"):
         self.bs = bucket_sec
+        self.big_basis = big_basis
         self.buckets: deque[Bucket] = deque(maxlen=600)
         self.cur: Optional[Bucket] = None
         self.last_vol: Optional[int] = None
@@ -94,8 +98,8 @@ class Series:
         self.bid = self.ask = 0.0
         self.cum_pv = 0.0
         self.cum_v = 0
-        self.ltq_avg = 0.0
-        self.prints: deque[tuple[datetime, int, float]] = deque(maxlen=400)  # (ts, ltq, ltq / running average) per traded tick
+        self.print_avg = 0.0
+        self.prints: deque[tuple[datetime, int, float]] = deque(maxlen=400)  # (ts, size, size / running average) per traded tick
 
     def on_tick(self, t: Tick) -> None:
         ltp = t.ltp
@@ -121,12 +125,13 @@ class Series:
             b.delta += side * dv
             self.cum_pv += ltp * dv
             self.cum_v += dv
-            ltq = t.ltq or dv
-            mult = ltq / self.ltq_avg if self.ltq_avg else 0.0
+            # A snapshot's LTQ is only its last trade; dv is everything traded since the previous snapshot.
+            size = dv if self.big_basis == "volume" else (t.ltq or dv)
+            mult = size / self.print_avg if self.print_avg else 0.0
             if mult >= 5:
                 b.big += 1
-            self.prints.append((t.ts, ltq, mult))
-            self.ltq_avg = ltq if not self.ltq_avg else 0.98 * self.ltq_avg + 0.02 * ltq
+            self.prints.append((t.ts, size, mult))
+            self.print_avg = size if not self.print_avg else 0.98 * self.print_avg + 0.02 * size
         self.prev_ltp = self.ltp = ltp
 
     def roll(self) -> None:
@@ -191,7 +196,7 @@ class Series:
         return self.vol(w) / avg if avg > 0 else 0.0
 
     def big_prints_since(self, since: datetime, mult: float = 5.0) -> int:
-        """Traded ticks after ``since`` whose LTQ was >= ``mult`` x the running average LTQ."""
+        """Traded ticks after ``since`` whose size was >= ``mult`` x the running average print size."""
         return sum(1 for ts, _q, m in self.prints if m >= mult and ts > since)
 
 
@@ -270,7 +275,7 @@ class ScalpEngine:
     # ---------------------------------------------------------------- helpers
     def S(self, tok: Optional[str]) -> Series:
         if tok not in self.series:
-            self.series[tok] = Series(self.cfg.bucket_sec)
+            self.series[tok] = Series(self.cfg.bucket_sec, self.cfg.big_print_basis)
         return self.series[tok]
 
     def tok(self, strike: float, kind: str) -> Optional[str]:

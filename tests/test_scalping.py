@@ -6,7 +6,8 @@ import pytest
 from market_data.tick_recorder import parse_snapquote
 from market_data.tick_store import Instrument, Tick, TickWriter, compress_day, list_days, load_instruments, read_ticks
 from strategies.scalping import SCALP_STRATEGIES, OiVolumeBurst, ScalpConfig, ScalpEngine
-from strategies.scalping.orderflow import PcrVelocity
+from strategies.scalping.engine import Series
+from strategies.scalping.orderflow import PcrVelocity, StealthAccumulation
 from utils.timezone import IST
 
 DAY = date(2026, 9, 29)
@@ -234,6 +235,31 @@ def test_pcr_velocity_buys_the_put_when_puts_unwind_against_call_writing():
 def test_pcr_velocity_ignores_a_token_unwind():
     e = pcr_session(pe_unwind_per_sec=25)    # unwind = 5% of the build: below MIN_UNWIND_RATIO
     assert e.pos is None and not e.trades
+
+
+# ------------------------------------------------------ experimental options
+def test_volume_basis_counts_a_snapshot_with_many_small_trades_as_a_big_print():
+    def big_prints(basis):
+        se, vol = Series(15, basis), 0
+        for i in range(60):
+            vol += 5000 if i == 59 else 100          # last snapshot: 100 trades of 50, LTQ still 50
+            se.on_tick(Tick(T0 + timedelta(seconds=i), "X", 100.0, 50, vol, 5e6, 99.95, 100.05))
+        return se.big_prints_since(T0)
+    assert big_prints("ltq") == 0
+    assert big_prints("volume") == 1
+
+
+def test_stealth_box_limit_is_fixed_unless_box_rel_is_set():
+    e = StealthAccumulation(insts())
+    e._new_day("2026-09-29", T0)
+    assert e.box_limit() == 20
+    e = StealthAccumulation(insts(), config=StealthAccumulation.default_config().update({"box_rel": 0.75}))
+    e._new_day("2026-09-29", T0)
+    assert e.box_limit() is None                      # no history yet
+    e._ranges = [60.0] * e.MIN_BOX_SAMPLES
+    assert e.box_limit() == 45
+    e._ranges = [10.0] * e.MIN_BOX_SAMPLES
+    assert e.box_limit() == 20                        # never tighter than the fixed box
 
 
 class FakeHub:

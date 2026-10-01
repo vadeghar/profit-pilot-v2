@@ -7,6 +7,7 @@ Rules are documented in docs/scalping/STRATEGIES.md.
 from __future__ import annotations
 
 from datetime import datetime
+from statistics import median
 from typing import Optional
 
 from strategies.scalping.engine import ScalpEngine, Series
@@ -56,6 +57,21 @@ class StealthAccumulation(_OrderFlowBase):
     strategy_id = "scalp_stealth_accum"
     name = "S2 Stealth Accumulation (CVD Breakout)"
 
+    BOX_PTS = 20
+    MIN_BOX_SAMPLES = 120  # 30 minutes of evaluations before the relative box limit is trusted
+
+    def _new_day(self, day: str, ts: datetime) -> None:
+        super()._new_day(day, ts)
+        self._ranges: list[float] = []  # 15-minute spot range seen at each evaluation today
+
+    def box_limit(self) -> Optional[float]:
+        """Widest spot box that still counts as 'boxed'; None while the relative limit lacks history."""
+        if self.cfg.box_rel <= 0:
+            return self.BOX_PTS
+        if len(self._ranges) < self.MIN_BOX_SAMPLES:
+            return None
+        return max(self.BOX_PTS, self.cfg.box_rel * median(self._ranges))
+
     def signal(self, ts: datetime, spot: float, atm: float) -> Signal:
         sp = self.S(self.spot_tok)
         m15 = sp.n(15)
@@ -63,7 +79,9 @@ class StealthAccumulation(_OrderFlowBase):
         if len(box) < m15:
             return None
         bh, bl = max(b.h for b in box), min(b.l for b in box)
-        if bh - bl > 20:
+        self._ranges.append(bh - bl)
+        limit = self.box_limit()
+        if limit is None or bh - bl > limit:
             return None
         c = sp.last().c
         step = self.cfg.strike_step

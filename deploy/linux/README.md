@@ -81,6 +81,15 @@ Stop from the dashboard ends them). Older strategies' paper sessions must be res
   Run it by hand (answer the Telegram OTP): `APP_DIR=~/automation_engines bash ~/ae-units/breeze_login.sh`;
   result in `~/automation_engines/logs/breeze_login.log`.
 
+  The same crontab also runs the **daily scalper condition report** at 15:40 IST (10:10 UTC), after
+  the recorder stops - read-only, it replays the day's ticks and writes `logs/condition_report_<date>.md`:
+
+  ```
+  10 10 * * 1-5 /bin/bash /home/lakshman/automation_engines/deploy/linux/condition_report.sh >> /home/lakshman/automation_engines/logs/condition_report.log 2>&1
+  ```
+
+  Re-run a past day: `DAY=2026-10-01 bash ~/automation_engines/deploy/linux/condition_report.sh`.
+
   Alternative - systemd timer instead of cron (don't run both):
 
   ```bash
