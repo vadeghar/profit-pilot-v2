@@ -37,7 +37,7 @@ tools/scalping/import_breeze_1s.py  rebuilds past days from Breeze 1-second bars
 ## Running it
 
 1. **Keep the dashboard server running during market hours.** The tick recorder starts itself at
-   09:12 IST on every trading day and stops at 15:32 (compressing the day's file). No clicks needed;
+   09:12 IST on every trading day and stops at 15:42 (compressing the day's file). No clicks needed;
    set `TICK_AUTO_RECORD=0` in the environment to disable. Angel credentials come from `.env`
    (`ANGEL_API_KEY`, `ANGEL_CLIENT_CODE`, `ANGEL_PASSWORD_OR_MPIN`, `ANGEL_TOTP_SECRET`).
 2. **Start a strategy:** open its card, set capital (default Rs 50,000; stop / target / capital deployed in the parameter
@@ -91,7 +91,7 @@ only a Stop from the dashboard ends it. Linux deployment: [deploy/linux/README.m
   why every OI/volume feature is computed on 15-second buckets.
 - **Daily Telegram summary:** `deploy/linux/scalp_summary.sh` (cron, 15:25 IST on trading days) sends each
   scalper's trades, wins/losses, net P&L and balance, plus the combined total (`tools/scalping/daily_summary.py`).
-- **Daily condition report:** `deploy/linux/condition_report.sh` (cron, 15:40 IST on trading days) writes
+- **Daily condition report:** `deploy/linux/condition_report.sh` (cron, 15:50 IST on trading days) writes
   `logs/condition_report_<date>.md` - how often each entry condition held, the closest near-misses and
   what blocked them, for the live rules and for the experimental options.
 - None of these strategies has been backtested yet - there is no tick history until the recorder has

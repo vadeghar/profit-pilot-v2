@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Daily scalper condition report, run from cron at 15:40 IST (10:10 UTC) Mon-Fri, after the recorder
-# stops at 15:32. Replays the day's recorded ticks through every scalper and writes
+# Daily scalper condition report, run from cron at 15:50 IST (10:20 UTC) Mon-Fri, after the recorder
+# stops at 15:42. Replays the day's recorded ticks through every scalper and writes
 # logs/condition_report_<date>.md. Read-only: it does not touch the running service or its paper state.
 #   DAY=2026-10-01 deploy/linux/condition_report.sh    # re-run a past day
 set -euo pipefail

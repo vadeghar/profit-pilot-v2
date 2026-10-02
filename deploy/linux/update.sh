@@ -11,8 +11,8 @@ export PATH="$HOME/.local/bin:$PATH"
 cd "$APP_DIR"
 
 now=$(TZ=Asia/Kolkata date +%H%M); dow=$(TZ=Asia/Kolkata date +%u)
-if [ "${FORCE:-0}" != "1" ] && [ "$dow" -le 5 ] && [ "$now" -ge 0910 ] && [ "$now" -le 1535 ]; then
-  echo "Market hours (IST $now): not restarting. Re-run after 15:35 or with FORCE=1." >&2; exit 1
+if [ "${FORCE:-0}" != "1" ] && [ "$dow" -le 5 ] && [ "$now" -ge 0910 ] && [ "$now" -le 1545 ]; then
+  echo "Market hours (IST $now): not restarting. Re-run after 15:45 or with FORCE=1." >&2; exit 1
 fi
 
 git fetch --quiet origin "$BRANCH"

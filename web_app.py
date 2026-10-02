@@ -1737,7 +1737,7 @@ async def startup_event():
     # Run in a thread pool since start() is blocking
     loop = asyncio.get_event_loop()
     await loop.run_in_executor(None, lambda: start_auto_paper_session())
-    # Tick recorder for the scalping strategies: records 09:12-15:32 IST on
+    # Tick recorder for the scalping strategies: records 09:12-15:42 IST on
     # trading days while the server runs (TICK_AUTO_RECORD=0 disables).
     from market_data.tick_recorder import get_hub
     get_hub().start_scheduler()

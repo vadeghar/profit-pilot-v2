@@ -36,7 +36,7 @@ future, and nearest-weekly-expiry CE + PE for ATM +/- 10 strikes (44 tokens). If
 ```
 data/ticks/<source>/<YYYY-MM-DD>/instruments.json
 data/ticks/<source>/<YYYY-MM-DD>/ticks.csv      # while the day is being recorded
-data/ticks/<source>/<YYYY-MM-DD>/ticks.csv.gz   # after 15:32 compaction
+data/ticks/<source>/<YYYY-MM-DD>/ticks.csv.gz   # after 15:42 compaction
 ```
 
 `ticks.csv` columns (prices in **rupees**, timestamps ISO-8601 IST with milliseconds):

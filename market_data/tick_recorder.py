@@ -7,7 +7,8 @@ disk and fanned out to every running scalping strategy.
 * Every tick is written to data/ticks/angel/<date>/ticks.csv (see
   market_data/tick_store.py, docs/scalping/TICK_DATA.md) and pushed to subscribers.
 * A scheduler thread starts recording at 09:12 IST on trading days and stops
-  (compressing the day's file) at 15:32, while the dashboard server runs.
+  (compressing the day's file) at 15:42, while the dashboard server runs. Derivatives trade until
+  15:40 under the closing auction session (the index itself stops updating at 15:15).
   Set env TICK_AUTO_RECORD=0 to disable.
 * If spot drifts more than ``RECENTER_STRIKES`` strikes from the subscribed
   centre, the missing strikes are added to the subscription.
@@ -36,7 +37,7 @@ STRIKE_STEP = 50
 STRIKES_EACH_SIDE = 10
 RECENTER_STRIKES = 6
 MAX_TOKENS = 100
-RECORD_START, RECORD_STOP = time(9, 12), time(15, 32)
+RECORD_START, RECORD_STOP = time(9, 12), time(15, 42)
 SNAP_QUOTE = 3
 EXCH_TYPE = {"NSE": 1, "NFO": 2}
 
