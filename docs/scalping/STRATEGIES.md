@@ -100,7 +100,7 @@ rule below was profitable on both indices and in both halves of the year.
 3. A 1-minute close above that high buys a CE; below that low, a PE.
 4. Strike by price: the option trading nearest Rs 40 (accepted range Rs 20-64).
 
-One trade per direction per day; stop -30%, target +100%, square-off 15:20; no trailing or time stop.
+One trade per direction per day; stop -30%, target +100%, square-off 15:10; no trailing or time stop.
 Sizing: 25% of the current balance per trade (`deploy_pct`). The paper session starts with the app
 (`AUTO_START`) and stays idle on non-expiry days; a Stop from the dashboard is remembered.
 
@@ -109,6 +109,46 @@ days, LTP +/- Rs 0.5 fills): 44 trades, 34% winners, 32% doubled, +10.4% average
 losing streak 6; Rs 50,000 -> Rs 92,785 at 25% per trade with a 47.7% maximum drawdown. The rule is the
 best of many tested, so expect less live. Differences from the study: one position at a time (the study
 allowed a CE and a PE together), and a restart during the session loses the morning's range.
+
+## Expiry Gamma Squeeze (expiry day only, spec v2.0)
+
+Order-flow option buying between 13:15 and 14:50 on the expiry day. Paper experiment: on 1-minute history
+the testable parts (everything except ask aggression) came out between -17.6% and +1.6% per trade
+depending on how fast the entry fills, so the aggression filter has to supply the edge.
+
+Regime, re-checked on every closed 15-second bucket for each CE/PE strike:
+1. premium Rs 12-25;
+2. the strike's own OI fell >= 1.5% over the last 15 minutes (its writers are covering);
+3. the near-month future is above its VWAP for a CE, below it for a PE.
+
+Each strike in regime gets a resting stop-limit buy: trigger = its 5-minute high + 0.20, limit = trigger + 0.40.
+
+Trigger, checked on every snapshot of an armed strike once LTP reaches the trigger:
+1. the last 60 s of traded volume > 2x the average minute of the previous 15 minutes;
+2. ask aggression over the last 30 s >= 60%: the share of traded volume in snapshots whose LTP was at or
+   above the previous snapshot's best ask;
+3. the ask (+ slippage ticks) is within the limit - otherwise no fill.
+
+A rejected trigger disarms that strike until the next bucket re-checks the regime.
+
+Exits: target +100%; stop -35% (filled as a market order, not the spec's stop-limit, so a fast fall cannot
+leave the position open); stop lifted to entry + 0.50 once the premium is up 40%; out after 8 minutes if it
+never reached +25%; flat at 15:10. Max 3 trades a day, none after 2 consecutive stop-outs (a breakeven or
+time exit resets the count), 10-minute cooldown. Sizing: one lot (`sizing="fixed"`).
+
+Forward-test log (`signals` in `data/forward_test/scalping/scalp_expiry_gamma.json` and in the status API):
+every evaluated trigger with its quotes, flow numbers and outcome (`FILLED`, `REJECTED_VOLUME`,
+`REJECTED_AGGRESSION`, `NO_FILL_ABOVE_LIMIT`); each trade with its worst and best excursion; and for a
+breakeven exit a `shadow` row - what the original stop and target would have done.
+
+Needs bid/ask: on Breeze 1-second days aggression falls back to the tick rule and fills to LTP + 0.5.
+NIFTY only; SENSEX waits for BSE tick recording.
+
+## Closing auction session
+
+Since the closing auction session started the index stops updating at 15:15 while derivatives trade on
+to 15:40 (seen in the 1-Oct-2026 recording: no index change after 15:15, options still trading). Both
+expiry cards are therefore flat by 15:10; S1-S4 and OI Burst already square off at 15:00.
 
 ## Experimental options (off by default)
 

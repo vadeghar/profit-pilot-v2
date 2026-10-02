@@ -10,6 +10,7 @@ independent background paper session with its own dashboard card:
 | S3 Delta-PCR Velocity | `scalp_pcr_velocity` | Two consecutive 3-minute windows of call-OI unwinding + put-OI building (or the reverse) |
 | S4 Trap Fade | `scalp_trap_fade` | Fake range breakout with no futures OI and writers absorbing: buy the other side |
 | Expiry Trend Breakout | `scalp_expiry_breakout` | Expiry day only: after 11:00 a new day high/low on a >= 0.5% range buys the option nearest Rs 40; stop -30%, target +100% |
+| Expiry Gamma Squeeze | `scalp_expiry_gamma` | Expiry day only, 13:15-14:50: a Rs 12-25 option with falling own OI breaks its 5-min high on 2x volume and >= 60% ask aggression; one lot; logs every signal |
 | OI + Volume Burst | `scalp_oi_volume_burst` | Volume spike + LTQ burst + long buildup/short covering + opposite-side OI unwinding + above VWAP |
 
 Exact rules: [STRATEGIES.md](STRATEGIES.md). Tick format and storage: [TICK_DATA.md](TICK_DATA.md).

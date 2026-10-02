@@ -9,7 +9,8 @@ Entry (checked on each completed 1-minute close of the index, from 11:00):
   2. the index's range so far today (high - low of its 1-minute closes since 09:15) is >= 0.5%;
   3. this minute closes above that high -> buy a CE, below that low -> buy a PE;
   4. strike by price: the option trading nearest Rs 40 (within Rs 20-64).
-One trade per direction per day. Exits: stop -30%, target +100%, square-off at 15:20.
+One trade per direction per day. Exits: stop -30%, target +100%, square-off at 15:10 (the index
+stops updating at 15:15 for the closing auction session, so nothing is held into it).
 Sizing: 25% of the current balance per trade - losing streaks of 6+ occurred in the study.
 
 The day's range is rebuilt from live ticks, so a service restart during an expiry session loses the
@@ -32,7 +33,15 @@ def _expiry_date(text: str) -> Optional[date]:
     return None
 
 
-class ExpiryTrendBreakout(ScalpEngine):
+class ExpiryOnly:
+    """Mixin for scalpers that trade only on the expiry day of the recorded option chain."""
+
+    def is_expiry_day(self) -> bool:
+        exp = next((i.expiry for i in self.insts.values() if i.kind in ("CE", "PE") and i.expiry), "")
+        return bool(exp) and _expiry_date(exp) == date.fromisoformat(self.day)
+
+
+class ExpiryTrendBreakout(ExpiryOnly, ScalpEngine):
     strategy_id = "scalp_expiry_breakout"
     name = "Expiry Trend Breakout"
 
@@ -44,7 +53,7 @@ class ExpiryTrendBreakout(ScalpEngine):
 
     @classmethod
     def default_config(cls) -> ScalpConfig:
-        return ScalpConfig(entry_start="11:00", entry_end="15:05", square_off="15:20", max_trades=2, max_losses=2,
+        return ScalpConfig(entry_start="11:00", entry_end="15:05", square_off="15:10", max_trades=2, max_losses=2,
                            cooldown_min=0, sl_pct=0.30, target_pct=1.00, trail_trigger=9.99, time_stop_min=999,
                            deploy_pct=0.25)
 
@@ -55,10 +64,6 @@ class ExpiryTrendBreakout(ScalpEngine):
         self._break: Optional[str] = None  # "CE"/"PE" when the minute that just closed made a new extreme
         self._range = 0.0                  # range before that minute, as a share of spot
         self._done: set[str] = set()
-
-    def is_expiry_day(self) -> bool:
-        exp = next((i.expiry for i in self.insts.values() if i.kind in ("CE", "PE") and i.expiry), "")
-        return bool(exp) and _expiry_date(exp) == date.fromisoformat(self.day)
 
     def _on_bucket(self, ts: datetime) -> None:
         self._break = None

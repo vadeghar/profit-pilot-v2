@@ -16,6 +16,7 @@ from market_data.tick_store import best_source, list_days, load_instruments, rea
 from strategies.scalping import SCALP_STRATEGIES, ScalpConfig
 
 LTQ_DEPENDENT = {"scalp_stealth_accum", "scalp_oi_volume_burst"}
+QUOTE_DEPENDENT = {"scalp_expiry_gamma"}
 
 
 def available_days(start: date, end: date, root: Optional[Path] = None) -> list[tuple[date, str]]:
@@ -62,6 +63,10 @@ def run_scalping_backtest(strategy_id: str, start: date, end: date, *, capital: 
             warnings.append("This strategy's big-print / LTQ-burst rule needs real per-trade LTQ: on Breeze "
                             "1-second days LTQ is a whole second's volume, so that rule almost never fires there. "
                             "Judge it on recorded Angel tick days.")
+        if strategy_id in QUOTE_DEPENDENT:
+            warnings.append("This strategy's ask-aggression rule and stop-limit fill need bid/ask quotes: on Breeze "
+                            "1-second days it falls back to the tick rule and LTP-based fills, which only exercises "
+                            "the logic. Judge it on recorded Angel expiry days.")
     return {"strategy_id": strategy_id, "name": cls.name, "start": start.isoformat(), "end": end.isoformat(),
             "capital": capital, "final_balance": engine.balance, "config": asdict(cfg), "days": day_rows,
             "ticks": ticks_total, "trades": trades, "summary": {**summarize(trades, capital), "skipped_signals": len(engine.skips)},

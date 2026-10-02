@@ -49,7 +49,11 @@ class ScalpConfig:
     trail_pct: float = 0.08         # trail this far below the peak
     time_stop_min: int = 5
     time_stop_min_gain: float = 0.05
-    sizing: str = "capital"         # "capital": deploy deploy_pct of the balance; "risk": risk risk_pct to the stop
+    breakeven_trigger: float = 0.0  # once the premium is up this much, lift the stop to entry + breakeven_offset (0 = off)
+    breakeven_offset: float = 0.0
+    sizing: str = "capital"         # "capital": deploy deploy_pct of the balance; "risk": risk risk_pct to the stop;
+                                    # "fixed": always fixed_lots
+    fixed_lots: int = 1
     deploy_pct: float = 1.0         # share of the current balance spent on premium per trade (compounds)
     risk_pct: float = 0.015         # capital at risk per trade (to the stop), sizing="risk" only
     max_lots: int = 27              # NSE freeze limit for NIFTY: 1,800 units / 65 per lot
@@ -400,7 +404,9 @@ class ScalpEngine:
         px = self._buy_px(se)
         lot = inst.lot or 1
         cost_per_lot = px * lot
-        if self.cfg.sizing == "risk":
+        if self.cfg.sizing == "fixed":
+            lots = self.cfg.fixed_lots
+        elif self.cfg.sizing == "risk":
             risk_per_lot = px * self.cfg.sl_pct * lot
             lots = max(1, int(self.balance * self.cfg.risk_pct // risk_per_lot)) if risk_per_lot > 0 else 0
         else:  # compounding: deploy a share of the CURRENT balance, so wins grow and losses shrink the next size
@@ -434,8 +440,10 @@ class ScalpEngine:
         p.peak = max(p.peak, ltp)
         if p.peak >= p.entry * (1 + cfg.trail_trigger):
             p.sl = max(p.sl, p.entry, p.peak * (1 - cfg.trail_pct))
+        if cfg.breakeven_trigger and p.peak >= p.entry * (1 + cfg.breakeven_trigger):
+            p.sl = max(p.sl, p.entry + cfg.breakeven_offset)
         if ltp <= p.sl:
-            self._exit(ts, se, "STOP" if p.sl < p.entry else "TRAIL")
+            self._exit(ts, se, "STOP" if p.sl < p.entry else "BREAKEVEN" if cfg.breakeven_trigger else "TRAIL")
         elif ltp >= p.target:
             self._exit(ts, se, "TARGET")
         elif ts - p.t_in >= timedelta(minutes=cfg.time_stop_min) and p.peak < p.entry * (1 + cfg.time_stop_min_gain):

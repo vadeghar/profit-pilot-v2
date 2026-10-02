@@ -22,6 +22,7 @@ from strategies.scalping import SCALP_STRATEGIES
 from utils.timezone import now_ist
 
 STATE_DIR = Path(platform_config.FORWARD_TEST_DIR) / "scalping"
+SIGNAL_LOG_MAX = 2000
 
 
 class ScalpPaperSession:
@@ -66,6 +67,9 @@ class ScalpPaperSession:
         if kind == "exit":
             self.state["trades"].append(payload["trade"])
             self.state["balance"] = payload["balance"]
+            self._save()
+        elif kind == "signal":  # a strategy's own forward-test log (evaluated triggers, excursions, shadows)
+            self.state["signals"] = (self.state.get("signals", []) + [payload])[-SIGNAL_LOG_MAX:]
             self._save()
 
     # --------------------------------------------------------------- control
@@ -131,6 +135,7 @@ class ScalpPaperSession:
             "status": self.status_text, "strategy_id": self.strategy_id, "name": self.cls.name,
             "live_trading": False, "capital": self.state["capital"], "balance": round(self.state["balance"], 2),
             "position": snap["position"], "trades": self.state["trades"], "today": snap["day"],
+            "signals": self.state.get("signals", [])[-50:],
             "day_trades": snap["day_trades"], "day_losses": snap["day_losses"], "ticks": snap["ticks"],
             "skipped": snap["skipped"], "last_skips": snap["last_skips"],
             "last_tick_at": snap["last_tick_at"], "queue": self._q.qsize(), "dropped": self.dropped,

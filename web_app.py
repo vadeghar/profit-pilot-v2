@@ -465,7 +465,12 @@ _SCALP_CARDS = [
     ("scalp_expiry_breakout", "Expiry Trend Breakout", "fa-calendar-day", "orange",
      "Trades on the weekly expiry day only. From 11:00, once the index has ranged >= 0.5%, a 1-minute close at "
      "a new day high buys the CE (new day low: the PE) trading nearest Rs 40. Stop -30%, target +100%, "
-     "square-off 15:20, one trade per direction, 25% of the balance per trade. Starts by itself with the app."),
+     "square-off 15:10, one trade per direction, 25% of the balance per trade. Starts by itself with the app."),
+    ("scalp_expiry_gamma", "Expiry Gamma Squeeze", "fa-bolt", "yellow",
+     "Trades on the weekly expiry day only, 13:15-14:50. A Rs 12-25 option whose own OI fell >= 1.5% in 15 min, "
+     "with the future on its side of VWAP, is bought when it breaks its 5-min high on 2x volume and >= 60% ask "
+     "aggression (stop-limit: high + 0.20, limit + 0.40). Target +100%, stop -35%, breakeven lock at +40%, "
+     "8-min time stop, flat by 15:10. One lot, max 3 trades. Starts by itself with the app."),
 ]
 from strategies.scalping import SCALP_STRATEGIES as _SCALP_CLASSES
 for _sid, _name, _icon, _color, _desc in _SCALP_CARDS:

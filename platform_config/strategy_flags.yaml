@@ -148,3 +148,12 @@ scalp_expiry_breakout:
   hedging: [Unhedged]
   style: [Scalping, Breakout, Momentum, Option buying, Expiry day]
   horizon: [Intraday]
+
+scalp_expiry_gamma:
+  segment: [Derivative]
+  instrument: [Options]
+  direction: [Directional]
+  bias: [Long/Short]
+  hedging: [Unhedged]
+  style: [Scalping, Order flow, Breakout, Option buying, Expiry day]
+  horizon: [Intraday]

@@ -275,6 +275,80 @@ def test_expiry_breakout_stays_out_when_it_is_not_expiry_day():
     assert expiry_session(expiry="29SEP2026").pos is not None
 
 
+def test_expiry_breakout_is_flat_before_the_closing_auction():
+    from strategies.scalping import ExpiryGammaSqueeze, ExpiryTrendBreakout
+    assert ExpiryTrendBreakout.default_config().square_off == "15:10"
+    assert ExpiryGammaSqueeze.default_config().square_off == "15:10"
+
+
+# ---------------------------------------------------------- expiry gamma squeeze
+def gamma_session(aggressive=True, after=None):
+    """12:55-13:20 quiet Rs 15 call losing OI with the future above its VWAP, then a burst through its 5-min high."""
+    from strategies.scalping import ExpiryGammaSqueeze
+    ii = insts()
+    for i in ii.values():
+        if i.kind in ("CE", "PE"):
+            i.expiry = "2026-09-29"
+    events = []
+    e = ExpiryGammaSqueeze(ii, capital=50_000, on_event=lambda k, p: events.append((k, p)))
+    start = datetime(2026, 9, 29, 12, 55, tzinfo=IST)
+    vol = fvol = 0
+    oi, px = 5e6, 15.0
+    for s in range(25 * 60 + 5):
+        ts = start + timedelta(seconds=s)
+        burst = s - 25 * 60
+        e.on_tick(Tick(ts, "IDX", 22550.0))
+        fvol += 50
+        e.on_tick(Tick(ts, "FUT", 22570.0 + (30 if s > 20 * 60 else 0), 50, fvol, 1e7))
+        oi *= 0.99995                                       # about -4% per 15 minutes
+        if burst >= 0:
+            px += 0.05
+            vol += 5000
+        else:
+            vol += 100
+        half = 0.05 if aggressive else 0.10                 # passive: each print stays inside the previous spread
+        e.on_tick(Tick(ts, "22550CE", round(px, 2), 100, vol, oi, round(px - half, 2), round(px + half, 2)))
+    for s, p in enumerate(after or []):
+        ts = start + timedelta(seconds=25 * 60 + 5 + s)
+        vol += 100
+        e.on_tick(Tick(ts, "IDX", 22550.0))
+        e.on_tick(Tick(ts, "22550CE", p, 100, vol, oi, round(p - 0.05, 2), round(p + 0.05, 2)))
+    return e, [p for k, p in events if k == "signal"]
+
+
+def test_gamma_squeeze_fills_one_lot_at_the_ask_inside_the_stop_limit():
+    e, sig = gamma_session()
+    assert e.pos is not None and (e.pos.kind, e.pos.strike, e.pos.lots) == ("CE", 22550.0, 1)
+    assert sig[0]["outcome"] == "FILLED" and sig[0]["trigger"] == pytest.approx(15.20)
+    assert sig[0]["trigger"] <= e.pos.entry <= sig[0]["limit"] and e.pos.entry == pytest.approx(sig[0]["ask"] + 0.05)
+    assert sig[0]["aggression"] >= 0.6 and sig[0]["vol_x"] > 2 and sig[0]["oi_chg_15m"] <= -0.015
+    assert e.pos.sl == pytest.approx(e.pos.entry * 0.65) and e.pos.target == pytest.approx(e.pos.entry * 2)
+
+
+def test_gamma_squeeze_rejects_a_breakout_without_ask_aggression():
+    e, sig = gamma_session(aggressive=False)
+    assert e.pos is None and not e.trades
+    assert sig and {s["outcome"] for s in sig} == {"REJECTED_AGGRESSION"}
+
+
+def test_gamma_squeeze_breakeven_lock_logs_the_excursion_and_the_shadow_result():
+    up = [15.3 + 0.1 * i for i in range(65)]               # runs to Rs 21.7: more than +40%
+    down = [21.7 - 0.2 * i for i in range(60)]             # then all the way back through the original stop
+    e, sig = gamma_session(after=up + down)
+    t = e.trades[0]
+    assert t.reason == "BREAKEVEN" and t.exit == pytest.approx(t.entry + 0.5, abs=0.25)
+    trade = next(s for s in sig if s["type"] == "trade")
+    assert trade["best_pct"] >= 0.40 and trade["reason"] == "BREAKEVEN"
+    shadow = next(s for s in sig if s["type"] == "shadow")
+    assert shadow["result_without_breakeven"] == "STOP" and shadow["return_pct"] <= -0.35
+
+
+def test_fixed_sizing_buys_the_configured_lots():
+    e = OneShot(insts(), capital=100_000, config=ScalpConfig(sizing="fixed", fixed_lots=2))
+    feed(e, 6 * 60, 100.0)
+    assert e.pos.lots == 2
+
+
 # ------------------------------------------------------ experimental options
 def test_volume_basis_counts_a_snapshot_with_many_small_trades_as_a_big_print():
     def big_prints(basis):
@@ -326,12 +400,14 @@ def test_running_sessions_resume_after_restart_but_stopped_ones_do_not(tmp_path)
     b.start()
     b.stop("manual")
     resume = sessions_to_resume(tmp_path)  # process "dies" here with a still running
-    auto = {"strategy_id": "scalp_expiry_breakout", "capital": 50_000, "overrides": {}}  # AUTO_START, never started
-    assert resume == [{"strategy_id": "scalp_trap_fade", "capital": 50_000, "overrides": {"sl_pct": 0.08}}, auto]
+    auto = [{"strategy_id": sid, "capital": 50_000, "overrides": {}}       # AUTO_START, never started
+            for sid in ("scalp_expiry_breakout", "scalp_expiry_gamma")]
+    assert resume == [{"strategy_id": "scalp_trap_fade", "capital": 50_000, "overrides": {"sl_pct": 0.08}}, *auto]
     a.stop("manual")
-    c = ScalpPaperSession("scalp_expiry_breakout", hub=FakeHub(), state_dir=tmp_path)
-    c.start()
-    c.stop("manual")
+    for sid in ("scalp_expiry_breakout", "scalp_expiry_gamma"):
+        c = ScalpPaperSession(sid, hub=FakeHub(), state_dir=tmp_path)
+        c.start()
+        c.stop("manual")
     assert sessions_to_resume(tmp_path) == []      # a dashboard Stop is respected after that
 
 

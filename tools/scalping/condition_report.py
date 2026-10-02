@@ -196,7 +196,27 @@ def _expiry(e, ts, spot, atm, rec):
         }, f"{kind} (range {e._range:.2%})")
 
 
-PROBES = {"scalp_expiry_breakout": _expiry, "scalp_writer_squeeze": _s1, "scalp_stealth_accum": _s2, "scalp_pcr_velocity": _s3,
+def _gamma(e, ts, spot, atm, rec):
+    f = e.S(e.fut_tok) if e.fut_tok else None
+    for kind, sg in (("CE", 1), ("PE", -1)):
+        fut_ok = bool(f and f.cum_v and sg * (f.ltp - f.vwap()) > 0)
+        band = [(k, t) for (k, kd), t in e.opt.items() if kd == kind and e.PREMIUM_BAND[0] <= e.S(t).ltp <= e.PREMIUM_BAND[1]]
+        base = {"expiry day": e.is_expiry_day(), "future on the trade's side of VWAP": fut_ok,
+                f"a strike at Rs {e.PREMIUM_BAND[0]:g}-{e.PREMIUM_BAND[1]:g}": bool(band)}
+        if not band:
+            rec.record(ts, {**base, f"own OI {e.OI_DROP:.1%} in {e.OI_WINDOW_MIN}m": False, "last bucket traded through the trigger": False,
+                            f"60-s volume > {e.VOL_MULT:g}x": False, f"ask aggression >= {e.AGGR_MIN:.0%}": False}, kind)
+        for k, t in band:
+            se = e.S(t)
+            vol60, aggr = e.flow(t, ts)
+            avg = se.vol(se.n(e.VOL_BASE_MIN)) / e.VOL_BASE_MIN
+            rec.record(ts, {**base, f"own OI {e.OI_DROP:.1%} in {e.OI_WINDOW_MIN}m": se.doi(se.n(e.OI_WINDOW_MIN)) <= e.OI_DROP,
+                            "last bucket traded through the trigger": se.last().h >= se.hh(se.n(e.HIGH_MIN), 1) + e.TRIGGER_BUFFER,
+                            f"60-s volume > {e.VOL_MULT:g}x": bool(avg and vol60 > e.VOL_MULT * avg),
+                            f"ask aggression >= {e.AGGR_MIN:.0%}": aggr >= e.AGGR_MIN}, f"{kind} {k:.0f} at Rs {se.ltp:.2f}")
+
+
+PROBES = {"scalp_expiry_gamma": _gamma, "scalp_expiry_breakout": _expiry, "scalp_writer_squeeze": _s1, "scalp_stealth_accum": _s2, "scalp_pcr_velocity": _s3,
           "scalp_trap_fade": _s4, "scalp_oi_volume_burst": _burst}
 
 
