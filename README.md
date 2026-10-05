@@ -18,7 +18,8 @@ automation_engines/
 │   ├── tools/               #   condition_report, daily_summary (Telegram), import_breeze_1s
 │   └── research/            #   expiry-day data download and rule studies
 ├── trading_strategies/      # regular intraday / swing strategies (not scalpers)
-│   └── index_oi_momentum/   #   Index Options OI Momentum - switched off (deprecated until further notice)
+│   ├── index_oi_momentum/   #   Index Options OI Momentum - switched off (deprecated until further notice)
+│   └── nifty_afternoon_momentum/  # NIFTY Afternoon Momentum - experimental research candidate (own backtest)
 ├── investment_strategies/   # long-horizon strategies (empty for now)
 │
 ├── core/                    # domain models (Order, Trade, Candle, Signal) + StrategyBase / StrategyRegistry
@@ -77,6 +78,7 @@ Tests: `python -m pytest tests` (broker-credential and Playwright tests need a l
 - `docs/scalping/STRATEGIES.md` - the exact rules of every scalper
 - `docs/scalping/TICK_DATA.md` - tick format and storage
 - `docs/trading/INDEX_OI_MOMENTUM_REPORT.md` - Index OI Momentum
+- `docs/trading/NIFTY_AFTERNOON_MOMENTUM.md` - NIFTY Afternoon Momentum: research, rules, backtest and verdict
 - `deploy/linux/README.md` - server deployment, schedules (Breeze login, Telegram summary, condition report)
 - `docs/BROKER_CREDENTIALS.md`, `docs/BREEZE_AUTO_LOGIN_GUIDE.md` - credentials and the daily Breeze login
 

@@ -5,11 +5,14 @@ backtest (backtest.py) and paper trader (paper_trader.py). A strategy becomes av
 backtest engine, CLI and dashboard by registering with core.strategy.StrategyRegistry - importing
 this package does that for every strategy listed below.
 
-    index_oi_momentum/   Index Options OI Momentum (switched off: deprecated until further notice)
+    index_oi_momentum/          Index Options OI Momentum (switched off: deprecated until further notice)
+    nifty_afternoon_momentum/   NIFTY Afternoon Momentum (experimental: research candidate, no dashboard card yet)
 """
 from core.strategy import StrategyRegistry
 from trading_strategies.index_oi_momentum import IndexOIMomentumStrategy
+from trading_strategies.nifty_afternoon_momentum import NiftyAfternoonMomentumStrategy
 
 StrategyRegistry.register("index_oi_momentum", IndexOIMomentumStrategy)
+StrategyRegistry.register("nifty_afternoon_momentum", NiftyAfternoonMomentumStrategy)
 
-__all__ = ["IndexOIMomentumStrategy"]
+__all__ = ["IndexOIMomentumStrategy", "NiftyAfternoonMomentumStrategy"]
