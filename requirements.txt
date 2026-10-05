@@ -124,9 +124,4 @@ websockets==16.1.1
 wsproto==1.3.2
 xlsxwriter==3.2.9
 
-# --- Lorentzian Classification ML strategy (lorentzian_strategy/) ---
-# numba is optional JIT for the ANN loop; falls back to pure Python if uninstallable
 yfinance==1.7.0
-ccxt
-streamlit
-numba

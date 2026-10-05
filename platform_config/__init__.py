@@ -29,6 +29,17 @@ FORWARD_TEST_DIR = DATA_DIR / "forward_test"
 HISTORICAL_DATA_DIR = DATA_DIR / "historical"
 
 
+def resolve_env_file() -> Path:
+    """The platform .env; a git worktree has none, so fall back to the main checkout's."""
+    env = Path(ENV_FILE)
+    if env.exists():
+        return env
+    for parent in PROJECT_ROOT.resolve().parents:
+        if (parent / ".git").is_dir() and (parent / ".env").exists():
+            return parent / ".env"
+    return env
+
+
 class Config:
     """Main configuration class for the trading platform"""
     

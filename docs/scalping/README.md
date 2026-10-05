@@ -25,13 +25,13 @@ Angel One SmartWebSocketV2 (SNAP_QUOTE: LTP, LTQ, volume, OI, best bid/ask)
         v
 market_data/tick_recorder.py  TickHub (one connection, NIFTY spot + future + ATM+/-10 CE/PE)
         |---> data/ticks/angel/<date>/ticks.csv(.gz)       every tick, saved for backtests
-        |---> ScalpPaperSession x5  (execution/scalping_paper_trader.py, one thread + queue each)
+        |---> ScalpPaperSession x7  (scalp_strategies/paper_trader.py, one thread + queue each)
                     |
                     v
-             strategies/scalping/  ScalpEngine subclasses (15 s buckets, fills at bid/ask, risk limits)
+             scalp_strategies/  ScalpEngine subclasses (15 s buckets, fills at bid/ask, risk limits)
 
-backtest/scalping_backtest.py  replays data/ticks through the SAME engines (live == backtest logic)
-tools/scalping/import_breeze_1s.py  rebuilds past days from Breeze 1-second bars (pseudo-ticks)
+scalp_strategies/backtest.py  replays data/ticks through the SAME engines (live == backtest logic)
+scalp_strategies/tools/import_breeze_1s.py  rebuilds past days from Breeze 1-second bars (pseudo-ticks)
 ```
 
 ## Running it
@@ -46,7 +46,7 @@ tools/scalping/import_breeze_1s.py  rebuilds past days from Breeze 1-second bars
 3. **Backtest:** open a card, pick a date range and click **RUN BACKTEST**. It replays every
    recorded day in the range (real Angel ticks preferred, Breeze 1-second days otherwise).
    The card's panel lists which days are backtestable.
-4. **Past days:** `python -m tools.scalping.import_breeze_1s --date 2026-09-29 --date 2026-09-26`
+4. **Past days:** `python -m scalp_strategies.tools.import_breeze_1s --date 2026-09-29 --date 2026-09-26`
    (about 510 Breeze requests / 6 minutes per day; Breeze allows ~5,000 requests a day).
 
 Warm-up: signals need 16-21 minutes of history per contract, so the first possible entry is around
@@ -90,7 +90,7 @@ only a Stop from the dashboard ends it. Linux deployment: [deploy/linux/README.m
 - SnapQuote ticks are exchange snapshots, not every trade; OI updates arrive every 1-3 s, which is
   why every OI/volume feature is computed on 15-second buckets.
 - **Daily Telegram summary:** `deploy/linux/scalp_summary.sh` (cron, 15:25 IST on trading days) sends each
-  scalper's trades, wins/losses, net P&L and balance, plus the combined total (`tools/scalping/daily_summary.py`).
+  scalper's trades, wins/losses, net P&L and balance, plus the combined total (`scalp_strategies/tools/daily_summary.py`).
 - **Daily condition report:** `deploy/linux/condition_report.sh` (cron, 15:50 IST on trading days) writes
   `logs/condition_report_<date>.md` - how often each entry condition held, the closest near-misses and
   what blocked them, for the live rules and for the experimental options.

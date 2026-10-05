@@ -69,7 +69,7 @@ def test_now_ist_is_aware_ist():
 
 def test_strategy_cutoffs_use_ist():
     import inspect
-    from strategies import index_oi_momentum as m
+    from trading_strategies.index_oi_momentum import strategy as m
     src = inspect.getsource(m)
     assert "ist_minutes" in src
     # expiry flat must be 15:15 IST, session cutoffs 14:45 / 15:05 IST

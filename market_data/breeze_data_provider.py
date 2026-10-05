@@ -21,7 +21,7 @@ from utils.timezone import (
 )
 import platform_config
 
-from lorentzian_strategy.data_loader import (
+from market_data.breeze_client import (
     BREEZE_CHUNK_DAYS,
     BREEZE_INTERVAL_MAP,
     breeze_lookback_days,
@@ -42,7 +42,7 @@ class BreezeHistoricalDataProvider(HistoricalDataProvider):
     # '15m' fetches 5-minute bars and resamples to 15m; '1wk' from 1day.
     @property
     def supported_timeframes(self) -> List[str]:
-        from lorentzian_strategy.data_loader import BREEZE_INTERVAL_MAP
+        from market_data.breeze_client import BREEZE_INTERVAL_MAP
         return sorted(BREEZE_INTERVAL_MAP)
 
     def __init__(self, client=None, cache_dir: Optional[str] = None, env_path: Optional[str] = None,
@@ -58,7 +58,7 @@ class BreezeHistoricalDataProvider(HistoricalDataProvider):
 
     def _session_token(self) -> Optional[str]:
         """BREEZE_SESSION_TOKEN from the configured .env (used for verification)."""
-        from lorentzian_strategy.data_loader import load_breeze_env
+        from market_data.breeze_client import load_breeze_env
         env = load_breeze_env(self.env_path or str(platform_config.ENV_FILE))
         return env.get("BREEZE_SESSION_TOKEN")
 
@@ -116,7 +116,7 @@ class BreezeHistoricalDataProvider(HistoricalDataProvider):
         if mapped:
             return mapped["provider_symbol"]
         try:
-            from lorentzian_strategy.data_loader import parse_breeze_ticker
+            from market_data.breeze_client import parse_breeze_ticker
             stock_code, exchange_code, product_type = parse_breeze_ticker(symbol)
             return stock_code
         except Exception:
@@ -136,7 +136,7 @@ class BreezeHistoricalDataProvider(HistoricalDataProvider):
         """
         timeframe = normalize_timeframe(timeframe)
         self.ensure_authenticated()
-        from lorentzian_strategy.data_loader import BREEZE_INTERVAL_MAP
+        from market_data.breeze_client import BREEZE_INTERVAL_MAP
         if timeframe not in BREEZE_INTERVAL_MAP:
             raise ValueError(
                 f"Unsupported Breeze timeframe {timeframe!r}; supported: "
@@ -189,7 +189,7 @@ class BreezeHistoricalDataProvider(HistoricalDataProvider):
             raise ValueError(f"Unsupported Breeze timeframe {timeframe!r}; "
                              f"supported: {sorted(BREEZE_INTERVAL_MAP)}")
         interval = BREEZE_INTERVAL_MAP[timeframe][0]
-        from lorentzian_strategy.data_loader import parse_breeze_ticker, resolve_breeze_stock_code
+        from market_data.breeze_client import parse_breeze_ticker, resolve_breeze_stock_code
         if isinstance(instrument, dict):
             stock_code = instrument["stock_code"]
             exchange_code = instrument["exchange_code"]

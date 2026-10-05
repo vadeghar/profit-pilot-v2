@@ -14,5 +14,5 @@ if ! $PY -c "from datetime import date; from market_data.trading_days import Tra
   exit 0
 fi
 
-$PY -m tools.scalping.daily_summary --date "$DAY"
+$PY -m scalp_strategies.tools.daily_summary --date "$DAY"
 echo "$(date '+%F %T') sent scalper summary for $DAY"

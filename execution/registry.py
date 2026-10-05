@@ -1,8 +1,7 @@
 """Single registry of every live/paper strategy runner, across all strategies.
 
-Replaces the pattern of one bespoke global dict per strategy
-(``OI_PAPER_SESSIONS``, ``FOUR_INDICATOR_PAPER_SESSIONS``, ...) in
-``web_app.py`` with one place to list what's running, check its health, and
+Complements the per-strategy session dicts in ``web_app.py``
+(``OI_PAPER_SESSIONS``, ``SCALP_PAPER_SESSIONS``) with one place to list what's running, check its health, and
 stop everything - the foundation for running multiple strategies
 concurrently and for one systemd unit per strategy later: whichever process
 owns a session, this registry is where "what's running right now" and
@@ -24,7 +23,7 @@ from utils.timezone import now_ist
 
 def _is_running(status: Dict[str, Any]) -> bool:
     """Session status shapes vary (OIPaperSession uses "running": bool; the
-    other four use "status": "RUNNING"/"STOPPED") - normalize both."""
+    scalper sessions use "status": "RUNNING"/"STOPPED") - normalize both."""
     if isinstance(status.get("running"), bool):
         return status["running"]
     return status.get("status") == "RUNNING"

@@ -243,8 +243,8 @@ def test_breeze_stock_code_resolution():
 
 
 def test_breeze_stock_code_passthrough_when_unknown(monkeypatch):
-    from lorentzian_strategy import data_loader
-    monkeypatch.setattr(data_loader, "breeze_scrip_short_names", lambda exchange_code="NSE": {})
+    from market_data import breeze_client
+    monkeypatch.setattr(breeze_client, "breeze_scrip_short_names", lambda exchange_code="NSE": {})
     assert breeze_stock_code("SUZLON") == "SUZLON"
 
 

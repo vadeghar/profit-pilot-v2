@@ -26,7 +26,7 @@ Below is the detailed list of **completed items**, **pending items**, and **bloc
 | :--- | :--- | :--- | :--- |
 | **Backtest Engine** | Tick & Candle simulation model | ✅ **Completed** | Full equity curve tracking, slippage, commissions, Sharpe ratio, drawdown, and trade ledgers. |
 | **CLI & Runner** | `backtest <strategy_id>` command | ✅ **Completed** | Works via bash script (`run_strategy.sh backtest ...`) and package command (`trading-platform`). |
-| **Strategies** | Base Strategy + Built-in strategies | ✅ **Completed** | `ema_crossover`, `rsi`, `breakout` implemented and tested with live signals. |
+| **Strategies** | Base Strategy + Built-in strategies | ✅ **Completed** | strategy base class and registry (`core/strategy.py`) with live signals. |
 | **Interactive UI** | Visual Web Dashboard | ✅ **Completed** | FastAPI + Chart.js dashboard at `http://localhost:8080` with parameter tuning & trade logs. |
 | **Market Data** | In-Memory `CandleBuilder` | ✅ **Completed** | Tick-to-candle aggregator avoids broker REST rate limits (429 errors). |
 | **Persistence** | JSONL Event Journal + Snapshots | ✅ **Completed** | `fcntl`-locked append-only journal and atomic temp-file snapshots implemented. |

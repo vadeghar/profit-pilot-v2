@@ -12,8 +12,8 @@ def test_forward_test_registration():
     os.makedirs(forward_dir, exist_ok=True)
     
     config = {
-        "strategy_id": "equity_swing_vcp",
-        "strategy_name": "Equity Swing VCP",
+        "strategy_id": "forward_test_example",
+        "strategy_name": "Forward Test Example",
         "instruments": ["NSE:RELIANCE", "NSE:ICICIBANK"],
         "capital": 1000000.0,
         "mode": "PAPER_FORWARD_TEST",
@@ -25,11 +25,11 @@ def test_forward_test_registration():
             "capital": 1000000.0,
             "risk_pct": 0.0125,
             "stop_pct": 0.07,
-            "volume_breakout_mult": 1.3
+            "example_param": 1.3
         }
     }
     
-    file_path = os.path.join(forward_dir, "equity_swing_vcp.json")
+    file_path = os.path.join(forward_dir, "forward_test_example.json")
     with open(file_path, "w") as f:
         json.dump(config, f, indent=2)
     print("Forward test config saved successfully:", file_path)

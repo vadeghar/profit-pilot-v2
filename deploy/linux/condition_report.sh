@@ -15,5 +15,5 @@ if ! ls data/ticks/*/"$DAY"/ticks.csv* >/dev/null 2>&1; then
   exit 0
 fi
 
-nice -n 10 .venv/bin/python -m tools.scalping.condition_report --date "$DAY" --out "logs/condition_report_$DAY.md" >/dev/null
+nice -n 10 .venv/bin/python -m scalp_strategies.tools.condition_report --date "$DAY" --out "logs/condition_report_$DAY.md" >/dev/null
 echo "$(date '+%F %T') wrote logs/condition_report_$DAY.md"

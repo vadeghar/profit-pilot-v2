@@ -54,7 +54,7 @@ inbound port.
 | Restart | `sudo systemctl restart automation-engines` |
 | Update to the latest pushed code | `bash ~/automation_engines/deploy/linux/update.sh` (refuses during market hours unless `FORCE=1`) |
 | Recorder status | `curl -s localhost:9090/api/ticks/status` |
-| Import a past day | `cd ~/automation_engines && .venv/bin/python -m tools.scalping.import_breeze_1s --date 2026-09-29` |
+| Import a past day | `cd ~/automation_engines && .venv/bin/python -m scalp_strategies.tools.import_breeze_1s --date 2026-09-29` |
 
 The service restarts on crash and on reboot. The five scalping paper sessions persist their balance
 and trades in `data/forward_test/scalping/` and **resume by themselves** after a restart (only a
@@ -99,7 +99,7 @@ Stop from the dashboard ends them). Older strategies' paper sessions must be res
   ```
 
   Re-send a day: `DAY=2026-10-01 bash ~/automation_engines/deploy/linux/scalp_summary.sh`;
-  preview without sending: `.venv/bin/python -m tools.scalping.daily_summary --dry-run`.
+  preview without sending: `.venv/bin/python -m scalp_strategies.tools.daily_summary --dry-run`.
 
   Alternative - systemd timer instead of cron (don't run both):
 

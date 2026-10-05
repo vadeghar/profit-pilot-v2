@@ -7,12 +7,11 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from lorentzian_strategy.data_loader import (
+from market_data.breeze_client import (
     BREEZE_CHUNK_DAYS,
     BREEZE_INTERVAL_MAP,
     breeze_lookback_days,
     breeze_rows_to_dataframe,
-    fetch_breeze,
     load_breeze_env,
     parse_breeze_ticker,
 )
@@ -85,35 +84,12 @@ def test_breeze_rows_to_dataframe_parses_and_dedupes():
     assert df.index.is_monotonic_increasing
 
 
-def test_fetch_breeze_with_mocked_client(tmp_path):
-    env_file = tmp_path / ".env"
-    env_file.write_text("BREEZE_API_KEY=k\nBREEZE_API_SECRET=s\nBREEZE_SESSION_TOKEN=t\n")
-    client = FakeBreezeClient(bars_per_chunk=100000)
-    df = fetch_breeze("NSE:NIFTY", "1h", max_bars_back=300, env_path=str(env_file), client=client)
-    # paginated until enough bars, then resampled 30m -> 1h
-    assert len(df) >= 350
-    assert client.calls[0]["stock_code"] == "NIFTY"
-    assert client.calls[0]["product_type"] == "index"
-    assert all(c["interval"] == "30minute" for c in client.calls)
-    # 1h resampling: all timestamps aligned to the hour
-    assert (df.index.minute == 0).all()
-    assert list(df.columns) == ["open", "high", "low", "close"]
-
-
-def test_fetch_breeze_insufficient_history(tmp_path):
-    env_file = tmp_path / ".env"
-    env_file.write_text("BREEZE_API_KEY=k\nBREEZE_API_SECRET=s\nBREEZE_API_KEY2=x\n"
-                        "BREEZE_SESSION_TOKEN=t\n")
-    client = FakeBreezeClient(bars_per_chunk=10)  # starves the request
-    with pytest.raises(ValueError, match="Insufficient history from Breeze"):
-        fetch_breeze("NSE:RELIANCE", "1d", max_bars_back=300,
-                     env_path=str(env_file), client=client)
 
 
 def test_load_breeze_env_missing_credentials(tmp_path):
     env_file = tmp_path / ".env"
     env_file.write_text("OTHER=value\n")
-    from lorentzian_strategy.data_loader import connect_breeze
+    from market_data.breeze_client import connect_breeze
     with pytest.raises(ValueError, match="Missing Breeze credentials"):
         connect_breeze(env_path=str(env_file))
 
@@ -128,7 +104,7 @@ def test_resolve_breeze_stock_code_uses_scrip_master_short_name(monkeypatch):
     import io
     import sys
     import types
-    from lorentzian_strategy import data_loader as dl
+    from market_data import breeze_client as dl
 
     nse_csv = (
         'Token, "ShortName", "Series", "CompanyName", "ExchangeCode"\n'
@@ -179,7 +155,7 @@ def test_resolve_breeze_stock_code_uses_scrip_master_short_name(monkeypatch):
 def test_resolve_breeze_stock_code_without_master_passes_through(monkeypatch):
     """Security master unavailable -> symbol unchanged and no exception raised."""
     import sys
-    from lorentzian_strategy import data_loader as dl
+    from market_data import breeze_client as dl
 
     monkeypatch.delitem(sys.modules, "breeze_connect.breeze_connect", raising=False)
     monkeypatch.setattr(dl, "_BREEZE_SHORTNAME_MAPS", {})
@@ -220,55 +196,3 @@ def test_breeze_platform_provider_with_mock(tmp_path):
     # The provider cache key is the normalized source symbol, without the
     # exchange prefix (the log above also reports NIFTY_1h.json).
     assert (cache_dir / "NIFTY_1h.json").exists()
-
-
-def test_lorentzian_ml_registered_in_registry():
-    """lorentzian_strategy package is registered in the platform StrategyRegistry."""
-    from strategies import StrategyRegistry
-    names = StrategyRegistry.list_strategies()
-    assert "lorentzian_ml" in names
-    assert "lorentzian" in names
-
-
-def test_lorentzian_ml_adapter_signals():
-    """Platform adapter replays causal history and emits registry-compatible signals."""
-    import numpy as np
-    import pandas as pd
-    from strategies import StrategyRegistry
-    from core.models import Candle, OrderSide
-
-    rng = np.random.default_rng(123)
-    n = 1200
-    t = np.linspace(0, 40 * np.pi, n)
-    ret = 0.0004 + 0.004 * np.sin(t) + rng.normal(0, 0.006, n)
-    close = 100 * np.exp(np.cumsum(ret))
-    high = close * (1 + np.abs(rng.normal(0, 0.003, n)))
-    low = close * (1 - np.abs(rng.normal(0, 0.003, n)))
-    idx = pd.date_range("2025-06-01", periods=n, freq="1h")
-
-    strat = StrategyRegistry.create(
-        "lorentzian_ml", "lorentz_test_01",
-        {"timeframe": "1h", "neighbors_count": 8, "feature_count": 5,
-         "use_volatility_filter": True, "use_regime_filter": False,
-         "use_kernel_filter": True, "min_history_bars": 60, "quantity": 2},
-    )
-    strat.initialize()
-    signals = []
-    ts = [t.to_pydatetime() for t in idx]
-    for i in range(n):
-        sig = strat.on_candle(Candle(
-            instrument="NSE:NIFTY", timeframe="1h",
-            open=float(close[i - 1] if i else close[0]), high=float(high[i]),
-            low=float(low[i]), close=float(close[i]), volume=1000, timestamp=ts[i]))
-        if sig is not None:
-            signals.append(sig)
-
-    # registry-compatible: Signal objects with expected fields
-    for sig in signals:
-        assert sig.strategy_id == "lorentz_test_01"
-        assert sig.action in (OrderSide.BUY, OrderSide.SELL)
-        assert sig.quantity == 2
-        assert "reason" in sig.metadata
-    # entry signals (new long/short) must appear; warmup period must be silent
-    reasons = [s.metadata["reason"] for s in signals]
-    assert any(r in ("lorentzian_new_long", "lorentzian_new_short") for r in reasons)

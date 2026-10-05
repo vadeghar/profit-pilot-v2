@@ -18,7 +18,7 @@ import platform_config as config
 from brokers import BrokerFactory, MockBroker
 from market_data import MarketDataManager, CandleBuilder
 from execution import ExecutionEngine, RiskManager, ExecutionPolicy
-from strategies import StrategyRegistry, StrategyBase
+from core.strategy import StrategyRegistry, StrategyBase
 from persistence.journal import StateStore
 from core.models import (
     StrategyConfig, StrategyState, StrategyStatus, ExecutionMode,
@@ -356,10 +356,6 @@ class PlatformCLI:
             print(f"Warning: Could not initialize {provider_name} provider: {e}")
             print("Falling back to mock data")
             data_provider = None
-
-        # Default wider window for daily MCX / trend systems
-        if strategy_id == 'mcx_trend_rider' and not self.args.start_date:
-            start = datetime(2024, 1, 1, tzinfo=_CLI_IST)
 
         # Create backtest config
         bt_config = BacktestConfig(

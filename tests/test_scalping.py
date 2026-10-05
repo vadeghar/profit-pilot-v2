@@ -5,9 +5,9 @@ import pytest
 
 from market_data.tick_recorder import parse_snapquote
 from market_data.tick_store import Instrument, Tick, TickWriter, compress_day, list_days, load_instruments, read_ticks
-from strategies.scalping import SCALP_STRATEGIES, OiVolumeBurst, ScalpConfig, ScalpEngine
-from strategies.scalping.engine import Series
-from strategies.scalping.orderflow import PcrVelocity, StealthAccumulation
+from scalp_strategies import SCALP_STRATEGIES, OiVolumeBurst, ScalpConfig, ScalpEngine
+from scalp_strategies.engine import Series
+from scalp_strategies.orderflow import PcrVelocity, StealthAccumulation
 from utils.timezone import IST
 
 DAY = date(2026, 9, 29)
@@ -240,7 +240,7 @@ def test_pcr_velocity_ignores_a_token_unwind():
 # ------------------------------------------------------ expiry trend breakout
 def expiry_session(expiry="2026-09-29"):
     """Index sits at 22550, dips to 22430 (a 0.53% range), then closes a minute at 22560 after 11:00."""
-    from strategies.scalping import ExpiryTrendBreakout
+    from scalp_strategies import ExpiryTrendBreakout
     ii = insts()
     for i in ii.values():
         if i.kind in ("CE", "PE"):
@@ -276,7 +276,7 @@ def test_expiry_breakout_stays_out_when_it_is_not_expiry_day():
 
 
 def test_expiry_breakout_is_flat_before_the_closing_auction():
-    from strategies.scalping import ExpiryGammaSqueeze, ExpiryTrendBreakout
+    from scalp_strategies import ExpiryGammaSqueeze, ExpiryTrendBreakout
     assert ExpiryTrendBreakout.default_config().square_off == "15:10"
     assert ExpiryGammaSqueeze.default_config().square_off == "15:10"
 
@@ -284,7 +284,7 @@ def test_expiry_breakout_is_flat_before_the_closing_auction():
 # ---------------------------------------------------------- expiry gamma squeeze
 def gamma_session(aggressive=True, after=None):
     """12:55-13:20 quiet Rs 15 call losing OI with the future above its VWAP, then a burst through its 5-min high."""
-    from strategies.scalping import ExpiryGammaSqueeze
+    from scalp_strategies import ExpiryGammaSqueeze
     ii = insts()
     for i in ii.values():
         if i.kind in ("CE", "PE"):
@@ -393,7 +393,7 @@ class FakeHub:
 
 
 def test_running_sessions_resume_after_restart_but_stopped_ones_do_not(tmp_path):
-    from execution.scalping_paper_trader import ScalpPaperSession, sessions_to_resume
+    from scalp_strategies.paper_trader import ScalpPaperSession, sessions_to_resume
     a = ScalpPaperSession("scalp_trap_fade", capital=50_000, overrides={"sl_pct": 0.08}, hub=FakeHub(), state_dir=tmp_path)
     b = ScalpPaperSession("scalp_pcr_velocity", capital=100_000, hub=FakeHub(), state_dir=tmp_path)
     a.start()
@@ -413,7 +413,7 @@ def test_running_sessions_resume_after_restart_but_stopped_ones_do_not(tmp_path)
 
 def test_daily_summary_reports_each_scalper_and_the_total(tmp_path):
     import json
-    from tools.scalping.daily_summary import build
+    from scalp_strategies.tools.daily_summary import build
     trade = {"date": "2026-10-01", "symbol": "NIFTY06OCT2622500PE", "lots": 6, "entry": 112.8, "exit": 135.35,
              "entry_time": "2026-10-01T12:10:15+05:30", "reason": "TARGET", "net": 8627.0}
     old = {**trade, "date": "2026-09-30", "net": -999.0}

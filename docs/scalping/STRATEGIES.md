@@ -1,6 +1,6 @@
 # Scalping Strategy Rules (as implemented)
 
-All five share the engine in `strategies/scalping/engine.py`. Ticks are aggregated per contract into
+All seven share the engine in `scalp_strategies/engine.py`. Ticks are aggregated per contract into
 **15-second buckets**; "k minutes" below means the last k minutes of closed buckets. Signals are
 checked once per closed bucket; exits on every tick of the held contract.
 
@@ -92,7 +92,7 @@ entry rules; it is available as `OiVolumeBurst.REQUIRE_BREAKOUT` (off by default
 ## Expiry Trend Breakout (expiry day only)
 
 Found by testing ~3,600 time/price rule sets on every NIFTY and SENSEX weekly expiry from Sep-2025 to
-Sep-2026 (1-minute Breeze data, `tools/research/`). Blind option buying on expiry lost on average; the
+Sep-2026 (1-minute Breeze data, `scalp_strategies/research/`). Blind option buying on expiry lost on average; the
 rule below was profitable on both indices and in both halves of the year.
 
 1. Today is the expiry day of the recorded option chain (other days it never trades).
@@ -104,7 +104,7 @@ One trade per direction per day; stop -30%, target +100%, square-off 15:10; no t
 Sizing: 25% of the current balance per trade (`deploy_pct`). The paper session starts with the app
 (`AUTO_START`) and stays idle on non-expiry days; a Stop from the dashboard is remembered.
 
-Study result for NIFTY replayed through this engine (`tools/research/replay_expiry_engine.py`, 57 expiry
+Study result for NIFTY replayed through this engine (`scalp_strategies/research/replay_expiry_engine.py`, 57 expiry
 days, LTP +/- Rs 0.5 fills): 44 trades, 34% winners, 32% doubled, +10.4% average per trade, longest
 losing streak 6; Rs 50,000 -> Rs 92,785 at 25% per trade with a 47.7% maximum drawdown. The rule is the
 best of many tested, so expect less live. Differences from the study: one position at a time (the study
@@ -153,7 +153,7 @@ expiry cards are therefore flat by 15:10; S1-S4 and OI Burst already square off 
 ## Experimental options (off by default)
 
 Both are `ScalpConfig` fields, so they can be switched per run without a code change. Live paper
-trading uses the defaults; `tools/scalping/condition_report.py` replays them every day in its
+trading uses the defaults; `scalp_strategies/tools/condition_report.py` replays them every day in its
 "Experimental options" section so they can be judged on more than one session.
 
 - `big_print_basis = "volume"` - a big print is a snapshot whose **traded volume since the previous

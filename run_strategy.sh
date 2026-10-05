@@ -38,9 +38,7 @@ usage() {
     echo -e "  $0 web [port]"
     echo -e ""
     echo -e "Examples:"
-    echo -e "  ${GREEN}$0 backtest ema_crossover${NC}"
-    echo -e "  ${GREEN}$0 backtest rsi --instrument NSE:BANKNIFTY --timeframe 15m${NC}"
-    echo -e "  ${GREEN}$0 backtest breakout --capital 200000${NC}"
+    echo -e "  ${GREEN}$0 backtest <strategy_id> --instrument NSE:NIFTY --timeframe 15m --capital 200000${NC}"
     echo -e "  ${GREEN}$0 list${NC}"
     echo -e "  ${GREEN}$0 web 8080${NC}"
     exit 1
@@ -57,7 +55,7 @@ case "$CMD" in
     backtest)
         if [ $# -eq 0 ]; then
             echo -e "${RED}Error: Strategy ID or Name required for backtest!${NC}"
-            echo -e "Available strategies: ema_crossover, rsi, breakout, mcx_trend_rider, equity_swing_vcp, index_oi_momentum"
+            echo -e "Run '$0 list' to see the registered strategies (the tick scalpers run from the dashboard)."
             exit 1
         fi
         STRAT="$1"
@@ -73,7 +71,7 @@ case "$CMD" in
         ;;
 
     run|start)
-        STRAT="${1:-ema_crossover}"
+        STRAT="${1:?strategy id required - run '$0 list'}"
         INST="${2:-NSE:NIFTY}"
         print_banner
         echo -e "${GREEN}>>> Starting live/paper strategy daemon: $STRAT on $INST${NC}"

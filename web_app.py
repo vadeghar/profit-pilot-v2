@@ -25,7 +25,7 @@ from typing import AsyncGenerator
 from core.models import (
     OrderSide, OrderType, OrderProductType, Candle, Trade, BacktestResult, BacktestStatus
 )
-from strategies import StrategyRegistry
+from core.strategy import StrategyRegistry
 from backtest import BacktestEngine, BacktestConfig
 from brokers import MockBroker, BrokerFactory
 from execution import ExecutionEngine, RiskManager
@@ -53,152 +53,12 @@ execution_engine = ExecutionEngine(mock_broker, {'orderRetryAttempts': 3})
 active_strategies: Dict[str, Any] = {}
 recent_backtests: List[Dict[str, Any]] = []
 
-# Dropdown list shown on spot/equity strategy cards from universe.yaml.
+# Symbol list for strategy cards that trade the global universe (platform_config/universe.yaml).
 GLOBAL_UNIVERSE: list[dict[str, str]] = build_dropdown_list()
-EQUITY_UNIVERSE: list[dict[str, str]] = [
-  {"label": item["label"], "value": item["symbol"]}
-  for item in get_all_instruments()
-]
-EQUITY_SYMBOLS = ", ".join(item["value"] for item in EQUITY_UNIVERSE)
+
+# Dashboard cards. Regular (candle/tick) strategies are declared here; the tick scalpers are added
+# below from scalp_strategies. Flags and status come from platform_config/strategy_flags.yaml.
 STRATEGY_CATALOG = {
-    "mcx_trend_rider": {
-        "id": "mcx_trend_rider",
-        "name": "MCX Trend Rider",
-        "badge": "Institutional Grade",
-        "badge_color": "emerald",
-        "icon": "fa-fire-flame-curved",
-        "description": "Turtle-inspired dual Donchian (20/55) breakout with ADX(14)>=20 filter, 1% volatility sizing, and Chandelier ATR trailing stop.",
-        "asset_class": "MCX Commodities (Futures)",
-        "data_provider": "Breeze",
-        "default_symbols": "MCX_GOLDM, MCX_SILVERM, MCX_CRUDEOIL",
-        "allowed_symbols": [
-            {"label": "MCX Trend Basket (GoldM + SilverM + CrudeOil)", "value": "MCX_GOLDM, MCX_SILVERM, MCX_CRUDEOIL"},
-            {"label": "Gold Mini Futures (MCX_GOLDM)", "value": "MCX_GOLDM"},
-            {"label": "Silver Mini Futures (MCX_SILVERM)", "value": "MCX_SILVERM"},
-            {"label": "Crude Oil Futures (MCX_CRUDEOIL)", "value": "MCX_CRUDEOIL"}
-        ],
-        "default_timeframe": "1d",
-        "default_capital": 100000.0,
-        "default_start_date": "2026-01-01",
-        "default_end_date": "2026-09-23",
-        "default_params": {
-            "capital": 100000.0,
-            "risk_pct": 0.01,
-            "use_loser_filter": True,
-            "use_sma_filter": False,
-            "adx_threshold": 20.0
-        },
-        "param_schema": [
-            {"key": "risk_pct", "label": "Risk % per Trade", "type": "number", "default": 0.01, "step": 0.005},
-            {"key": "adx_threshold", "label": "ADX Trend Filter Threshold", "type": "number", "default": 20.0, "step": 1.0},
-            {"key": "use_loser_filter", "label": "Skip 20d after loss (Turtle Rule)", "type": "boolean", "default": True}
-        ],
-        "historical_stats": {
-            "return_pct": "+46.67%",
-            "win_rate": "44.4%",
-            "max_dd": "8.84%",
-            "sharpe": "0.79"
-        }
-    },
-    "ema_crossover": {
-        "id": "ema_crossover",
-        "name": "EMA Crossover Momentum",
-        "badge": "Trend Following",
-        "badge_color": "cyan",
-        "icon": "fa-chart-line",
-        "description": "Fast & Slow Exponential Moving Average crossover system with ATR stop and trailing risk management.",
-        "asset_class": "NSE Equities / Indices",
-        "data_provider": "Breeze",
-        "default_symbols": EQUITY_SYMBOLS,
-        "use_global_universe": True,
-        "allowed_symbols": EQUITY_UNIVERSE,
-        "default_timeframe": "1d",
-        "default_capital": 100000.0,
-        "default_start_date": "2026-01-01",
-        "default_end_date": "2026-09-23",
-        "default_params": {
-            "fast_period": 9,
-            "slow_period": 21,
-            "quantity": 1
-        },
-        "param_schema": [
-            {"key": "fast_period", "label": "Fast EMA Period", "type": "number", "default": 9, "step": 1},
-            {"key": "slow_period", "label": "Slow EMA Period", "type": "number", "default": 21, "step": 1},
-            {"key": "quantity", "label": "Order Quantity", "type": "number", "default": 1, "step": 1}
-        ],
-        "historical_stats": {
-            "return_pct": "Benchmarked",
-            "win_rate": "48.2%",
-            "max_dd": "12.4%",
-            "sharpe": "0.85"
-        }
-    },
-    "rsi": {
-        "id": "rsi",
-        "name": "RSI Mean Reversion",
-        "badge": "Counter-Trend",
-        "badge_color": "purple",
-        "icon": "fa-wave-square",
-        "description": "Exploits extreme overbought/oversold swings in oscillator range with trailing breakeven protection.",
-        "asset_class": "NSE Equities / Indices",
-        "data_provider": "Breeze",
-        "default_symbols": EQUITY_SYMBOLS,
-        "use_global_universe": True,
-        "allowed_symbols": EQUITY_UNIVERSE,
-        "default_timeframe": "1d",
-        "default_capital": 100000.0,
-        "default_start_date": "2026-01-01",
-        "default_end_date": "2026-09-23",
-        "default_params": {
-            "period": 14,
-            "oversold": 30.0,
-            "overbought": 70.0,
-            "quantity": 1
-        },
-        "param_schema": [
-            {"key": "period", "label": "RSI Calculation Period", "type": "number", "default": 14, "step": 1},
-            {"key": "oversold", "label": "Oversold Buy Threshold", "type": "number", "default": 30.0, "step": 1},
-            {"key": "overbought", "label": "Overbought Sell Threshold", "type": "number", "default": 70.0, "step": 1},
-            {"key": "quantity", "label": "Order Quantity", "type": "number", "default": 1, "step": 1}
-        ],
-        "historical_stats": {
-            "return_pct": "Benchmarked",
-            "win_rate": "52.0%",
-            "max_dd": "9.5%",
-            "sharpe": "0.91"
-        }
-    },
-    "breakout": {
-        "id": "breakout",
-        "name": "Donchian Breakout 20",
-        "badge": "Volatility Breakout",
-        "badge_color": "amber",
-        "icon": "fa-arrows-split-up-and-left",
-        "description": "Pure Donchian 20-period price channel breakout taking positions on new periodic high/low closes.",
-        "asset_class": "NSE Equities / Multi-Asset",
-        "data_provider": "Breeze",
-        "default_symbols": EQUITY_SYMBOLS,
-        "use_global_universe": True,
-        "allowed_symbols": EQUITY_UNIVERSE,
-        "default_timeframe": "1d",
-        "default_capital": 100000.0,
-        "default_start_date": "2026-01-01",
-        "default_end_date": "2026-09-23",
-        "default_params": {
-            "lookback": 20,
-            "quantity": 1
-        },
-        "param_schema": [
-            {"key": "lookback", "label": "Channel Lookback Periods", "type": "number", "default": 20, "step": 1},
-            {"key": "quantity", "label": "Order Quantity", "type": "number", "default": 1, "step": 1}
-        ],
-        "historical_stats": {
-            "return_pct": "Benchmarked",
-            "win_rate": "41.5%",
-            "max_dd": "14.2%",
-            "sharpe": "0.72"
-        }
-    },
     "index_oi_momentum": {
         "id": "index_oi_momentum",
         "name": "Index Options OI Momentum",
@@ -249,195 +109,6 @@ STRATEGY_CATALOG = {
         # Paper-only live strategy - no traditional backtest button in modal
         "paper_only_live": True
     },
-    "nifty_no_brainer": {
-        "id": "nifty_no_brainer",
-        "name": "NIFTY No Brainer",
-        "badge": "Monthly Call Spread",
-        "badge_color": "amber",
-        "icon": "fa-layer-group",
-        "description": "Monthly NIFTY CE ratio: buy ATM+300 and a round far hedge, sell two lots 300 points above the near buy. Enters at 15:16 IST on the last valid Friday; expiry comes from the contract master.",
-        "asset_class": "NIFTY Index Options (Monthly)",
-        "data_provider": "breeze",
-        "default_symbols": "NIFTY",
-        "allowed_symbols": [{"label": "NIFTY Monthly Call Spread", "value": "NIFTY"}],
-        "default_timeframe": "1m",
-        "default_capital": 100000.0,
-        "default_start_date": "2026-01-01",
-        "default_end_date": __import__("datetime").date.today().isoformat(),
-        "default_params": {
-            "capital": 100000.0,
-            "lot_size": 65,
-            "entry_time": "15:16",
-            "target_pct": 0.025,
-            "stop_pct": 0.03,
-            "time_exit_days": 19,
-            "brokerage_per_order": 20.0,
-            "max_shift_steps": None,
-            "hedge_recalc_on_shift": True,
-            "live_order_placement": False
-        },
-        "param_schema": [
-            {"key": "lot_size", "label": "NIFTY Lot Size (contract master)", "type": "number", "default": 65, "step": 1},
-            {"key": "target_pct", "label": "Target (% of Capital)", "type": "number", "default": 0.025, "step": 0.0025},
-            {"key": "stop_pct", "label": "Stop Loss (% of Capital)", "type": "number", "default": 0.03, "step": 0.0025},
-            {"key": "time_exit_days", "label": "Max Hold (Calendar Days)", "type": "number", "default": 19, "step": 1},
-            {"key": "brokerage_per_order", "label": "Brokerage per Order (Rs, your plan)", "type": "number", "default": 20.0, "step": 1}
-        ],
-        "historical_stats": {
-            "return_pct": "Pending Backtest",
-            "win_rate": "Pending Backtest",
-            "max_dd": "3.0% Strategy Stop",
-            "sharpe": "Pending Backtest"
-        },
-        # This strategy is available from Strategy Studio for historical
-        # simulation as well as live/paper execution.
-        "paper_only_live": False
-    },
-    "four_indicator_system": {
-        "id": "four_indicator_system",
-        "name": "Four Indicator System",
-        "badge": "Intraday Call/Put Buying",
-        "badge_color": "cyan",
-        "icon": "fa-bolt-lightning",
-        "description": "SuperTrend(10,3) trend + RSI(14) momentum + prior-day Pivot R1/S1 breakout + Bollinger(20,2) 'super candle' filter buys NIFTY calls (RSI>70, above R1/upper band) or puts (RSI<30, below S1/lower band) near a 1%-of-spot premium strike; SuperTrend flip is the exit/trailing stop. Exact call-side rules from 'The 4 Indicator System for Option Buying' (Darin Dharan); the put side is the exact mirror.",
-        "asset_class": "NIFTY Index Options (Intraday)",
-        "data_provider": "breeze",
-        "default_symbols": "NIFTY",
-        "allowed_symbols": [{"label": "NIFTY 5m Intraday Call/Put Buying", "value": "NIFTY"}],
-        "default_timeframe": "5m",
-        "default_capital": 100000.0,
-        "default_start_date": "2026-01-01",
-        "default_end_date": __import__("datetime").date.today().isoformat(),
-        "default_params": {
-            "capital": 100000.0,
-            "capital_per_lot": 50000.0,
-            "target_premium_pct": 0.01,
-            "supertrend_period": 10,
-            "supertrend_multiplier": 3.0,
-            "rsi_period": 14,
-            "rsi_threshold": 70.0,
-            "put_rsi_threshold": 30.0,
-            "bollinger_period": 20,
-            "bollinger_std": 2.0,
-            "enable_calls": True,
-            "enable_puts": True
-        },
-        "param_schema": [
-            {"key": "capital_per_lot", "label": "Capital Allocated per Lot (Rs)", "type": "number", "default": 50000.0, "step": 5000.0},
-            {"key": "target_premium_pct", "label": "Target Premium (% of Spot)", "type": "number", "default": 0.01, "step": 0.0025},
-            {"key": "supertrend_period", "label": "SuperTrend Period", "type": "number", "default": 10, "step": 1},
-            {"key": "supertrend_multiplier", "label": "SuperTrend Multiplier", "type": "number", "default": 3.0, "step": 0.5},
-            {"key": "rsi_threshold", "label": "Call RSI Momentum Threshold (above)", "type": "number", "default": 70.0, "step": 1.0},
-            {"key": "put_rsi_threshold", "label": "Put RSI Momentum Threshold (below)", "type": "number", "default": 30.0, "step": 1.0},
-            {"key": "bollinger_std", "label": "Bollinger Std Dev", "type": "number", "default": 2.0, "step": 0.1},
-            {"key": "enable_calls", "label": "Enable Call (CE) Entries", "type": "boolean", "default": True},
-            {"key": "enable_puts", "label": "Enable Put (PE) Entries", "type": "boolean", "default": True}
-        ],
-        "historical_stats": {
-            "return_pct": "Pending Backtest",
-            "win_rate": "40-45% target (per source)",
-            "max_dd": "Pending Backtest",
-            "sharpe": "Pending Backtest"
-        },
-        # Available from Strategy Studio for historical simulation as well as
-        # live/paper deployment (forward-test on real candles).
-        "paper_only_live": False
-    },
-    "equity_swing_vcp": {
-        "id": "equity_swing_vcp",
-        "name": "Equity Swing VCP",
-        "badge": "Minervini Swing",
-        "badge_color": "emerald",
-        "icon": "fa-arrow-trend-up",
-        "description": "Mark Minervini 8-Point Trend Template + Volatility Contraction Pattern (VCP) with volume breakout confirmation and staged 21 EMA trailing stop.",
-        "asset_class": "NSE Equities (Positional 1-3m)",
-        "data_provider": "Breeze",
-        "default_symbols": EQUITY_SYMBOLS,
-        "use_global_universe": True,
-        "allowed_symbols": EQUITY_UNIVERSE,
-        "default_timeframe": "1d",
-        "default_capital": 100000.0,
-        "default_start_date": "2026-01-01",
-        "default_end_date": "2026-09-23",
-        "default_params": {
-            "capital": 100000.0,
-            "risk_pct": 0.0125,
-            "stop_pct": 0.07,
-            "volume_breakout_mult": 1.3,
-            "partial_r": 2.0
-        },
-        "param_schema": [
-            {"key": "risk_pct", "label": "Risk % per Trade", "type": "number", "default": 0.0125, "step": 0.0025},
-            {"key": "stop_pct", "label": "Stop Loss Limit (0.07 = 7%)", "type": "number", "default": 0.07, "step": 0.01},
-            {"key": "volume_breakout_mult", "label": "Volume Surge vs 50 SMA", "type": "number", "default": 1.3, "step": 0.1}
-        ],
-        "historical_stats": {
-            "return_pct": "Multi-Stock Screened",
-            "win_rate": "42.0%+",
-            "max_dd": "9.03%",
-            "sharpe": "Positive Alpha"
-        }
-    },
-    "lorentzian_ml": {
-        "id": "lorentzian_ml",
-        "name": "Lorentzian Classification ML",
-        "badge": "Machine Learning",
-        "badge_color": "purple",
-        "icon": "fa-brain",
-        "description": "Approximate nearest-neighbor classifier with Lorentzian distance over normalized RSI/WaveTrend/CCI/ADX features, Kalman-regime + volatility filters, and Nadaraya-Watson kernel exits. Fed by Breeze OHLC.",
-        "asset_class": "NSE Equities / Indices",
-        "data_provider": "Breeze",
-        "use_global_universe": True,
-        "default_symbols": EQUITY_SYMBOLS,
-        "allowed_symbols": EQUITY_UNIVERSE,
-        "default_timeframe": "1d",
-        "default_capital": 100000.0,
-        "default_start_date": "2026-01-01",
-        "default_end_date": "2026-09-23",
-        "default_params": {
-            "timeframe": "1d",
-            "ticker": "NSE:NIFTY",
-            "neighbors_count": 8,
-            "max_bars_back": 2000,
-            "feature_count": 5,
-            "use_volatility_filter": True,
-            "use_regime_filter": True,
-            "regime_threshold": -0.1,
-            "use_kernel_filter": True,
-            "use_dynamic_exits": False,
-            "bollinger_enabled": False,
-            "bollinger_length": 19,
-            "bollinger_mult": 2.36,
-            "bollinger_offset": 0,
-            "bollinger_ma_type": "WMA",
-            "quantity": 1,
-            "min_history_bars": 60
-        },
-        "param_schema": [
-            {"key": "timeframe", "label": "Timeframe", "type": "select", "options": ["1m", "5m", "15m", "30m", "1h", "4h", "1d", "1wk"], "default": "1d"},
-            {"key": "neighbors_count", "label": "Neighbors Count (k)", "type": "number", "default": 8, "step": 1},
-            {"key": "feature_count", "label": "Feature Count", "type": "number", "default": 5, "step": 1},
-            {"key": "use_dynamic_exits", "label": "Use Kernel Dynamic Exits", "type": "boolean", "default": False},
-            {"key": "regime_threshold", "label": "Regime Threshold", "type": "number", "default": -0.1, "step": 0.1},
-            {"key": "quantity", "label": "Order Quantity", "type": "number", "default": 1, "step": 1}
-        ],
-        "bollinger_schema": {
-            "label": "Bollinger Bands",
-            "enable_key": "bollinger_enabled",
-            "fields": [
-                {"key": "bollinger_length", "label": "Length", "type": "number", "default": 19, "step": 1},
-                {"key": "bollinger_mult", "label": "Multiplier (Mult)", "type": "number", "default": 2.36, "step": 0.01},
-                {"key": "bollinger_offset", "label": "Offset", "type": "number", "default": 0, "step": 1},
-                {"key": "bollinger_ma_type", "label": "MA Type", "type": "select", "options": ["SMA", "WMA", "EMA", "DEMA", "TEMA"], "default": "WMA"}
-            ]
-        },
-        "historical_stats": {
-            "return_pct": "KNN Backtested",
-            "win_rate": "Signal-Driven",
-            "max_dd": "4-Bar Holding",
-            "sharpe": "ML"
-        }
-    }
 }
 
 
@@ -472,7 +143,7 @@ _SCALP_CARDS = [
      "aggression (stop-limit: high + 0.20, limit + 0.40). Target +100%, stop -35%, breakeven lock at +40%, "
      "8-min time stop, flat by 15:10. One lot, max 3 trades. Starts by itself with the app."),
 ]
-from strategies.scalping import SCALP_STRATEGIES as _SCALP_CLASSES
+from scalp_strategies import SCALP_STRATEGIES as _SCALP_CLASSES
 for _sid, _name, _icon, _color, _desc in _SCALP_CARDS:
     _cfg = _SCALP_CLASSES[_sid].default_config()
     STRATEGY_CATALOG[_sid] = {
@@ -538,9 +209,9 @@ class ForwardTestRegisterRequest(BaseModel):
 @app.get("/api/catalog")
 def get_strategy_catalog():
     """Return structured strategy cards metadata with default parameters and symbols,
-    plus classification flags, status and audited backtest results."""
+    plus classification flags and status."""
     from platform_config.strategy_meta import FLAG_GROUPS, enrich_catalog
-    enrich_catalog(STRATEGY_CATALOG)  # re-read per request: a regenerated audit shows without a restart
+    enrich_catalog(STRATEGY_CATALOG)  # re-read per request: edited flags show without a restart
     return {"catalog": list(STRATEGY_CATALOG.values()), "flag_groups": FLAG_GROUPS}
 
 
@@ -645,8 +316,8 @@ def run_oi_momentum_backtest_api(req: BacktestRequest):
         idx_list = ["NIFTY"]
     else:
         idx_list = idx_list[:1]
-    from backtest.oi_momentum_backtest import run_backtest as _run_oi
-    from strategies.index_oi_momentum import IndexOIMomentumStrategy, is_expiry_day
+    from trading_strategies.index_oi_momentum.backtest import run_backtest as _run_oi
+    from trading_strategies.index_oi_momentum.strategy import IndexOIMomentumStrategy, is_expiry_day
     try:
         out = _run_oi(IndexOIMomentumStrategy, idx_list, start, end, req.params or {}, capital=req.capital)
         # mode badges per selected symbol as of end date
@@ -860,9 +531,9 @@ def start_backtest_stream(req: BacktestRequest, background_tasks: BackgroundTask
     )
 
     # Tick scalpers replay recorded ticks (data/ticks), never candles.
-    from strategies.scalping import SCALP_STRATEGIES
+    from scalp_strategies import SCALP_STRATEGIES
     if req.strategy_id in SCALP_STRATEGIES:
-        from backtest.scalping_backtest import run_scalping_backtest, to_ui_result as scalp_ui_result
+        from scalp_strategies.backtest import run_scalping_backtest, to_ui_result as scalp_ui_result
         job_id = job_manager.create_job(bt_config, None)
 
         def run_scalp_backtest_job():
@@ -893,124 +564,6 @@ def start_backtest_stream(req: BacktestRequest, background_tasks: BackgroundTask
                 job.status = "failed"
                 job_manager.add_event(job_id, "backtest_failed", {"error": str(exc)})
         background_tasks.add_task(run_scalp_backtest_job)
-        return {"job_id": job_id, "status": "started"}
-
-    # NIFTY No Brainer is a dynamic three-leg option strategy: it cannot use the
-    # generic single-instrument candle engine.  It always reads Breeze live
-    # (no candle cache, weekends/holidays never requested).
-    if req.strategy_id == "nifty_no_brainer":
-        from backtest.nifty_no_brainer_runner import run_backtest as run_nifty_nb, to_ui_result
-        from market_data.breeze_data_provider import BreezeHistoricalDataProvider
-        job_id = job_manager.create_job(bt_config, None)
-        nb_params = req.params or {}
-        try:
-            nb_provider = BreezeHistoricalDataProvider(persist_cache=False)
-            nb_provider.verify_once = True
-            nb_provider.ensure_authenticated()
-        except Exception as e:
-            job = job_manager.get_job(job_id)
-            if job:
-                job.status = "failed"
-            job_manager.add_event(job_id, "backtest_failed", {"error": f"Breeze session not usable: {e}"})
-            return {"job_id": job_id, "status": "failed", "error": str(e)}
-
-        def run_nifty_backtest():
-            job = job_manager.get_job(job_id)
-            if not job:
-                return
-            job.status = "running"
-            job_manager.add_event(job_id, "backtest_started", {"strategy_id": "nifty_no_brainer"})
-            months_total = max(1, (end.year - start.year) * 12 + end.month - start.month + 1)
-            done = {"n": 0}
-
-            def on_month(trade):
-                done["n"] += 1
-                job_manager.add_event(job_id, "progress", {
-                    "progress": min(99.0, done["n"] / months_total * 100),
-                    "instrument": f"NIFTY {trade.month} ({trade.status} {trade.decision})"})
-            try:
-                from brokers.breeze_margin import margin_settings
-                margin_cfg = margin_settings(nb_provider, str(nb_params.get("margin_mode") or "calibrated"))
-                from backtest.charges import ChargeConfig
-                report = run_nifty_nb(
-                    nb_provider, start.date(), end.date(), **margin_cfg,
-                    capital=float(req.capital),
-                    charges=ChargeConfig(brokerage_per_order=float(nb_params.get("brokerage_per_order", 20.0))),
-                    on_event=lambda kind, payload: job_manager.add_event(job_id, f"nifty_{kind}", payload),
-                    max_hold_days=int(nb_params.get("time_exit_days") or 19),
-                    lifecycle_timeframe=str(nb_params.get("lifecycle_timeframe") or "5m"),
-                    slippage_points=float(nb_params.get("slippage_points") or 0.0),
-                    progress=on_month)
-                result = to_ui_result(report, req.capital)
-                job.result, job.status = result, "completed"
-                job_manager.add_event(job_id, "backtest_completed", {"result": result})
-            except Exception as exc:
-                job.status = "failed"
-                job_manager.add_event(job_id, "backtest_failed", {"error": str(exc)})
-        background_tasks.add_task(run_nifty_backtest)
-        return {"job_id": job_id, "status": "started"}
-
-    # Four Indicator System resolves and prices a real single-leg CE contract
-    # per signal (strike chosen by real premium, not ATM): it cannot use the
-    # generic single-instrument candle engine either. Reads Breeze live.
-    if req.strategy_id == "four_indicator_system":
-        from backtest.four_indicator_backtest import run_four_indicator_backtest, to_ui_result
-        from market_data.breeze_data_provider import BreezeHistoricalDataProvider
-        job_id = job_manager.create_job(bt_config, None)
-        fi_params = req.params or {}
-        try:
-            fi_provider = BreezeHistoricalDataProvider(persist_cache=False)
-            fi_provider.verify_once = True
-            fi_provider.ensure_authenticated()
-        except Exception as e:
-            job = job_manager.get_job(job_id)
-            if job:
-                job.status = "failed"
-            job_manager.add_event(job_id, "backtest_failed", {"error": f"Breeze session not usable: {e}"})
-            return {"job_id": job_id, "status": "failed", "error": str(e)}
-
-        def run_four_indicator_backtest_job():
-            job = job_manager.get_job(job_id)
-            if not job:
-                return
-            job.status = "running"
-            job_manager.add_event(job_id, "backtest_started", {"strategy_id": "four_indicator_system"})
-            done = {"n": 0}
-
-            def on_progress(trade):
-                done["n"] += 1
-                job_manager.add_event(job_id, "progress", {
-                    "progress": min(99.0, done["n"] * 5.0),
-                    "instrument": f"NIFTY {trade.strike}{trade.side} ({trade.status} {trade.exit_reason or ''})"})
-            try:
-                from strategies.four_indicator_system import FourIndicatorConfig
-                cfg = FourIndicatorConfig(
-                    supertrend_period=int(fi_params.get("supertrend_period", 10)),
-                    supertrend_multiplier=float(fi_params.get("supertrend_multiplier", 3.0)),
-                    rsi_period=int(fi_params.get("rsi_period", 14)),
-                    rsi_threshold=float(fi_params.get("rsi_threshold", 70.0)),
-                    put_rsi_threshold=float(fi_params.get("put_rsi_threshold", 30.0)),
-                    bollinger_period=int(fi_params.get("bollinger_period", 20)),
-                    bollinger_std=float(fi_params.get("bollinger_std", 2.0)),
-                    timeframe=str(req.timeframe or "5m"),
-                    enable_calls=bool(fi_params.get("enable_calls", True)),
-                    enable_puts=bool(fi_params.get("enable_puts", True)),
-                )
-                report = run_four_indicator_backtest(
-                    fi_provider, start.date(), end.date(), timeframe=str(req.timeframe or "5m"),
-                    capital=float(req.capital),
-                    capital_per_lot=float(fi_params.get("capital_per_lot", 50000.0)),
-                    target_premium_pct=float(fi_params.get("target_premium_pct", 0.01)),
-                    config=cfg,
-                    on_event=lambda kind, payload: job_manager.add_event(job_id, f"four_indicator_{kind}", payload),
-                    progress=on_progress)
-                result = to_ui_result(report, req.capital)
-                job.result, job.status = result, "completed"
-                job_manager.add_event(job_id, "backtest_completed", {"result": result})
-            except Exception as exc:
-                job.status = "failed"
-                job_manager.add_event(job_id, "backtest_failed", {"error": str(exc)})
-        background_tasks.add_task(run_four_indicator_backtest_job)
         return {"job_id": job_id, "status": "started"}
 
     # Get data provider — fail fast with a clear message instead of silently
@@ -1236,15 +789,10 @@ def register_forward_test_api(req: ForwardTestRegisterRequest):
 
 
 OI_PAPER_SESSIONS: Dict[str, Any] = {}
-FOUR_INDICATOR_PAPER_SESSIONS: Dict[str, Any] = {}
 
-# Index OI Momentum's live tick-based paper-trading runner (Angel WebSocket2
-# SNAP_QUOTE feed) lives in its own module now - see the per-strategy
-# structural retrofit in execution/index_oi_momentum_paper_trader.py. It also
-# adds crash-safe state persistence (see that module's docstring for the
-# resume-vs-record-keeping scope boundary) that the original in-process-only
-# implementation did not have.
-from execution.index_oi_momentum_paper_trader import (
+# Index OI Momentum's live tick-based paper-trading runner (Angel WebSocket2 SNAP_QUOTE feed) with
+# crash-safe state persistence: trading_strategies/index_oi_momentum/paper_trader.py.
+from trading_strategies.index_oi_momentum.paper_trader import (
     OIPaperSession, _ist_str, _next_ist_close, _paper_load_env, _paper_safe_float,
 )
 
@@ -1300,7 +848,7 @@ def paper_persisted_sessions():
     """Every session snapshot on disk, including ones from a prior process
     (e.g. after a crash/restart) that no longer exist in memory. Read-only:
     a session marked "running" here is not automatically reattached to a
-    live feed - see execution/index_oi_momentum_paper_trader.py's docstring
+    live feed - see trading_strategies/index_oi_momentum/paper_trader.py's docstring
     for why. Use the normal start endpoint to begin a fresh session."""
     return {"sessions": OIPaperSession.list_persisted_sessions()}
 
@@ -1313,274 +861,6 @@ def paper_persisted_session_detail(session_id: str):
     return snapshot
 
 
-class FourIndicatorPaperStartRequest(BaseModel):
-    capital: float = 100000.0
-    capital_per_lot: float = 50000.0
-    target_premium_pct: float = 0.01
-    poll_interval_seconds: int = 60
-    params: Optional[Dict[str, Any]] = None
-
-
-@app.post("/api/paper/four-indicator/start")
-def start_four_indicator_paper(req: FourIndicatorPaperStartRequest):
-    """Start the dedicated Four Indicator System live PAPER-trading session.
-
-    Reuses the exact same signal engine and strike-selection rules as the
-    real backtest (see backtest/four_indicator_backtest.py); only the data
-    source differs (a rolling live fetch instead of a fixed historical
-    range). No real orders are ever placed.
-    """
-    from execution.four_indicator_paper_trader import FourIndicatorPaperSession, FourIndicatorPaperTrader
-    from market_data.breeze_data_provider import BreezeHistoricalDataProvider
-    from strategies.four_indicator_system import FourIndicatorConfig
-
-    if "four_indicator_system" in FOUR_INDICATOR_PAPER_SESSIONS and \
-       FOUR_INDICATOR_PAPER_SESSIONS["four_indicator_system"].status().get("status") == "RUNNING":
-        raise HTTPException(status_code=400, detail="Four Indicator System paper session already running")
-
-    p = req.params or {}
-    try:
-        provider = BreezeHistoricalDataProvider(persist_cache=False)
-        provider.verify_once = True
-        provider.ensure_authenticated()
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=f"Breeze session not usable: {e}")
-
-    cfg = FourIndicatorConfig(
-        supertrend_period=int(p.get("supertrend_period", 10)),
-        supertrend_multiplier=float(p.get("supertrend_multiplier", 3.0)),
-        rsi_period=int(p.get("rsi_period", 14)),
-        rsi_threshold=float(p.get("rsi_threshold", 70.0)),
-        put_rsi_threshold=float(p.get("put_rsi_threshold", 30.0)),
-        bollinger_period=int(p.get("bollinger_period", 20)),
-        bollinger_std=float(p.get("bollinger_std", 2.0)),
-        timeframe=str(p.get("timeframe", "5m")),
-        enable_calls=bool(p.get("enable_calls", True)),
-        enable_puts=bool(p.get("enable_puts", True)),
-    )
-    trader = FourIndicatorPaperTrader(
-        provider, capital=req.capital, capital_per_lot=req.capital_per_lot,
-        target_premium_pct=req.target_premium_pct, config=cfg,
-    )
-    sess = FourIndicatorPaperSession(trader, poll_interval_seconds=req.poll_interval_seconds)
-    FOUR_INDICATOR_PAPER_SESSIONS["four_indicator_system"] = sess
-    RunnerRegistry.register("four_indicator_system", "four_indicator_system", sess)
-    sess.start()
-    return {"status": "PAPER_RUNNING", "live_trading": False, **sess.status()}
-
-
-@app.get("/api/paper/four-indicator/status")
-def four_indicator_paper_status():
-    sess = FOUR_INDICATOR_PAPER_SESSIONS.get("four_indicator_system")
-    if not sess:
-        raise HTTPException(status_code=404, detail="No Four Indicator System paper session has been started")
-    return sess.status()
-
-
-@app.post("/api/paper/four-indicator/stop")
-def stop_four_indicator_paper():
-    sess = FOUR_INDICATOR_PAPER_SESSIONS.get("four_indicator_system")
-    if not sess:
-        raise HTTPException(status_code=404, detail="No Four Indicator System paper session has been started")
-    sess.stop("manual")
-    RunnerRegistry.unregister("four_indicator_system", "four_indicator_system")
-    return {"status": "STOPPED", **sess.status()}
-
-
-EQUITY_SWING_VCP_PAPER_SESSIONS: Dict[str, Any] = {}
-
-
-class EquitySwingVCPPaperStartRequest(BaseModel):
-    capital: float = 100000.0
-    symbols: Optional[List[str]] = None
-    poll_interval_seconds: int = 3600
-    data_provider: str = "yfinance"
-    params: Optional[Dict[str, Any]] = None
-
-
-@app.post("/api/paper/equity-swing-vcp/start")
-def start_equity_swing_vcp_paper(req: EquitySwingVCPPaperStartRequest):
-    """Start the dedicated Equity Swing VCP live PAPER-trading session.
-
-    A daily-bar strategy: each poll replays the real EquitySwingVCPStrategy
-    over each watched symbol's full history (see
-    execution/equity_swing_vcp_paper_trader.py) and only acts on signals
-    newer than the last one already processed. No real orders are placed.
-    """
-    from execution.equity_swing_vcp_paper_trader import (
-        EquitySwingVCPPaperSession, EquitySwingVCPPaperTrader, default_equity_universe,
-    )
-
-    if "equity_swing_vcp" in EQUITY_SWING_VCP_PAPER_SESSIONS and \
-       EQUITY_SWING_VCP_PAPER_SESSIONS["equity_swing_vcp"].status().get("status") == "RUNNING":
-        raise HTTPException(status_code=400, detail="Equity Swing VCP paper session already running")
-
-    try:
-        provider = ProviderFactory.get(req.data_provider)
-        gate = getattr(provider, "ensure_authenticated", None)
-        if callable(gate):
-            gate()
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=f"Data provider '{req.data_provider}' not usable: {e}")
-
-    trader = EquitySwingVCPPaperTrader(
-        provider, symbols=req.symbols or default_equity_universe(), capital=req.capital,
-        params=req.params or {},
-    )
-    sess = EquitySwingVCPPaperSession(trader, poll_interval_seconds=req.poll_interval_seconds)
-    EQUITY_SWING_VCP_PAPER_SESSIONS["equity_swing_vcp"] = sess
-    RunnerRegistry.register("equity_swing_vcp", "equity_swing_vcp", sess)
-    sess.start()
-    return {"status": "PAPER_RUNNING", "live_trading": False, **sess.status()}
-
-
-@app.get("/api/paper/equity-swing-vcp/status")
-def equity_swing_vcp_paper_status():
-    sess = EQUITY_SWING_VCP_PAPER_SESSIONS.get("equity_swing_vcp")
-    if not sess:
-        raise HTTPException(status_code=404, detail="No Equity Swing VCP paper session has been started")
-    return sess.status()
-
-
-@app.post("/api/paper/equity-swing-vcp/stop")
-def stop_equity_swing_vcp_paper():
-    sess = EQUITY_SWING_VCP_PAPER_SESSIONS.get("equity_swing_vcp")
-    if not sess:
-        raise HTTPException(status_code=404, detail="No Equity Swing VCP paper session has been started")
-    sess.stop("manual")
-    RunnerRegistry.unregister("equity_swing_vcp", "equity_swing_vcp")
-    return {"status": "STOPPED", **sess.status()}
-
-
-MCX_TREND_RIDER_PAPER_SESSIONS: Dict[str, Any] = {}
-
-
-class MCXTrendRiderPaperStartRequest(BaseModel):
-    capital: float = 100000.0
-    instruments: Optional[List[str]] = None
-    poll_interval_seconds: int = 3600
-    data_provider: str = "angel"
-    params: Optional[Dict[str, Any]] = None
-
-
-@app.post("/api/paper/mcx-trend-rider/start")
-def start_mcx_trend_rider_paper(req: MCXTrendRiderPaperStartRequest):
-    """Start the dedicated MCX Trend Rider live PAPER-trading session.
-
-    Note: Angel One is the only provider with real MCX data, and its
-    MCX_* symbol map (market_data/angel_data_provider.py) is pinned to
-    specific expiry contracts that go stale every futures rollover - keep
-    that map current for this to fetch real data. No real orders are placed.
-    """
-    from execution.mcx_trend_rider_paper_trader import (
-        DEFAULT_INSTRUMENTS, MCXTrendRiderPaperSession, MCXTrendRiderPaperTrader,
-    )
-
-    if "mcx_trend_rider" in MCX_TREND_RIDER_PAPER_SESSIONS and \
-       MCX_TREND_RIDER_PAPER_SESSIONS["mcx_trend_rider"].status().get("status") == "RUNNING":
-        raise HTTPException(status_code=400, detail="MCX Trend Rider paper session already running")
-
-    try:
-        provider = ProviderFactory.get(req.data_provider)
-        gate = getattr(provider, "ensure_authenticated", None)
-        if callable(gate):
-            gate()
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=f"Data provider '{req.data_provider}' not usable: {e}")
-
-    trader = MCXTrendRiderPaperTrader(
-        provider, instruments=req.instruments or DEFAULT_INSTRUMENTS, capital=req.capital,
-        params=req.params or {},
-    )
-    sess = MCXTrendRiderPaperSession(trader, poll_interval_seconds=req.poll_interval_seconds)
-    MCX_TREND_RIDER_PAPER_SESSIONS["mcx_trend_rider"] = sess
-    RunnerRegistry.register("mcx_trend_rider", "mcx_trend_rider", sess)
-    sess.start()
-    return {"status": "PAPER_RUNNING", "live_trading": False, **sess.status()}
-
-
-@app.get("/api/paper/mcx-trend-rider/status")
-def mcx_trend_rider_paper_status():
-    sess = MCX_TREND_RIDER_PAPER_SESSIONS.get("mcx_trend_rider")
-    if not sess:
-        raise HTTPException(status_code=404, detail="No MCX Trend Rider paper session has been started")
-    return sess.status()
-
-
-@app.post("/api/paper/mcx-trend-rider/stop")
-def stop_mcx_trend_rider_paper():
-    sess = MCX_TREND_RIDER_PAPER_SESSIONS.get("mcx_trend_rider")
-    if not sess:
-        raise HTTPException(status_code=404, detail="No MCX Trend Rider paper session has been started")
-    sess.stop("manual")
-    RunnerRegistry.unregister("mcx_trend_rider", "mcx_trend_rider")
-    return {"status": "STOPPED", **sess.status()}
-
-
-LORENTZIAN_ML_PAPER_SESSIONS: Dict[str, Any] = {}
-
-
-class LorentzianMLPaperStartRequest(BaseModel):
-    capital: float = 100000.0
-    tickers: Optional[List[str]] = None
-    poll_interval_seconds: int = 3600
-    data_provider: str = "yfinance"
-    params: Optional[Dict[str, Any]] = None
-
-
-@app.post("/api/paper/lorentzian-ml/start")
-def start_lorentzian_ml_paper(req: LorentzianMLPaperStartRequest):
-    """Start the dedicated Lorentzian Classification ML live PAPER-trading session.
-
-    No capital-based sizing: the strategy always trades a fixed quantity
-    (default 1) per signal - balance is tracked for reporting only. No real
-    orders are ever placed.
-    """
-    from execution.lorentzian_ml_paper_trader import (
-        LorentzianMLPaperSession, LorentzianMLPaperTrader, default_tickers,
-    )
-
-    if "lorentzian_ml" in LORENTZIAN_ML_PAPER_SESSIONS and \
-       LORENTZIAN_ML_PAPER_SESSIONS["lorentzian_ml"].status().get("status") == "RUNNING":
-        raise HTTPException(status_code=400, detail="Lorentzian ML paper session already running")
-
-    try:
-        provider = ProviderFactory.get(req.data_provider)
-        gate = getattr(provider, "ensure_authenticated", None)
-        if callable(gate):
-            gate()
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=f"Data provider '{req.data_provider}' not usable: {e}")
-
-    trader = LorentzianMLPaperTrader(
-        provider, tickers=req.tickers or default_tickers(), capital=req.capital,
-        params=req.params or {},
-    )
-    sess = LorentzianMLPaperSession(trader, poll_interval_seconds=req.poll_interval_seconds)
-    LORENTZIAN_ML_PAPER_SESSIONS["lorentzian_ml"] = sess
-    RunnerRegistry.register("lorentzian_ml", "lorentzian_ml", sess)
-    sess.start()
-    return {"status": "PAPER_RUNNING", "live_trading": False, **sess.status()}
-
-
-@app.get("/api/paper/lorentzian-ml/status")
-def lorentzian_ml_paper_status():
-    sess = LORENTZIAN_ML_PAPER_SESSIONS.get("lorentzian_ml")
-    if not sess:
-        raise HTTPException(status_code=404, detail="No Lorentzian ML paper session has been started")
-    return sess.status()
-
-
-@app.post("/api/paper/lorentzian-ml/stop")
-def stop_lorentzian_ml_paper():
-    sess = LORENTZIAN_ML_PAPER_SESSIONS.get("lorentzian_ml")
-    if not sess:
-        raise HTTPException(status_code=404, detail="No Lorentzian ML paper session has been started")
-    sess.stop("manual")
-    RunnerRegistry.unregister("lorentzian_ml", "lorentzian_ml")
-    return {"status": "STOPPED", **sess.status()}
-
-
 SCALP_PAPER_SESSIONS: Dict[str, Any] = {}
 
 
@@ -1590,7 +870,7 @@ class ScalpPaperStartRequest(BaseModel):
 
 
 def _scalp_or_404(strategy_id: str):
-    from strategies.scalping import SCALP_STRATEGIES
+    from scalp_strategies import SCALP_STRATEGIES
     if strategy_id not in SCALP_STRATEGIES:
         raise HTTPException(status_code=404, detail=f"Unknown scalping strategy {strategy_id!r}")
 
@@ -1604,7 +884,7 @@ def start_scalp_paper(strategy_id: str, req: ScalpPaperStartRequest):
     across days until stopped.
     """
     _scalp_or_404(strategy_id)
-    from execution.scalping_paper_trader import ScalpPaperSession
+    from scalp_strategies.paper_trader import ScalpPaperSession
     running = SCALP_PAPER_SESSIONS.get(strategy_id)
     if running and running.status_text == "RUNNING":
         raise HTTPException(status_code=400, detail="This scalping paper session is already running")
@@ -1621,7 +901,7 @@ def scalp_paper_status(strategy_id: str):
     sess = SCALP_PAPER_SESSIONS.get(strategy_id)
     if sess:
         return sess.status()
-    from execution.scalping_paper_trader import persisted_status
+    from scalp_strategies.paper_trader import persisted_status
     from market_data.tick_recorder import get_hub
     saved = persisted_status(strategy_id) or {}
     return {"status": "IDLE", "strategy_id": strategy_id, "balance": saved.get("balance"),
@@ -1742,7 +1022,7 @@ async def startup_event():
     from market_data.tick_recorder import get_hub
     get_hub().start_scheduler()
     # Scalping paper sessions that were running before a restart/reboot resume by themselves.
-    from execution.scalping_paper_trader import ScalpPaperSession, sessions_to_resume
+    from scalp_strategies.paper_trader import ScalpPaperSession, sessions_to_resume
     for item in sessions_to_resume():
         try:
             sess = ScalpPaperSession(item["strategy_id"], capital=item["capital"], overrides=item["overrides"])
@@ -1934,17 +1214,6 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         <!-- Dynamically injected via JavaScript -->
       </div>
 
-      <!-- Strategy audit summary (filled from /api/catalog audit fields) -->
-      <div class="glass-card p-4 rounded-xl border border-gray-800 flex items-center space-x-3">
-        <div class="w-8 h-8 rounded-lg bg-cyan-950 text-cyan-400 border border-cyan-800 flex items-center justify-center text-sm">
-          <i class="fa-solid fa-clipboard-check"></i>
-        </div>
-        <div>
-          <div class="text-xs font-semibold text-white" id="audit-banner-title">Strategy audit</div>
-          <div class="text-[11px] text-gray-400" id="audit-banner-body">Real backtests net of commission, levies, spread and slippage - see docs/strategy_audit/STRATEGY_AUDIT_REPORT.md</div>
-        </div>
-      </div>
-
     </div>
 
     <!-- ==================== TAB 2: LIVE STRATEGY DAEMONS & POSITIONS ==================== -->
@@ -1961,25 +1230,19 @@ DASHBOARD_HTML = """<!DOCTYPE html>
             <div>
               <label class="block text-gray-400 mb-1">Strategy Name</label>
               <select id="deploy-strat-name" class="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white font-mono text-xs">
-                <option value="mcx_trend_rider">mcx_trend_rider (MCX Futures)</option>
-                <option value="ema_crossover">ema_crossover (NSE)</option>
-                <option value="rsi">rsi (NSE)</option>
-                <option value="breakout">breakout (NSE)</option>
-                <option value="equity_swing_vcp">equity_swing_vcp (NSE Equities)</option>
                 <option value="index_oi_momentum">index_oi_momentum (NSE/BSE Index Options)</option>
               </select>
             </div>
             <div>
               <label class="block text-gray-400 mb-1">Instance Unique ID</label>
-              <input type="text" id="deploy-strat-id" value="mcx_tr_live_01" class="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white font-mono text-xs">
+              <input type="text" id="deploy-strat-id" value="strategy_live_01" class="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white font-mono text-xs">
             </div>
             <div>
               <label class="block text-gray-400 mb-1">Instrument Target</label>
               <select id="deploy-strat-inst" class="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white font-mono text-xs">
-                <option value="MCX_GOLDM">MCX_GOLDM (Gold Mini)</option>
-                <option value="MCX_SILVERM">MCX_SILVERM (Silver Mini)</option>
-                <option value="MCX_CRUDEOIL">MCX_CRUDEOIL (Crude Oil)</option>
                 <option value="NSE:NIFTY">NSE:NIFTY</option>
+                <option value="NSE:BANKNIFTY">NSE:BANKNIFTY</option>
+                <option value="NSE:SENSEX">NSE:SENSEX</option>
               </select>
             </div>
             <button onclick="deployStrategy()" class="w-full py-2.5 bg-emerald-500 hover:bg-emerald-400 text-gray-950 font-bold rounded-xl text-xs transition flex items-center justify-center space-x-2">
@@ -2074,24 +1337,24 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs font-mono">
           <div class="p-4 bg-gray-950/80 rounded-xl border border-gray-800 space-y-2">
-            <span class="text-cyan-400 font-semibold text-[11px] uppercase">1. Run Strategy Backtests</span>
-            <pre class="text-gray-300 bg-gray-900 p-2.5 rounded border border-gray-800/80 overflow-x-auto"># Backtest MCX Trend Rider on one symbol
-trading-platform backtest mcx_trend_rider --instrument "MCX_GOLDM" --capital 100000
+            <span class="text-cyan-400 font-semibold text-[11px] uppercase">1. Scalper Reports & Tick Data</span>
+            <pre class="text-gray-300 bg-gray-900 p-2.5 rounded border border-gray-800/80 overflow-x-auto"># Why each scalper did or did not trade on a recorded day
+python -m scalp_strategies.tools.condition_report --date 2026-10-05
 
-# Backtest EMA Crossover on NIFTY
-trading-platform backtest ema_crossover
+# Preview the daily Telegram summary without sending it
+python -m scalp_strategies.tools.daily_summary --dry-run
 
-# Backtest RSI on Bank Nifty
-trading-platform backtest rsi --instrument NSE:BANKNIFTY --timeframe 15m</pre>
+# Rebuild a past session from Breeze 1-second bars
+python -m scalp_strategies.tools.import_breeze_1s --date 2026-09-29</pre>
           </div>
 
           <div class="p-4 bg-gray-950/80 rounded-xl border border-gray-800 space-y-2">
-            <span class="text-emerald-400 font-semibold text-[11px] uppercase">2. Forward Testing & Daemons</span>
-            <pre class="text-gray-300 bg-gray-900 p-2.5 rounded border border-gray-800/80 overflow-x-auto"># Run paper trading forward test with Angel One & Telegram
-python3 execution/forward_test_runner.py
+            <span class="text-emerald-400 font-semibold text-[11px] uppercase">2. Platform CLI</span>
+            <pre class="text-gray-300 bg-gray-900 p-2.5 rounded border border-gray-800/80 overflow-x-auto"># List the registered (non-scalper) strategies
+python main.py strategy list
 
 # Check platform status
-trading-platform status</pre>
+python main.py status</pre>
           </div>
         </div>
       </div>
@@ -2111,7 +1374,7 @@ trading-platform status</pre>
           </div>
           <div>
             <div class="flex items-center space-x-2">
-              <h3 class="font-bold text-base text-white" id="modal-strat-title">MCX Trend Rider</h3>
+              <h3 class="font-bold text-base text-white" id="modal-strat-title">Strategy</h3>
               <span id="modal-strat-badge" class="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-950 text-emerald-400 border border-emerald-800">
                 Institutional Grade
               </span>
@@ -2207,29 +1470,6 @@ trading-platform status</pre>
                 <i class="fa-solid fa-satellite-dish"></i><span>RUN PAPER LIVE (confirm)</span>
               </button>
             </div>
-            <div id="four-indicator-paper-box" class="hidden p-2 bg-gray-950/60 border border-cyan-500/30 rounded-lg text-[11px] space-y-1.5">
-              <div class="text-cyan-300 font-bold flex items-center space-x-1.5"><i class="fa-solid fa-satellite-dish"></i><span>Live paper trading — same rules as the backtest, no real orders</span></div>
-              <div class="grid grid-cols-2 gap-2">
-                <div>
-                  <label class="block text-gray-500 mb-0.5">Capital (₹)</label>
-                  <input id="fi-paper-capital" type="number" value="100000" step="10000" class="w-full bg-gray-900 border border-gray-700 rounded px-2 py-1 text-white font-mono text-[11px] focus:outline-none focus:border-cyan-500">
-                </div>
-                <div>
-                  <label class="block text-gray-500 mb-0.5">Capital / lot (₹)</label>
-                  <input id="fi-paper-capital-per-lot" type="number" value="50000" step="5000" class="w-full bg-gray-900 border border-gray-700 rounded px-2 py-1 text-white font-mono text-[11px] focus:outline-none focus:border-cyan-500">
-                </div>
-              </div>
-              <button onclick="startFourIndicatorPaper()" id="btn-fi-paper-start" class="w-full py-1.5 mt-1 bg-gradient-to-r from-cyan-500 to-emerald-500 hover:from-cyan-400 hover:to-emerald-400 text-gray-950 font-bold rounded-lg shadow transition flex items-center justify-center space-x-2">
-                <i class="fa-solid fa-satellite-dish"></i><span>START PAPER TRADING</span>
-              </button>
-              <div id="fi-paper-status" class="hidden mt-1 p-2 bg-emerald-950/60 border border-emerald-500/30 rounded-lg space-y-1.5">
-                <div class="text-emerald-300 font-bold flex items-center space-x-1.5"><span class="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span><span>PAPER SESSION RUNNING</span></div>
-                <div id="fi-paper-status-text" class="text-gray-300 font-mono text-[10px]">--</div>
-                <button onclick="stopFourIndicatorPaper()" class="w-full py-1.5 mt-1 bg-gradient-to-r from-rose-500 to-rose-600 hover:from-rose-400 hover:to-rose-500 text-gray-950 font-bold rounded-lg shadow transition flex items-center justify-center space-x-2">
-                  <i class="fa-solid fa-stop"></i><span>STOP PAPER SESSION</span>
-                </button>
-              </div>
-            </div>
             <div id="scalp-paper-box" class="hidden p-2 bg-gray-950/60 border border-emerald-500/30 rounded-lg text-[11px] space-y-1.5">
               <div class="text-emerald-300 font-bold flex items-center space-x-1.5"><i class="fa-solid fa-satellite-dish"></i><span>Live paper scalping — runs on its own in the background, no real orders</span></div>
               <div>
@@ -2251,69 +1491,6 @@ trading-platform status</pre>
                 <div id="scalp-days-line" class="text-gray-500 font-mono text-[10px]">Recorded days: --</div>
               </div>
             </div>
-            <div id="vcp-paper-box" class="hidden p-2 bg-gray-950/60 border border-emerald-500/30 rounded-lg text-[11px] space-y-1.5">
-              <div class="text-emerald-300 font-bold flex items-center space-x-1.5"><i class="fa-solid fa-satellite-dish"></i><span>Live paper trading — daily replay of the real strategy, no real orders</span></div>
-              <div>
-                <label class="block text-gray-500 mb-0.5">Capital (₹)</label>
-                <input id="vcp-paper-capital" type="number" value="100000" step="10000" class="w-full bg-gray-900 border border-gray-700 rounded px-2 py-1 text-white font-mono text-[11px] focus:outline-none focus:border-emerald-500">
-              </div>
-              <div>
-                <label class="block text-gray-500 mb-0.5">Symbols (comma-separated, blank = default universe)</label>
-                <input id="vcp-paper-symbols" type="text" placeholder="NSE:RELIANCE, NSE:HDFCBANK, ..." class="w-full bg-gray-900 border border-gray-700 rounded px-2 py-1 text-white font-mono text-[11px] focus:outline-none focus:border-emerald-500">
-              </div>
-              <button onclick="startVcpPaper()" id="btn-vcp-paper-start" class="w-full py-1.5 mt-1 bg-gradient-to-r from-emerald-500 to-cyan-500 hover:from-emerald-400 hover:to-cyan-400 text-gray-950 font-bold rounded-lg shadow transition flex items-center justify-center space-x-2">
-                <i class="fa-solid fa-satellite-dish"></i><span>START PAPER TRADING</span>
-              </button>
-              <div id="vcp-paper-status" class="hidden mt-1 p-2 bg-emerald-950/60 border border-emerald-500/30 rounded-lg space-y-1.5">
-                <div class="text-emerald-300 font-bold flex items-center space-x-1.5"><span class="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span><span>PAPER SESSION RUNNING</span></div>
-                <div id="vcp-paper-status-text" class="text-gray-300 font-mono text-[10px]">--</div>
-                <button onclick="stopVcpPaper()" class="w-full py-1.5 mt-1 bg-gradient-to-r from-rose-500 to-rose-600 hover:from-rose-400 hover:to-rose-500 text-gray-950 font-bold rounded-lg shadow transition flex items-center justify-center space-x-2">
-                  <i class="fa-solid fa-stop"></i><span>STOP PAPER SESSION</span>
-                </button>
-              </div>
-            </div>
-            <div id="mcx-paper-box" class="hidden p-2 bg-gray-950/60 border border-amber-500/30 rounded-lg text-[11px] space-y-1.5">
-              <div class="text-amber-300 font-bold flex items-center space-x-1.5"><i class="fa-solid fa-satellite-dish"></i><span>Live paper trading — daily replay of the real strategy, no real orders</span></div>
-              <div>
-                <label class="block text-gray-500 mb-0.5">Capital (₹)</label>
-                <input id="mcx-paper-capital" type="number" value="100000" step="10000" class="w-full bg-gray-900 border border-gray-700 rounded px-2 py-1 text-white font-mono text-[11px] focus:outline-none focus:border-amber-500">
-              </div>
-              <div>
-                <label class="block text-gray-500 mb-0.5">Instruments (comma-separated, blank = default basket)</label>
-                <input id="mcx-paper-instruments" type="text" placeholder="MCX_GOLDM, MCX_SILVERM, MCX_CRUDEOIL" class="w-full bg-gray-900 border border-gray-700 rounded px-2 py-1 text-white font-mono text-[11px] focus:outline-none focus:border-amber-500">
-              </div>
-              <button onclick="startMcxPaper()" id="btn-mcx-paper-start" class="w-full py-1.5 mt-1 bg-gradient-to-r from-amber-500 to-rose-500 hover:from-amber-400 hover:to-rose-400 text-gray-950 font-bold rounded-lg shadow transition flex items-center justify-center space-x-2">
-                <i class="fa-solid fa-satellite-dish"></i><span>START PAPER TRADING</span>
-              </button>
-              <div id="mcx-paper-status" class="hidden mt-1 p-2 bg-emerald-950/60 border border-emerald-500/30 rounded-lg space-y-1.5">
-                <div class="text-emerald-300 font-bold flex items-center space-x-1.5"><span class="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span><span>PAPER SESSION RUNNING</span></div>
-                <div id="mcx-paper-status-text" class="text-gray-300 font-mono text-[10px]">--</div>
-                <button onclick="stopMcxPaper()" class="w-full py-1.5 mt-1 bg-gradient-to-r from-rose-500 to-rose-600 hover:from-rose-400 hover:to-rose-500 text-gray-950 font-bold rounded-lg shadow transition flex items-center justify-center space-x-2">
-                  <i class="fa-solid fa-stop"></i><span>STOP PAPER SESSION</span>
-                </button>
-              </div>
-            </div>
-            <div id="lorentzian-paper-box" class="hidden p-2 bg-gray-950/60 border border-purple-500/30 rounded-lg text-[11px] space-y-1.5">
-              <div class="text-purple-300 font-bold flex items-center space-x-1.5"><i class="fa-solid fa-satellite-dish"></i><span>Live paper trading — daily replay of the real strategy, no real orders</span></div>
-              <div>
-                <label class="block text-gray-500 mb-0.5">Capital (₹) — reporting only, no capital-based sizing</label>
-                <input id="lorentzian-paper-capital" type="number" value="100000" step="10000" class="w-full bg-gray-900 border border-gray-700 rounded px-2 py-1 text-white font-mono text-[11px] focus:outline-none focus:border-purple-500">
-              </div>
-              <div>
-                <label class="block text-gray-500 mb-0.5">Tickers (comma-separated, blank = NSE:NIFTY)</label>
-                <input id="lorentzian-paper-tickers" type="text" placeholder="NSE:NIFTY, NSE:RELIANCE, ..." class="w-full bg-gray-900 border border-gray-700 rounded px-2 py-1 text-white font-mono text-[11px] focus:outline-none focus:border-purple-500">
-              </div>
-              <button onclick="startLorentzianPaper()" id="btn-lorentzian-paper-start" class="w-full py-1.5 mt-1 bg-gradient-to-r from-purple-500 to-cyan-500 hover:from-purple-400 hover:to-cyan-400 text-gray-950 font-bold rounded-lg shadow transition flex items-center justify-center space-x-2">
-                <i class="fa-solid fa-satellite-dish"></i><span>START PAPER TRADING</span>
-              </button>
-              <div id="lorentzian-paper-status" class="hidden mt-1 p-2 bg-emerald-950/60 border border-emerald-500/30 rounded-lg space-y-1.5">
-                <div class="text-emerald-300 font-bold flex items-center space-x-1.5"><span class="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span><span>PAPER SESSION RUNNING</span></div>
-                <div id="lorentzian-paper-status-text" class="text-gray-300 font-mono text-[10px]">--</div>
-                <button onclick="stopLorentzianPaper()" class="w-full py-1.5 mt-1 bg-gradient-to-r from-rose-500 to-rose-600 hover:from-rose-400 hover:to-rose-500 text-gray-950 font-bold rounded-lg shadow transition flex items-center justify-center space-x-2">
-                  <i class="fa-solid fa-stop"></i><span>STOP PAPER SESSION</span>
-                </button>
-              </div>
-            </div>
           </div>
 
         </div>
@@ -2332,48 +1509,6 @@ trading-platform status</pre>
           </div>
         </div>
 
-        <!-- Bollinger Bands Configuration Section -->
-        <div id="modal-bollinger-section" class="hidden">
-          <div class="p-3 bg-gray-950/40 rounded-xl border border-gray-800">
-            <div class="flex items-center justify-between mb-2">
-              <span class="font-semibold text-gray-300 flex items-center space-x-1.5">
-                <i class="fa-solid fa-chart-line text-rose-400"></i>
-                <span>Bollinger Bands (Analysis Overlay)</span>
-              </span>
-              <label class="flex items-center space-x-1.5 cursor-pointer">
-                <input type="checkbox" id="bollinger-enabled" onchange="toggleBollingerFields()" class="w-3.5 h-3.5 rounded bg-gray-900 border-gray-600 text-rose-400 focus:ring-0 focus:ring-offset-0 cursor-pointer">
-                <span class="text-[10px] text-gray-500 font-mono">Enable</span>
-              </label>
-            </div>
-            <div id="modal-bollinger-grid" class="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
-              <div>
-                <label class="block text-gray-400 text-[10px] mb-1">Length</label>
-                <input type="number" id="bollinger_length" value="19" step="1" class="w-full bg-gray-900 border border-gray-700 rounded-lg px-2 py-1 text-white font-mono text-xs focus:outline-none focus:border-rose-500">
-              </div>
-              <div>
-                <label class="block text-gray-400 text-[10px] mb-1">Multiplier (Mult)</label>
-                <input type="number" id="bollinger_mult" value="2.36" step="0.01" class="w-full bg-gray-900 border border-gray-700 rounded-lg px-2 py-1 text-white font-mono text-xs focus:outline-none focus:border-rose-500">
-              </div>
-              <div>
-                <label class="block text-gray-400 text-[10px] mb-1">Offset</label>
-                <input type="number" id="bollinger_offset" value="0" step="1" class="w-full bg-gray-900 border border-gray-700 rounded-lg px-2 py-1 text-white font-mono text-xs focus:outline-none focus:border-rose-500">
-              </div>
-              <div>
-                <label class="block text-gray-400 text-[10px] mb-1">MA Type</label>
-                <select id="bollinger_ma_type" class="w-full bg-gray-900 border border-gray-700 rounded-lg px-2 py-1 text-white font-mono text-xs focus:outline-none focus:border-rose-500">
-                  <option value="SMA">SMA</option>
-                  <option value="WMA" selected>WMA</option>
-                  <option value="EMA">EMA</option>
-                  <option value="DEMA">DEMA</option>
-                  <option value="TEMA">TEMA</option>
-                </select>
-              </div>
-            </div>
-            <div class="mt-1.5 text-[9px] text-gray-500">
-              Display overlay only — does not affect strategy signals or backtest calculations.
-            </div>
-          </div>
-        </div>
 
         <!-- Progress Bar & Status Streamer -->
         <div id="modal-progress-container" class="hidden space-y-1.5">
@@ -2607,7 +1742,6 @@ trading-platform status</pre>
         catalog = data.catalog;
         window._flagGroups = data.flag_groups || [];
         renderStrategyFilters();
-        renderAuditBanner();
         window._oiRunning = window._oiRunning || {};
         // Expose the universe for autocomplete symbol fields.
         // Server-injected from platform_config/universe.yaml (window.__GLOBAL_UNIVERSE__);
@@ -2626,10 +1760,6 @@ trading-platform status</pre>
         renderStrategyCards();
         refreshOiRunningState();
         setInterval(refreshOiRunningState, 30000);
-        refreshFourIndicatorPaperStatus();
-        refreshVcpPaperStatus();
-        refreshMcxPaperStatus();
-        refreshLorentzianPaperStatus();
         refreshAllScalpRunning();
         setInterval(refreshAllScalpRunning, 30000);
       } catch (err) {
@@ -2689,15 +1819,6 @@ trading-platform status</pre>
       renderStrategyFilters();
       renderStrategyCards();
     }
-    function renderAuditBanner() {
-      const title = document.getElementById('audit-banner-title');
-      const body = document.getElementById('audit-banner-body');
-      if (!title || !body) return;
-      const count = st => catalog.filter(s => s.status === st).length;
-      const generated = (catalog.find(s => s.audit && s.audit.generated) || {}).audit;
-      title.textContent = `Strategy audit${generated ? ' (' + generated.generated + ')' : ''}: ${count('active')} active, ${count('experimental')} experimental, ${count('deprecated')} deprecated`;
-      body.textContent = 'Real backtests net of commission, levies, spread and slippage. Hover a status badge for the reason; full report: docs/strategy_audit/STRATEGY_AUDIT_REPORT.md';
-    }
     function strategyPassesFilters(s) {
       if (s.status === 'deprecated' && !window._showDeprecated) return false;
       return Object.entries(window._strategyFilters || {}).every(([g, set]) =>
@@ -2724,12 +1845,8 @@ trading-platform status</pre>
         const card = document.createElement('div');
         // Fixed size responsive card with cursor pointer
         const isOIPaperRunning = !!(window._oiRunning && window._oiRunning[s.id]);
-        const isFiPaperRunning = !!(window._fiPaperRunning && s.id === 'four_indicator_system');
-        const isVcpPaperRunning = !!(window._vcpPaperRunning && s.id === 'equity_swing_vcp');
-        const isMcxPaperRunning = !!(window._mcxPaperRunning && s.id === 'mcx_trend_rider');
-        const isLorentzianPaperRunning = !!(window._lorentzianPaperRunning && s.id === 'lorentzian_ml');
         const isScalpRunning = !!(window._scalpRunning && window._scalpRunning[s.id]);
-        const cardBorderClass = (isOIPaperRunning || isFiPaperRunning || isVcpPaperRunning || isMcxPaperRunning || isLorentzianPaperRunning || isScalpRunning) ? 'border-emerald-500/60' : 'border-gray-800 hover:border-cyan-500/60';
+        const cardBorderClass = (isOIPaperRunning || isScalpRunning) ? 'border-emerald-500/60' : 'border-gray-800 hover:border-cyan-500/60';
         // Card stays clickable while running so the live paper trades can be inspected in the modal.
         // Only the "Run Paper Live" action is disabled while a session is active.
         const isDeprecated = s.status === 'deprecated';
@@ -2749,10 +1866,6 @@ trading-platform status</pre>
         const f = s.flags || {};
         const pillValues = [...(f.horizon || []), ...(f.segment || []), ...(f.instrument || []), ...(f.direction || []), ...(f.hedging || []).filter(v => v === 'Hedged')];
         const flagPills = pillValues.map(v => `<span class="text-[9px] font-mono px-1.5 py-0.5 rounded bg-gray-900 text-gray-400 border border-gray-800">${v}</span>`).join('');
-        const audit = s.audit || null;
-        const auditLine = audit && audit.trades !== undefined
-          ? `<span class="text-gray-500">Audited:</span><span class="font-bold ${audit.net_pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'} ml-1">${s.historical_stats.return_pct}</span><span class="text-gray-500 ml-1">${s.historical_stats.sharpe}</span>`
-          : `<span class="text-gray-500">Audited:</span><span class="font-bold text-amber-400 ml-1">${audit ? s.historical_stats.return_pct : 'Not audited'}</span>`;
 
         card.innerHTML = `
           <div>
@@ -2791,23 +1904,14 @@ trading-platform status</pre>
           </div>
 
           <div class="pt-2 border-t border-gray-800 flex items-center justify-between">
-            <div class="text-[11px] font-mono" title="${audit && audit.window ? 'Real backtest ' + audit.window.join(' to ') + ' (' + audit.run + '), net of all costs' : ''}">
-              ${auditLine}
-              ${(isOIPaperRunning || isFiPaperRunning || isVcpPaperRunning || isMcxPaperRunning || isLorentzianPaperRunning || isScalpRunning) ? '<div class="mt-1 text-[10px] font-bold text-emerald-300 flex items-center space-x-1"><span class="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span><span>PAPER RUNNING</span></div>' : ''}
+            <div class="text-[11px] font-mono">
+              ${(isOIPaperRunning || isScalpRunning) ? '<div class="mt-1 text-[10px] font-bold text-emerald-300 flex items-center space-x-1"><span class="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span><span>PAPER RUNNING</span></div>' : ''}
                ${(s.paper_only_live && !isOIPaperRunning) ? '<div class="mt-1 text-[9px] text-amber-500">Paper Live Only</div>' : ''}
             </div>
             ${isOIPaperRunning
               ? `<button onclick="event.stopPropagation(); cardStopOiPaper('${s.id}')" class="px-3 py-1 bg-rose-500/20 hover:bg-rose-500 text-rose-300 hover:text-white font-bold text-xs rounded-lg transition flex items-center space-x-1"><i class="fa-solid fa-stop text-[10px]"></i><span>Stop</span></button>`
-              : isFiPaperRunning
-              ? `<button onclick="event.stopPropagation(); cardStopFourIndicatorPaper()" class="px-3 py-1 bg-rose-500/20 hover:bg-rose-500 text-rose-300 hover:text-white font-bold text-xs rounded-lg transition flex items-center space-x-1"><i class="fa-solid fa-stop text-[10px]"></i><span>Stop</span></button>`
-              : isVcpPaperRunning
-              ? `<button onclick="event.stopPropagation(); cardStopVcpPaper()" class="px-3 py-1 bg-rose-500/20 hover:bg-rose-500 text-rose-300 hover:text-white font-bold text-xs rounded-lg transition flex items-center space-x-1"><i class="fa-solid fa-stop text-[10px]"></i><span>Stop</span></button>`
-              : isMcxPaperRunning
-              ? `<button onclick="event.stopPropagation(); cardStopMcxPaper()" class="px-3 py-1 bg-rose-500/20 hover:bg-rose-500 text-rose-300 hover:text-white font-bold text-xs rounded-lg transition flex items-center space-x-1"><i class="fa-solid fa-stop text-[10px]"></i><span>Stop</span></button>`
               : isScalpRunning
               ? `<button onclick="event.stopPropagation(); stopScalpPaper('${s.id}')" class="px-3 py-1 bg-rose-500/20 hover:bg-rose-500 text-rose-300 hover:text-white font-bold text-xs rounded-lg transition flex items-center space-x-1"><i class="fa-solid fa-stop text-[10px]"></i><span>Stop</span></button>`
-              : isLorentzianPaperRunning
-              ? `<button onclick="event.stopPropagation(); cardStopLorentzianPaper()" class="px-3 py-1 bg-rose-500/20 hover:bg-rose-500 text-rose-300 hover:text-white font-bold text-xs rounded-lg transition flex items-center space-x-1"><i class="fa-solid fa-stop text-[10px]"></i><span>Stop</span></button>`
               : `<button class="px-3 py-1 bg-cyan-500/20 hover:bg-cyan-500 group-hover:bg-cyan-500 text-cyan-300 group-hover:text-gray-950 font-bold text-xs rounded-lg transition flex items-center space-x-1"><span>Test</span><i class="fa-solid fa-arrow-right text-[10px]"></i></button>`}
           </div>
         `;
@@ -2895,38 +1999,12 @@ trading-platform status</pre>
                 paramsGrid.appendChild(div);
       });
 
-      // Show Bollinger Bands section if strategy defines bollinger_schema
-      const bbSection = document.getElementById('modal-bollinger-section');
-      if (bbSection) {
-        if (s.bollinger_schema) {
-          bbSection.classList.remove('hidden');
-          const bs = s.bollinger_schema;
-          const enableKey = bs.enable_key || 'bollinger_enabled';
-          const bbEnable = document.getElementById('bollinger-enabled');
-          if (bbEnable) bbEnable.checked = s.default_params?.[enableKey] || false;
-          bs.fields.forEach(f => {
-            const el = document.getElementById(`bollinger_${f.key}`);
-            if (el) el.value = s.default_params?.[f.key] || f.default;
-          });
-          toggleBollingerFields();
-        } else {
-          bbSection.classList.add('hidden');
-        }
-      }
-
       // Show variant confirm box only for OI momentum (paper live run)
       const _vb = document.getElementById('oi-variant-box');
       if (_vb) { if (s.id === 'index_oi_momentum') _vb.classList.remove('hidden'); else _vb.classList.add('hidden'); }
       // Re-attach to a running paper session so the trades table keeps streaming after the modal reopen
       window._oiPaperSessionId = (window._oiRunning && window._oiRunning[s.id]) || null;
       if (window._oiPaperSessionId) { setTimeout(pollOiPaperStatus, 300); }
-
-      // Four Indicator System: independent paper-trading box (co-exists with Run Backtest)
-      const fiBox = document.getElementById('four-indicator-paper-box');
-      if (fiBox) {
-        if (s.id === 'four_indicator_system') { fiBox.classList.remove('hidden'); refreshFourIndicatorPaperStatus(); }
-        else { fiBox.classList.add('hidden'); if (window._fiPaperPollTimer) { clearInterval(window._fiPaperPollTimer); window._fiPaperPollTimer = null; } }
-      }
 
       // Tick scalpers: one generic paper box, bound to whichever scalper is open
       const scalpBox = document.getElementById('scalp-paper-box');
@@ -2938,27 +2016,6 @@ trading-platform status</pre>
           refreshScalpPaperStatus(s.id);
         }
         else scalpBox.classList.add('hidden');
-      }
-
-      // Equity Swing VCP: independent paper-trading box (co-exists with Run Backtest)
-      const vcpBox = document.getElementById('vcp-paper-box');
-      if (vcpBox) {
-        if (s.id === 'equity_swing_vcp') { vcpBox.classList.remove('hidden'); refreshVcpPaperStatus(); }
-        else { vcpBox.classList.add('hidden'); if (window._vcpPaperPollTimer) { clearInterval(window._vcpPaperPollTimer); window._vcpPaperPollTimer = null; } }
-      }
-
-      // MCX Trend Rider: independent paper-trading box (co-exists with Run Backtest)
-      const mcxBox = document.getElementById('mcx-paper-box');
-      if (mcxBox) {
-        if (s.id === 'mcx_trend_rider') { mcxBox.classList.remove('hidden'); refreshMcxPaperStatus(); }
-        else { mcxBox.classList.add('hidden'); if (window._mcxPaperPollTimer) { clearInterval(window._mcxPaperPollTimer); window._mcxPaperPollTimer = null; } }
-      }
-
-      // Lorentzian Classification ML: independent paper-trading box (co-exists with Run Backtest)
-      const lorentzianBox = document.getElementById('lorentzian-paper-box');
-      if (lorentzianBox) {
-        if (s.id === 'lorentzian_ml') { lorentzianBox.classList.remove('hidden'); refreshLorentzianPaperStatus(); }
-        else { lorentzianBox.classList.add('hidden'); if (window._lorentzianPaperPollTimer) { clearInterval(window._lorentzianPaperPollTimer); window._lorentzianPaperPollTimer = null; } }
       }
 
       // For paper-only strategies (index_oi_momentum), hide the Run Backtest button
@@ -3127,13 +2184,6 @@ trading-platform status</pre>
       }
     }
 
-    function toggleBollingerFields() {
-      const enable = document.getElementById('bollinger-enabled');
-      const grid = document.getElementById('modal-bollinger-grid');
-      if (enable && grid) {
-        grid.classList.toggle('opacity-30', !enable.checked);
-      }
-    }
 
     async function executeModalBacktest() {
       if (!currentModalStrat) return;
@@ -3191,19 +2241,6 @@ trading-platform status</pre>
         return;
       }
 
-      // Extract Bollinger Bands params if the section is visible
-      const bbSection = document.getElementById('modal-bollinger-section');
-      if (bbSection && !bbSection.classList.contains('hidden')) {
-        const bbEnable = document.getElementById('bollinger-enabled');
-        params.bollinger_enabled = bbEnable ? bbEnable.checked : false;
-        if (params.bollinger_enabled) {
-          params.bollinger_length = parseFloat(document.getElementById('bollinger_length')?.value || 19);
-          params.bollinger_mult = parseFloat(document.getElementById('bollinger_mult')?.value || 2.36);
-          params.bollinger_offset = parseFloat(document.getElementById('bollinger_offset')?.value || 0);
-          params.bollinger_ma_type = document.getElementById('bollinger_ma_type')?.value || 'WMA';
-        }
-      }
-
       document.getElementById('modal-error-banner').classList.add('hidden');
 
       // Get data provider
@@ -3258,36 +2295,6 @@ trading-platform status</pre>
           eventSource.addEventListener('backtest_started', (e) => {
             progressLabel.innerHTML = `<i class="fa-solid fa-play text-cyan-400"></i><span>Backtest started</span>`;
           });
-
-          // NIFTY No Brainer: rows appear live as trades are entered / exited / skipped
-          if (currentModalStrat.id === 'nifty_no_brainer') {
-            const niftyRows = {};
-            const liveThead = document.getElementById('modal-trades-thead');
-            if (liveThead && !window._defaultTradesThead) window._defaultTradesThead = liveThead.innerHTML;
-            document.getElementById('modal-trades-tbody').innerHTML = '';
-            ['nifty_entry', 'nifty_exit', 'nifty_skip'].forEach(evName => {
-              eventSource.addEventListener(evName, (e) => {
-                const d = JSON.parse(e.data).payload;
-                niftyRows[d.trade.month] = d.trade;
-                const rows = Object.values(niftyRows);
-                const tbodyLive = document.getElementById('modal-trades-tbody');
-                tbodyLive.innerHTML = '';
-                renderNiftyTrades({ nifty_trades: rows, nifty_summary: {} }, liveThead, tbodyLive);
-                const closed = rows.filter(r => r.status === 'CLOSED');
-                const wins = closed.filter(r => (r.pnl_rupees || 0) > 0).length;
-                updateStreamingMetrics({
-                  total_return: d.realized_pnl,
-                  total_return_pct: d.initial_capital ? d.realized_pnl / d.initial_capital * 100 : 0,
-                  total_trades: closed.length, winning_trades: wins, losing_trades: closed.length - wins,
-                  win_rate: closed.length ? wins / closed.length * 100 : 0
-                });
-                document.getElementById('modal-chart-label').textContent =
-                  `Live | Available balance: ₹${Math.round(d.balance).toLocaleString('en-IN')} (initial ₹${Math.round(d.initial_capital).toLocaleString('en-IN')})`;
-                const label = evName === 'nifty_entry' ? `Entered ${d.trade.month}` : (evName === 'nifty_exit' ? `Exited ${d.trade.month} (${d.trade.exit_reason || d.trade.status})` : `Skipped ${d.trade.month} (${d.trade.decision})`);
-                progressLabel.innerHTML = `<i class="fa-solid fa-bolt text-amber-300"></i><span>${label}</span>`;
-              });
-            });
-          }
 
           eventSource.addEventListener('candles_loaded', (e) => {
             progressLabel.innerHTML = `<i class="fa-solid fa-chart-line text-emerald-400"></i><span>Historical data loaded</span>`;
@@ -3617,11 +2624,6 @@ trading-platform status</pre>
       const thead = document.getElementById('modal-trades-thead');
       if (thead && !window._defaultTradesThead) window._defaultTradesThead = thead.innerHTML;
       if (thead && window._defaultTradesThead) thead.innerHTML = window._defaultTradesThead;
-      if (Array.isArray(data.nifty_trades)) {
-        renderNiftyTrades(data, thead, tbody);
-        return;
-      }
-
       if (data.trades.length === 0) {
         tbody.innerHTML = '<tr><td colspan="8" class="text-center py-6 text-gray-500">No trade signals triggered within selected dates.</td></tr>';
       } else {
@@ -3652,65 +2654,6 @@ trading-platform status</pre>
       }
     }
 
-    function renderNiftyTrades(data, thead, tbody) {
-      const inr = (v) => (v === null || v === undefined) ? '--' : (v < 0 ? '-' : '') + '₹' + Math.abs(v).toLocaleString('en-IN', { maximumFractionDigits: 0 });
-      const pct = (v) => (v === null || v === undefined) ? '--' : (v * 100).toFixed(2) + '%';
-      const limit = (v) => (v !== null && v !== undefined && v > 0.01 + 1e-9) ? 'text-rose-400' : 'text-emerald-400';
-      const d = (iso) => iso ? iso.substring(0, 10) : '--';
-      const t = (iso) => iso ? iso.substring(11, 16) : '--';
-      thead.innerHTML = `<tr>
-        <th class="py-2 px-3">Month</th><th class="py-2 px-3">Status</th>
-        <th class="py-2 px-3">Entry Date</th><th class="py-2 px-3">Entry Time</th>
-        <th class="py-2 px-3">Expiry</th><th class="py-2 px-3">Strikes (Buy / Sell x2 / Hedge)</th>
-        <th class="py-2 px-3">Entry Prices</th>
-        <th class="py-2 px-3 text-right">Available Balance</th>
-        <th class="py-2 px-3 text-right">Lots</th>
-        <th class="py-2 px-3 text-right">Deployed Capital</th>
-        <th class="py-2 px-3 text-right">Debit on Downside (max 1%)</th>
-        <th class="py-2 px-3 text-right">Credit (max 1%)</th>
-        <th class="py-2 px-3 text-right">Target / Stop</th>
-        <th class="py-2 px-3">Exit</th><th class="py-2 px-3">Reason</th>
-        <th class="py-2 px-3 text-right">Gross P&amp;L</th>
-        <th class="py-2 px-3 text-right">Charges</th>
-        <th class="py-2 px-3 text-right">Net P&amp;L</th></tr>`;
-      const summary = data.nifty_summary || {};
-      document.getElementById('modal-trades-count').textContent = `${data.nifty_trades.length} months` + (summary.margin_method ? ` | margin: ${summary.margin_method}` : '');
-      data.nifty_trades.forEach(m => {
-        const row = document.createElement('tr');
-        row.className = 'hover:bg-gray-800/40 transition';
-        const s = m.strikes || {}, p = m.entry_prices || {};
-        const strikes = s.near_buy ? `${s.near_buy} / ${s.sell} / ${s.hedge}` : '--';
-        const prices = p.near_buy !== undefined ? `${p.near_buy.toFixed(2)} / ${p.sell.toFixed(2)} / ${p.hedge.toFixed(2)}` : '--';
-        const pnlClass = (m.pnl_rupees || 0) >= 0 ? 'text-emerald-400' : 'text-rose-400';
-        const shift = m.shift_steps ? ` <span class="text-amber-300">(shift x${m.shift_steps}; initial credit ${pct(m.initial_net_premium_pct)})</span>` : '';
-        const flags = (m.flags || []).length ? `<div class="text-[9px] text-amber-300">${m.flags.join('; ')}</div>` : '';
-        const status = m.status === 'SKIPPED' ? `<span class="text-amber-300">SKIPPED</span><div class="text-[9px] text-gray-500">${m.decision}</div>`
-          : (m.status === 'OPEN' ? '<span class="text-yellow-400"><i class="fa-solid fa-spinner fa-spin"></i> OPEN</span>' : m.status);
-        const c = m.charges || {};
-        const chargeTip = c.total !== undefined ? `brokerage ${inr(c.brokerage)} | STT ${inr(c.stt)} | exchange ${inr(c.exchange)} | SEBI ${c.sebi.toFixed(2)} | stamp ${inr(c.stamp)} | GST ${inr(c.gst)}` : '';
-        const perSet = m.margin_per_set ? `<div class="text-[9px] text-gray-500">${inr(m.margin_per_set)} / set</div>` : '';
-        row.innerHTML = `
-          <td class="py-2 px-3 text-cyan-400 font-semibold">${m.month}</td>
-          <td class="py-2 px-3">${status}</td>
-          <td class="py-2 px-3">${d(m.entry_date)}</td>
-          <td class="py-2 px-3">${t(m.entry_time)} IST</td>
-          <td class="py-2 px-3 text-gray-400">${d(m.expiry)}</td>
-          <td class="py-2 px-3">${strikes}${shift}</td>
-          <td class="py-2 px-3 text-gray-400">${prices}</td>
-          <td class="py-2 px-3 text-right">${inr(m.balance_before)}</td>
-          <td class="py-2 px-3 text-right">${m.lots ?? '--'}</td>
-          <td class="py-2 px-3 text-right font-semibold">${inr(m.deployed_capital)}${perSet}</td>
-          <td class="py-2 px-3 text-right ${limit(m.debit_on_downside_pct)}">${pct(m.debit_on_downside_pct)}<div class="text-[9px] text-gray-500">${inr(m.debit_on_downside_pct ? -m.debit_on_downside_pct * (m.deployed_capital || m.margin) : 0)}</div></td>
-          <td class="py-2 px-3 text-right ${limit(m.credit_pct)}">${pct(m.credit_pct)}<div class="text-[9px] text-gray-500">${inr(m.credit_pct ? m.credit_pct * (m.deployed_capital || m.margin) : 0)}</div></td>
-          <td class="py-2 px-3 text-right text-gray-400">${inr(m.target_rupees)} / ${inr(m.stop_rupees)}<div class="text-[9px] text-gray-500">hard cap ${inr(m.stop_hard_cap_rupees)}</div></td>
-          <td class="py-2 px-3 text-gray-400">${d(m.exit_time)} ${t(m.exit_time)}</td>
-          <td class="py-2 px-3">${m.exit_reason || (m.status === 'OPEN' ? 'OPEN' : '--')}</td>
-          <td class="py-2 px-3 text-right">${inr(m.gross_pnl)}</td>
-          <td class="py-2 px-3 text-right text-amber-300" title="${chargeTip}">${inr(m.charges_total)}</td>
-          <td class="py-2 px-3 text-right font-bold ${pnlClass}">${m.pnl_rupees === null || m.pnl_rupees === undefined ? '--' : inr(m.pnl_rupees) + ' (' + pct(m.pnl_pct_margin) + ')'}${flags}</td>`;
-        tbody.appendChild(row);
-      });
-    }
 
     function renderModalChart(curve) {
       const ctx = document.getElementById('modalEquityChart').getContext('2d');
@@ -4135,494 +3078,6 @@ trading-platform status</pre>
         if (currentModalStrat && currentModalStrat.id === sid) syncScalpPaperUI(data);
         renderStrategyCards();
       } catch (e) { showModalError('Stop failed', e.message || e); }
-    }
-
-    async function refreshFourIndicatorPaperStatus() {
-      try {
-        const res = await fetch('/api/paper/four-indicator/status');
-        if (res.status === 404) { window._fiPaperRunning = false; syncFourIndicatorPaperUI(null); return; }
-        const data = await res.json();
-        const wasRunning = window._fiPaperRunning;
-        window._fiPaperRunning = data.status === 'RUNNING';
-        syncFourIndicatorPaperUI(data);
-        if (wasRunning !== window._fiPaperRunning) renderStrategyCards();
-        if (window._fiPaperRunning && !window._fiPaperPollTimer) {
-          window._fiPaperPollTimer = setInterval(pollFourIndicatorPaperStatus, 5000);
-        }
-      } catch (e) { /* silent: status view only */ }
-    }
-
-    function syncFourIndicatorPaperUI(data) {
-      const startBtn = document.getElementById('btn-fi-paper-start');
-      const statusBox = document.getElementById('fi-paper-status');
-      const running = !!(data && data.status === 'RUNNING');
-      if (startBtn) startBtn.classList.toggle('hidden', running);
-      if (statusBox) statusBox.classList.toggle('hidden', !running);
-      if (data) renderFourIndicatorStatusText(data);
-    }
-
-    function renderFourIndicatorStatusText(data) {
-      const el = document.getElementById('fi-paper-status-text');
-      if (!el) return;
-      const bal = (data.balance || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 });
-      const trades = (data.trades || []).length;
-      const open = data.open_trade
-        ? `${data.open_trade.side} ${data.open_trade.strike} @ ₹${data.open_trade.entry_premium.toFixed(2)} (${data.open_trade.lots} lots)`
-        : 'flat';
-      const err = data.last_error ? ` | <span class="text-rose-400">${data.last_error}</span>` : '';
-      el.innerHTML = `Balance: ₹${bal} | Closed trades: ${trades} | Open: ${open}${err}`;
-      renderFourIndicatorTradesTable(data);
-    }
-
-    function renderFourIndicatorTradesTable(data) {
-      const tbody = document.getElementById('modal-trades-tbody');
-      if (!tbody) return;
-      const rows = [];
-      if (data.open_trade) {
-        const t = data.open_trade;
-        rows.push(`<tr class="bg-cyan-950/30"><td class="py-2 px-3 font-mono text-[10px]">OPEN</td><td class="py-2 px-3">NIFTY ${t.strike} ${t.side}</td><td class="py-2 px-3">${t.quantity}</td><td class="py-2 px-3">${fmtPaperTime(t.entry_time)}</td><td class="py-2 px-3">${t.entry_premium.toFixed(2)}</td><td class="py-2 px-3">--</td><td class="py-2 px-3">--</td><td class="py-2 px-3 text-right text-cyan-300">OPEN</td></tr>`);
-      }
-      (data.trades || []).slice().reverse().forEach((t, i) => {
-        const pnlClass = t.pnl >= 0 ? 'text-emerald-400' : 'text-rose-400';
-        rows.push(`<tr><td class="py-2 px-3 font-mono text-[10px]">4IND-${t.entry_date}-${t.strike}${t.side}</td><td class="py-2 px-3">NIFTY ${t.strike} ${t.side}</td><td class="py-2 px-3">${t.quantity}</td><td class="py-2 px-3">${fmtPaperTime(t.entry_time)}</td><td class="py-2 px-3">${t.entry_premium.toFixed(2)}</td><td class="py-2 px-3">${fmtPaperTime(t.exit_time)}</td><td class="py-2 px-3">${t.exit_premium.toFixed(2)}</td><td class="py-2 px-3 text-right ${pnlClass}">₹${t.pnl.toFixed(0)}</td></tr>`);
-      });
-      tbody.innerHTML = rows.length ? rows.join('') :
-        '<tr><td colspan="8" class="text-center py-6 text-gray-500">Waiting for the first live signal — entries, exits and PnL stream in here.</td></tr>';
-      document.getElementById('modal-trades-count').textContent = `${(data.trades || []).length} records`;
-    }
-
-    async function pollFourIndicatorPaperStatus() {
-      try {
-        const res = await fetch('/api/paper/four-indicator/status');
-        if (res.status === 404) {
-          window._fiPaperRunning = false;
-          if (window._fiPaperPollTimer) { clearInterval(window._fiPaperPollTimer); window._fiPaperPollTimer = null; }
-          syncFourIndicatorPaperUI(null);
-          return;
-        }
-        const data = await res.json();
-        const wasRunning = window._fiPaperRunning;
-        window._fiPaperRunning = data.status === 'RUNNING';
-        syncFourIndicatorPaperUI(data);
-        if (wasRunning !== window._fiPaperRunning) renderStrategyCards();
-        if (!window._fiPaperRunning && window._fiPaperPollTimer) {
-          clearInterval(window._fiPaperPollTimer); window._fiPaperPollTimer = null;
-        }
-      } catch (e) { /* silent */ }
-    }
-
-    async function startFourIndicatorPaper() {
-      const capital = parseFloat(document.getElementById('fi-paper-capital').value) || 100000;
-      const capitalPerLot = parseFloat(document.getElementById('fi-paper-capital-per-lot').value) || 50000;
-      const btn = document.getElementById('btn-fi-paper-start');
-      if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i><span>Starting...</span>'; }
-      try {
-        const res = await fetch('/api/paper/four-indicator/start', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ capital: capital, capital_per_lot: capitalPerLot, target_premium_pct: 0.01 })
-        });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.detail || 'start failed');
-        window._fiPaperRunning = true;
-        syncFourIndicatorPaperUI(data);
-        renderStrategyCards();
-        if (!window._fiPaperPollTimer) window._fiPaperPollTimer = setInterval(pollFourIndicatorPaperStatus, 5000);
-      } catch (e) {
-        showModalError('Could not start paper trading', e.message || e);
-      } finally {
-        if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-satellite-dish"></i><span>START PAPER TRADING</span>'; }
-      }
-    }
-
-    async function stopFourIndicatorPaper() {
-      if (!confirm('Stop the Four Indicator System paper session? The trade log and balance are kept.')) return;
-      try {
-        const res = await fetch('/api/paper/four-indicator/stop', { method: 'POST' });
-        const data = await res.json();
-        window._fiPaperRunning = false;
-        if (window._fiPaperPollTimer) { clearInterval(window._fiPaperPollTimer); window._fiPaperPollTimer = null; }
-        syncFourIndicatorPaperUI(data);
-        renderStrategyCards();
-      } catch (e) { showModalError('Stop failed', e.message || e); }
-    }
-
-    async function cardStopFourIndicatorPaper() {
-      if (!confirm('Stop the Four Indicator System paper session? The trade log and balance are kept.')) return;
-      try {
-        await fetch('/api/paper/four-indicator/stop', { method: 'POST' });
-      } catch (e) { /* ignore */ }
-      window._fiPaperRunning = false;
-      if (window._fiPaperPollTimer) { clearInterval(window._fiPaperPollTimer); window._fiPaperPollTimer = null; }
-      renderStrategyCards();
-    }
-
-    // ---------------------------------------------------------------------
-    // Equity Swing VCP: dedicated live paper-trading controls
-    // ---------------------------------------------------------------------
-    async function refreshVcpPaperStatus() {
-      try {
-        const res = await fetch('/api/paper/equity-swing-vcp/status');
-        if (res.status === 404) { window._vcpPaperRunning = false; syncVcpPaperUI(null); return; }
-        const data = await res.json();
-        const wasRunning = window._vcpPaperRunning;
-        window._vcpPaperRunning = data.status === 'RUNNING';
-        syncVcpPaperUI(data);
-        if (wasRunning !== window._vcpPaperRunning) renderStrategyCards();
-        if (window._vcpPaperRunning && !window._vcpPaperPollTimer) {
-          window._vcpPaperPollTimer = setInterval(pollVcpPaperStatus, 15000);
-        }
-      } catch (e) { /* silent: status view only */ }
-    }
-
-    function syncVcpPaperUI(data) {
-      const startBtn = document.getElementById('btn-vcp-paper-start');
-      const statusBox = document.getElementById('vcp-paper-status');
-      const running = !!(data && data.status === 'RUNNING');
-      if (startBtn) startBtn.classList.toggle('hidden', running);
-      if (statusBox) statusBox.classList.toggle('hidden', !running);
-      if (data) renderVcpStatusText(data);
-    }
-
-    function renderVcpStatusText(data) {
-      const el = document.getElementById('vcp-paper-status-text');
-      if (!el) return;
-      const bal = (data.balance || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 });
-      const trades = (data.trades || []).length;
-      const positions = Object.values(data.positions || {});
-      const open = positions.length
-        ? positions.map(p => `${p.symbol} x${p.shares}@${(p.entry_price||0).toFixed(2)}`).join(', ')
-        : 'flat';
-      const err = data.last_error ? ` | <span class="text-rose-400">${data.last_error}</span>` : '';
-      el.innerHTML = `Balance: ₹${bal} | Closed trades: ${trades} | Open: ${open}${err}`;
-      renderVcpTradesTable(data);
-    }
-
-    function renderVcpTradesTable(data) {
-      const tbody = document.getElementById('modal-trades-tbody');
-      if (!tbody) return;
-      const rows = [];
-      Object.values(data.positions || {}).forEach(p => {
-        rows.push(`<tr class="bg-emerald-950/30"><td class="py-2 px-3 font-mono text-[10px]">OPEN</td><td class="py-2 px-3">${p.symbol}</td><td class="py-2 px-3">${p.shares}</td><td class="py-2 px-3">${p.entry_date||'--'}</td><td class="py-2 px-3">${(p.entry_price||0).toFixed(2)}</td><td class="py-2 px-3">--</td><td class="py-2 px-3">--</td><td class="py-2 px-3 text-right text-emerald-300">OPEN</td></tr>`);
-      });
-      (data.trades || []).slice().reverse().forEach(t => {
-        const pnlClass = t.pnl >= 0 ? 'text-emerald-400' : 'text-rose-400';
-        rows.push(`<tr><td class="py-2 px-3 font-mono text-[10px]">VCP-${t.symbol}-${t.entry_date}</td><td class="py-2 px-3">${t.symbol}</td><td class="py-2 px-3">${t.shares}</td><td class="py-2 px-3">${t.entry_date}</td><td class="py-2 px-3">${t.entry_price.toFixed(2)}</td><td class="py-2 px-3">${t.exit_date}</td><td class="py-2 px-3">${t.exit_price.toFixed(2)}</td><td class="py-2 px-3 text-right ${pnlClass}">₹${t.pnl.toFixed(0)}</td></tr>`);
-      });
-      tbody.innerHTML = rows.length ? rows.join('') :
-        '<tr><td colspan="8" class="text-center py-6 text-gray-500">Waiting for the first daily signal — entries, exits and PnL stream in here.</td></tr>';
-      document.getElementById('modal-trades-count').textContent = `${(data.trades || []).length} records`;
-    }
-
-    async function pollVcpPaperStatus() {
-      try {
-        const res = await fetch('/api/paper/equity-swing-vcp/status');
-        if (res.status === 404) {
-          window._vcpPaperRunning = false;
-          if (window._vcpPaperPollTimer) { clearInterval(window._vcpPaperPollTimer); window._vcpPaperPollTimer = null; }
-          syncVcpPaperUI(null);
-          return;
-        }
-        const data = await res.json();
-        const wasRunning = window._vcpPaperRunning;
-        window._vcpPaperRunning = data.status === 'RUNNING';
-        syncVcpPaperUI(data);
-        if (wasRunning !== window._vcpPaperRunning) renderStrategyCards();
-        if (!window._vcpPaperRunning && window._vcpPaperPollTimer) {
-          clearInterval(window._vcpPaperPollTimer); window._vcpPaperPollTimer = null;
-        }
-      } catch (e) { /* silent */ }
-    }
-
-    async function startVcpPaper() {
-      const capital = parseFloat(document.getElementById('vcp-paper-capital').value) || 100000;
-      const symbolsRaw = document.getElementById('vcp-paper-symbols').value.trim();
-      const symbols = symbolsRaw ? symbolsRaw.split(',').map(s => s.trim()).filter(Boolean) : null;
-      const btn = document.getElementById('btn-vcp-paper-start');
-      if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i><span>Starting...</span>'; }
-      try {
-        const res = await fetch('/api/paper/equity-swing-vcp/start', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ capital: capital, symbols: symbols })
-        });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.detail || 'start failed');
-        window._vcpPaperRunning = true;
-        syncVcpPaperUI(data);
-        renderStrategyCards();
-        if (!window._vcpPaperPollTimer) window._vcpPaperPollTimer = setInterval(pollVcpPaperStatus, 15000);
-      } catch (e) {
-        showModalError('Could not start paper trading', e.message || e);
-      } finally {
-        if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-satellite-dish"></i><span>START PAPER TRADING</span>'; }
-      }
-    }
-
-    async function stopVcpPaper() {
-      if (!confirm('Stop the Equity Swing VCP paper session? The trade log and balance are kept.')) return;
-      try {
-        const res = await fetch('/api/paper/equity-swing-vcp/stop', { method: 'POST' });
-        const data = await res.json();
-        window._vcpPaperRunning = false;
-        if (window._vcpPaperPollTimer) { clearInterval(window._vcpPaperPollTimer); window._vcpPaperPollTimer = null; }
-        syncVcpPaperUI(data);
-        renderStrategyCards();
-      } catch (e) { showModalError('Stop failed', e.message || e); }
-    }
-
-    async function cardStopVcpPaper() {
-      if (!confirm('Stop the Equity Swing VCP paper session? The trade log and balance are kept.')) return;
-      try {
-        await fetch('/api/paper/equity-swing-vcp/stop', { method: 'POST' });
-      } catch (e) { /* ignore */ }
-      window._vcpPaperRunning = false;
-      if (window._vcpPaperPollTimer) { clearInterval(window._vcpPaperPollTimer); window._vcpPaperPollTimer = null; }
-      renderStrategyCards();
-    }
-
-    // ---------------------------------------------------------------------
-    // MCX Trend Rider: dedicated live paper-trading controls
-    // ---------------------------------------------------------------------
-    async function refreshMcxPaperStatus() {
-      try {
-        const res = await fetch('/api/paper/mcx-trend-rider/status');
-        if (res.status === 404) { window._mcxPaperRunning = false; syncMcxPaperUI(null); return; }
-        const data = await res.json();
-        const wasRunning = window._mcxPaperRunning;
-        window._mcxPaperRunning = data.status === 'RUNNING';
-        syncMcxPaperUI(data);
-        if (wasRunning !== window._mcxPaperRunning) renderStrategyCards();
-        if (window._mcxPaperRunning && !window._mcxPaperPollTimer) {
-          window._mcxPaperPollTimer = setInterval(pollMcxPaperStatus, 15000);
-        }
-      } catch (e) { /* silent: status view only */ }
-    }
-
-    function syncMcxPaperUI(data) {
-      const startBtn = document.getElementById('btn-mcx-paper-start');
-      const statusBox = document.getElementById('mcx-paper-status');
-      const running = !!(data && data.status === 'RUNNING');
-      if (startBtn) startBtn.classList.toggle('hidden', running);
-      if (statusBox) statusBox.classList.toggle('hidden', !running);
-      if (data) renderMcxStatusText(data);
-    }
-
-    function renderMcxStatusText(data) {
-      const el = document.getElementById('mcx-paper-status-text');
-      if (!el) return;
-      const bal = (data.balance || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 });
-      const trades = (data.trades || []).length;
-      const positions = Object.values(data.positions || {});
-      const open = positions.length
-        ? positions.map(p => `${p.instrument} ${p.side} x${p.lots}@${(p.entry_price||0).toFixed(2)}`).join(', ')
-        : 'flat';
-      const err = data.last_error ? ` | <span class="text-rose-400">${data.last_error}</span>` : '';
-      el.innerHTML = `Balance: ₹${bal} | Closed trades: ${trades} | Open: ${open}${err}`;
-      renderMcxTradesTable(data);
-    }
-
-    function renderMcxTradesTable(data) {
-      const tbody = document.getElementById('modal-trades-tbody');
-      if (!tbody) return;
-      const rows = [];
-      Object.values(data.positions || {}).forEach(p => {
-        rows.push(`<tr class="bg-amber-950/30"><td class="py-2 px-3 font-mono text-[10px]">OPEN</td><td class="py-2 px-3">${p.instrument} ${p.side}</td><td class="py-2 px-3">${p.lots}</td><td class="py-2 px-3">${p.entry_date||'--'}</td><td class="py-2 px-3">${(p.entry_price||0).toFixed(2)}</td><td class="py-2 px-3">--</td><td class="py-2 px-3">--</td><td class="py-2 px-3 text-right text-amber-300">OPEN</td></tr>`);
-      });
-      (data.trades || []).slice().reverse().forEach(t => {
-        const pnlClass = t.pnl >= 0 ? 'text-emerald-400' : 'text-rose-400';
-        rows.push(`<tr><td class="py-2 px-3 font-mono text-[10px]">MCX-${t.instrument}-${t.entry_date}</td><td class="py-2 px-3">${t.instrument} ${t.side}</td><td class="py-2 px-3">${t.lots}</td><td class="py-2 px-3">${t.entry_date}</td><td class="py-2 px-3">${t.entry_price.toFixed(2)}</td><td class="py-2 px-3">${t.exit_date}</td><td class="py-2 px-3">${t.exit_price.toFixed(2)}</td><td class="py-2 px-3 text-right ${pnlClass}">₹${t.pnl.toFixed(0)}</td></tr>`);
-      });
-      tbody.innerHTML = rows.length ? rows.join('') :
-        '<tr><td colspan="8" class="text-center py-6 text-gray-500">Waiting for the first daily signal — entries, exits and PnL stream in here.</td></tr>';
-      document.getElementById('modal-trades-count').textContent = `${(data.trades || []).length} records`;
-    }
-
-    async function pollMcxPaperStatus() {
-      try {
-        const res = await fetch('/api/paper/mcx-trend-rider/status');
-        if (res.status === 404) {
-          window._mcxPaperRunning = false;
-          if (window._mcxPaperPollTimer) { clearInterval(window._mcxPaperPollTimer); window._mcxPaperPollTimer = null; }
-          syncMcxPaperUI(null);
-          return;
-        }
-        const data = await res.json();
-        const wasRunning = window._mcxPaperRunning;
-        window._mcxPaperRunning = data.status === 'RUNNING';
-        syncMcxPaperUI(data);
-        if (wasRunning !== window._mcxPaperRunning) renderStrategyCards();
-        if (!window._mcxPaperRunning && window._mcxPaperPollTimer) {
-          clearInterval(window._mcxPaperPollTimer); window._mcxPaperPollTimer = null;
-        }
-      } catch (e) { /* silent */ }
-    }
-
-    async function startMcxPaper() {
-      const capital = parseFloat(document.getElementById('mcx-paper-capital').value) || 100000;
-      const instrumentsRaw = document.getElementById('mcx-paper-instruments').value.trim();
-      const instruments = instrumentsRaw ? instrumentsRaw.split(',').map(s => s.trim()).filter(Boolean) : null;
-      const btn = document.getElementById('btn-mcx-paper-start');
-      if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i><span>Starting...</span>'; }
-      try {
-        const res = await fetch('/api/paper/mcx-trend-rider/start', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ capital: capital, instruments: instruments })
-        });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.detail || 'start failed');
-        window._mcxPaperRunning = true;
-        syncMcxPaperUI(data);
-        renderStrategyCards();
-        if (!window._mcxPaperPollTimer) window._mcxPaperPollTimer = setInterval(pollMcxPaperStatus, 15000);
-      } catch (e) {
-        showModalError('Could not start paper trading', e.message || e);
-      } finally {
-        if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-satellite-dish"></i><span>START PAPER TRADING</span>'; }
-      }
-    }
-
-    async function stopMcxPaper() {
-      if (!confirm('Stop the MCX Trend Rider paper session? The trade log and balance are kept.')) return;
-      try {
-        const res = await fetch('/api/paper/mcx-trend-rider/stop', { method: 'POST' });
-        const data = await res.json();
-        window._mcxPaperRunning = false;
-        if (window._mcxPaperPollTimer) { clearInterval(window._mcxPaperPollTimer); window._mcxPaperPollTimer = null; }
-        syncMcxPaperUI(data);
-        renderStrategyCards();
-      } catch (e) { showModalError('Stop failed', e.message || e); }
-    }
-
-    async function cardStopMcxPaper() {
-      if (!confirm('Stop the MCX Trend Rider paper session? The trade log and balance are kept.')) return;
-      try {
-        await fetch('/api/paper/mcx-trend-rider/stop', { method: 'POST' });
-      } catch (e) { /* ignore */ }
-      window._mcxPaperRunning = false;
-      if (window._mcxPaperPollTimer) { clearInterval(window._mcxPaperPollTimer); window._mcxPaperPollTimer = null; }
-      renderStrategyCards();
-    }
-
-    // ---------------------------------------------------------------------
-    // Lorentzian Classification ML: dedicated live paper-trading controls
-    // ---------------------------------------------------------------------
-    async function refreshLorentzianPaperStatus() {
-      try {
-        const res = await fetch('/api/paper/lorentzian-ml/status');
-        if (res.status === 404) { window._lorentzianPaperRunning = false; syncLorentzianPaperUI(null); return; }
-        const data = await res.json();
-        const wasRunning = window._lorentzianPaperRunning;
-        window._lorentzianPaperRunning = data.status === 'RUNNING';
-        syncLorentzianPaperUI(data);
-        if (wasRunning !== window._lorentzianPaperRunning) renderStrategyCards();
-        if (window._lorentzianPaperRunning && !window._lorentzianPaperPollTimer) {
-          window._lorentzianPaperPollTimer = setInterval(pollLorentzianPaperStatus, 15000);
-        }
-      } catch (e) { /* silent: status view only */ }
-    }
-
-    function syncLorentzianPaperUI(data) {
-      const startBtn = document.getElementById('btn-lorentzian-paper-start');
-      const statusBox = document.getElementById('lorentzian-paper-status');
-      const running = !!(data && data.status === 'RUNNING');
-      if (startBtn) startBtn.classList.toggle('hidden', running);
-      if (statusBox) statusBox.classList.toggle('hidden', !running);
-      if (data) renderLorentzianStatusText(data);
-    }
-
-    function renderLorentzianStatusText(data) {
-      const el = document.getElementById('lorentzian-paper-status-text');
-      if (!el) return;
-      const bal = (data.balance || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 });
-      const trades = (data.trades || []).length;
-      const positions = Object.values(data.positions || {});
-      const open = positions.length
-        ? positions.map(p => `${p.ticker} ${p.side} x${p.quantity}@${(p.entry_price||0).toFixed(2)}`).join(', ')
-        : 'flat';
-      const err = data.last_error ? ` | <span class="text-rose-400">${data.last_error}</span>` : '';
-      el.innerHTML = `Balance: ₹${bal} | Closed trades: ${trades} | Open: ${open}${err}`;
-      renderLorentzianTradesTable(data);
-    }
-
-    function renderLorentzianTradesTable(data) {
-      const tbody = document.getElementById('modal-trades-tbody');
-      if (!tbody) return;
-      const rows = [];
-      Object.values(data.positions || {}).forEach(p => {
-        rows.push(`<tr class="bg-purple-950/30"><td class="py-2 px-3 font-mono text-[10px]">OPEN</td><td class="py-2 px-3">${p.ticker} ${p.side}</td><td class="py-2 px-3">${p.quantity}</td><td class="py-2 px-3">${p.entry_date||'--'}</td><td class="py-2 px-3">${(p.entry_price||0).toFixed(2)}</td><td class="py-2 px-3">--</td><td class="py-2 px-3">--</td><td class="py-2 px-3 text-right text-purple-300">OPEN</td></tr>`);
-      });
-      (data.trades || []).slice().reverse().forEach(t => {
-        const pnlClass = t.pnl >= 0 ? 'text-emerald-400' : 'text-rose-400';
-        rows.push(`<tr><td class="py-2 px-3 font-mono text-[10px]">ML-${t.ticker}-${t.entry_date}</td><td class="py-2 px-3">${t.ticker} ${t.side}</td><td class="py-2 px-3">${t.quantity}</td><td class="py-2 px-3">${t.entry_date}</td><td class="py-2 px-3">${t.entry_price.toFixed(2)}</td><td class="py-2 px-3">${t.exit_date}</td><td class="py-2 px-3">${t.exit_price.toFixed(2)}</td><td class="py-2 px-3 text-right ${pnlClass}">₹${t.pnl.toFixed(0)}</td></tr>`);
-      });
-      tbody.innerHTML = rows.length ? rows.join('') :
-        '<tr><td colspan="8" class="text-center py-6 text-gray-500">Waiting for the first daily signal — entries, exits and PnL stream in here.</td></tr>';
-      document.getElementById('modal-trades-count').textContent = `${(data.trades || []).length} records`;
-    }
-
-    async function pollLorentzianPaperStatus() {
-      try {
-        const res = await fetch('/api/paper/lorentzian-ml/status');
-        if (res.status === 404) {
-          window._lorentzianPaperRunning = false;
-          if (window._lorentzianPaperPollTimer) { clearInterval(window._lorentzianPaperPollTimer); window._lorentzianPaperPollTimer = null; }
-          syncLorentzianPaperUI(null);
-          return;
-        }
-        const data = await res.json();
-        const wasRunning = window._lorentzianPaperRunning;
-        window._lorentzianPaperRunning = data.status === 'RUNNING';
-        syncLorentzianPaperUI(data);
-        if (wasRunning !== window._lorentzianPaperRunning) renderStrategyCards();
-        if (!window._lorentzianPaperRunning && window._lorentzianPaperPollTimer) {
-          clearInterval(window._lorentzianPaperPollTimer); window._lorentzianPaperPollTimer = null;
-        }
-      } catch (e) { /* silent */ }
-    }
-
-    async function startLorentzianPaper() {
-      const capital = parseFloat(document.getElementById('lorentzian-paper-capital').value) || 100000;
-      const tickersRaw = document.getElementById('lorentzian-paper-tickers').value.trim();
-      const tickers = tickersRaw ? tickersRaw.split(',').map(s => s.trim()).filter(Boolean) : null;
-      const btn = document.getElementById('btn-lorentzian-paper-start');
-      if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i><span>Starting...</span>'; }
-      try {
-        const res = await fetch('/api/paper/lorentzian-ml/start', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ capital: capital, tickers: tickers })
-        });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.detail || 'start failed');
-        window._lorentzianPaperRunning = true;
-        syncLorentzianPaperUI(data);
-        renderStrategyCards();
-        if (!window._lorentzianPaperPollTimer) window._lorentzianPaperPollTimer = setInterval(pollLorentzianPaperStatus, 15000);
-      } catch (e) {
-        showModalError('Could not start paper trading', e.message || e);
-      } finally {
-        if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-satellite-dish"></i><span>START PAPER TRADING</span>'; }
-      }
-    }
-
-    async function stopLorentzianPaper() {
-      if (!confirm('Stop the Lorentzian ML paper session? The trade log and balance are kept.')) return;
-      try {
-        const res = await fetch('/api/paper/lorentzian-ml/stop', { method: 'POST' });
-        const data = await res.json();
-        window._lorentzianPaperRunning = false;
-        if (window._lorentzianPaperPollTimer) { clearInterval(window._lorentzianPaperPollTimer); window._lorentzianPaperPollTimer = null; }
-        syncLorentzianPaperUI(data);
-        renderStrategyCards();
-      } catch (e) { showModalError('Stop failed', e.message || e); }
-    }
-
-    async function cardStopLorentzianPaper() {
-      if (!confirm('Stop the Lorentzian ML paper session? The trade log and balance are kept.')) return;
-      try {
-        await fetch('/api/paper/lorentzian-ml/stop', { method: 'POST' });
-      } catch (e) { /* ignore */ }
-      window._lorentzianPaperRunning = false;
-      if (window._lorentzianPaperPollTimer) { clearInterval(window._lorentzianPaperPollTimer); window._lorentzianPaperPollTimer = null; }
-      renderStrategyCards();
     }
 
     // Format an ISO (IST) timestamp for the trades table (HH:MM:SS)

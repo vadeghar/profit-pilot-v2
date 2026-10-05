@@ -20,7 +20,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from core.models import Candle, OrderSide, Signal, BacktestStatus
 from backtest import BacktestConfig, BacktestEngine
-from strategies import StrategyBase, StrategyRegistry
+from core.strategy import StrategyBase, StrategyRegistry
 
 INSTRUMENT = "TEST-INST"
 N_CANDLES = 20

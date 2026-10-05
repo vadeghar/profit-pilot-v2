@@ -197,7 +197,7 @@ class ICICIBroker(BrokerBase):
             interval_map = {"1m": "1minute", "5m": "5minute", "1d": "1day"}
             interval = interval_map.get(timeframe, "1day")
             from utils.timezone import breeze_utc_window_for_ist_day_chunk, ensure_ist
-            from lorentzian_strategy.data_loader import resolve_breeze_stock_code
+            from market_data.breeze_client import resolve_breeze_stock_code
             from_str, to_str = breeze_utc_window_for_ist_day_chunk(
                 ensure_ist(from_date), ensure_ist(to_date))
             # historical data is keyed by the scrip master's ShortName (RELIANCE -> RELIND)

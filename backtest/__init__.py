@@ -12,7 +12,7 @@ from core.models import (
     BacktestResult, BacktestStatus, Trade, TradeStatus, Order, OrderSide,
     OrderType, OrderStatus, OrderProductType, Candle, Signal, generate_trade_id
 )
-from strategies import StrategyBase, StrategyRegistry
+from core.strategy import StrategyBase, StrategyRegistry
 from persistence.journal import StateStore
 from market_data.normalize import ensure_normalized_candles
 from utils import Logger, get_timestamp
@@ -275,7 +275,7 @@ class BacktestEngine:
 
     def _execute_signal(self, signal, candle: Candle) -> None:
         """Execute trading signal with Long and Short derivative support"""
-        from strategies.mcx_trend_rider import COMMODITY_SPECS
+        from market_data.contract_specs import COMMODITY_SPECS
         from platform_config import get_index_lot_size, get_instrument
 
         # Get point value multiplier

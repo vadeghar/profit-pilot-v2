@@ -26,10 +26,10 @@ def teardown_function(function):
 
 def test_register_and_list_all():
     sess = FakeSession()
-    RunnerRegistry.register("four_indicator_system", "four_indicator_system", sess)
+    RunnerRegistry.register("scalp_writer_squeeze", "scalp_writer_squeeze", sess)
     listed = RunnerRegistry.list_all()
     assert len(listed) == 1
-    assert listed[0]["strategy_id"] == "four_indicator_system"
+    assert listed[0]["strategy_id"] == "scalp_writer_squeeze"
     assert listed[0]["running"] is True
     assert listed[0]["detail"]["balance"] == 1000.0
 
@@ -44,16 +44,16 @@ def test_normalizes_oi_paper_session_running_shape():
 
 def test_unregister_removes_from_list():
     sess = FakeSession()
-    RunnerRegistry.register("mcx_trend_rider", "mcx_trend_rider", sess)
-    RunnerRegistry.unregister("mcx_trend_rider", "mcx_trend_rider")
+    RunnerRegistry.register("scalp_trap_fade", "scalp_trap_fade", sess)
+    RunnerRegistry.unregister("scalp_trap_fade", "scalp_trap_fade")
     assert RunnerRegistry.list_all() == []
 
 
 def test_get_returns_registered_session():
     sess = FakeSession()
-    RunnerRegistry.register("equity_swing_vcp", "equity_swing_vcp", sess)
-    assert RunnerRegistry.get("equity_swing_vcp", "equity_swing_vcp") is sess
-    assert RunnerRegistry.get("equity_swing_vcp", "nonexistent") is None
+    RunnerRegistry.register("scalp_pcr_velocity", "scalp_pcr_velocity", sess)
+    assert RunnerRegistry.get("scalp_pcr_velocity", "scalp_pcr_velocity") is sess
+    assert RunnerRegistry.get("scalp_pcr_velocity", "nonexistent") is None
 
 
 def test_running_count_only_counts_running_sessions():

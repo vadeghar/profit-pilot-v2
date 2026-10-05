@@ -63,7 +63,7 @@ Read it back with `market_data.tick_store.read_ticks(source, day)` (sorted by ti
 
 ## Breeze 1-second pseudo-ticks (past days)
 
-Angel has no tick history. `tools/scalping/import_breeze_1s.py` rebuilds a past session from ICICI
+Angel has no tick history. `scalp_strategies/tools/import_breeze_1s.py` rebuilds a past session from ICICI
 Breeze `get_historical_data_v2(interval="1second")`, which returns OHLC, that second's volume and open
 interest for NIFTY spot, futures and expired options. Each 1-second bar becomes one row in the same
 schema under `data/ticks/breeze_1s/<date>/`: `ltp` = close, `ltq` = the second's volume, `volume`

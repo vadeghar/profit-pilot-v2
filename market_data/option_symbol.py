@@ -436,7 +436,7 @@ def breeze_stock_code(underlying: str, exchange: Optional[str] = None) -> str:
     except Exception:  # universe.yaml unavailable -> keep resolving
         pass
     try:  # lazy import keeps this module free of pandas/SDK weight
-        from lorentzian_strategy.data_loader import resolve_breeze_stock_code
+        from market_data.breeze_client import resolve_breeze_stock_code
         resolved = resolve_breeze_stock_code(name, "BSE" if exch == "BFO" else exch)
         if resolved:
             return _clean_underlying(str(resolved))

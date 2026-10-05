@@ -12,7 +12,7 @@ from datetime import datetime
 from typing import List, Dict, Any, Optional
 
 from core.models import Candle, OrderSide
-from strategies import StrategyRegistry
+from core.strategy import StrategyRegistry
 from brokers.angel_one import AngelOneBroker
 from market_data.resolver import SymbolResolver
 from utils.telegram import TelegramNotifier
@@ -200,8 +200,8 @@ class ForwardTestRunner:
 
 if __name__ == '__main__':
     runner = ForwardTestRunner(
-        strategy_id='mcx_trend_rider',
-        instruments=['MCX_GOLDM', 'MCX_SILVERM', 'MCX_CRUDEOIL'],
+        strategy_id='index_oi_momentum',
+        instruments=['NSE:NIFTY'],
         capital=100000.0
     )
     runner.run_once()

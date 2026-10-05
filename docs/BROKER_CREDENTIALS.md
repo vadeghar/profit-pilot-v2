@@ -78,7 +78,7 @@ def load_env(path: str = None) -> dict:
 The platform defaults to Mock broker for backtesting. No configuration needed.
 
 ```bash
-./run_strategy.sh backtest ema_crossover
+./run_strategy.sh list
 ```
 
 ### Option 2: Use Angel One (Live/Paper Trading)
@@ -182,7 +182,7 @@ For **live/paper trading**, use **Angel One** which is already configured and ve
 
 ```bash
 # Backtest with Mock broker (default)
-./run_strategy.sh backtest ema_crossover
+./run_strategy.sh list
 
 # Test broker credentials
 python3 tests/test_broker_credentials.py

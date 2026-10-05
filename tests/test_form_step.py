@@ -1,17 +1,33 @@
+"""Manual dry run of the ICICI Breeze login form (Playwright). Reads BREEZE_API_KEY and
+BREEZE_USER_ID from the project .env; fills a dummy password and never submits."""
 import asyncio
-from playwright.async_api import async_playwright
+from pathlib import Path
 from urllib.parse import quote
 
+from playwright.async_api import async_playwright
+
+
+def _env() -> dict:
+    env = {}
+    path = Path(__file__).resolve().parents[1] / ".env"
+    if path.exists():
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if "=" in line and not line.lstrip().startswith("#"):
+                k, v = line.split("=", 1)
+                env[k.strip()] = v.strip().strip("'\"")
+    return env
+
+
 async def test_form():
+    env = _env()
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
         page = await browser.new_page()
 
-        api_key = '%35N8B2`ZS19W30317921Y_$x188fq32'
-        url = f'https://api.icicidirect.com/apiuser/login?api_key={quote(api_key)}'
+        url = f'https://api.icicidirect.com/apiuser/login?api_key={quote(env["BREEZE_API_KEY"])}'
         await page.goto(url, wait_until='networkidle')
 
-        await page.fill('#txtuid', '36522465')
+        await page.fill('#txtuid', env["BREEZE_USER_ID"])
         print('✅ User ID filled (#txtuid)')
         await page.fill('#txtPass', 'dummy')
         print('✅ Password filled (#txtPass)')

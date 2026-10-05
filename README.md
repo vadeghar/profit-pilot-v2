@@ -1,132 +1,83 @@
-# Trading Strategy Execution Platform
+# Automation Engines
 
-An institutional-grade algorithmic trading platform for Indian markets (NSE, NFO, BSE, MCX), implementing the **v2 Architecture**:
+Paper-trading and backtesting platform for Indian markets (NSE / BSE derivatives), with a FastAPI
+dashboard. Strategies live in three folders by trading style; everything else is shared platform code.
 
-- **WebSocket-first market data** with an in-memory `CandleBuilder` (avoids REST rate limits).
-- **Append-only JSONL event journals** with atomic snapshots.
-- **Multi-leg execution orchestrator** with leg-risk rollback.
-- **Simulated & live backtesting engine** (slippage, commissions, Sharpe, drawdown, equity curve).
-- **FastAPI web dashboard** for backtests, live instances, paper trading and monitoring.
-- **Six built-in strategies**: `ema_crossover`, `rsi`, `breakout`, `mcx_trend_rider`, `equity_swing_vcp`, `index_oi_momentum`.
-
----
-
-## Project Layout
+## Folder structure
 
 ```
-automated-engines/
-├── backtest/          # Backtesting engine + OI-momentum tick backtest
-├── brokers/           # Mock, Angel One SmartAPI, ICICI Breeze adapters
-├── cli/               # CLI parser & command handlers
-├── core/              # Domain models (Order, Trade, Position, Candle, Signal)
-├── execution/         # Order routing, risk manager, forward-test runner
-├── market_data/       # WebSocket feed, CandleBuilder, symbol resolver, universes
-├── persistence/       # JSONL journal + atomic state snapshots
-├── platform_config/   # Configuration + central project paths
-├── strategies/        # All strategy implementations + registry
-├── tools/breeze/      # ICICI Breeze auto-login & page inspectors
-├── scripts/           # start_dashboard.sh, setup_breeze_auto_login.sh
-├── tests/             # Broker / forward-test / tuning scripts
-├── docs/              # Reports, guides, Breeze login screenshots
-├── data/              # Runtime data (historical cache, backtests, forward tests)
-├── logs/              # Runtime logs
-├── web_app.py         # FastAPI dashboard & REST API
-├── main.py            # CLI entry point
-├── run_strategy.sh    # Primary bash launcher
-├── requirements.txt   # Pinned dependencies
-└── .env           # Broker credentials (NOT committed)
+automation_engines/
+├── scalp_strategies/        # tick scalpers on NIFTY weekly options (7 strategies, all paper)
+│   ├── engine.py            #   shared engine: tick aggregation, fills, risk limits, exits
+│   ├── orderflow.py         #   S1 Writer Squeeze, S2 Stealth Accumulation, S3 Delta-PCR Velocity, S4 Trap Fade
+│   ├── oi_burst.py          #   OI + Volume Burst
+│   ├── expiry_breakout.py   #   Expiry Trend Breakout (expiry day only)
+│   ├── expiry_gamma.py      #   Expiry Gamma Squeeze (expiry day only)
+│   ├── backtest.py          #   replay of recorded ticks through the same engines
+│   ├── paper_trader.py      #   live paper sessions fed by the tick recorder
+│   ├── tools/               #   condition_report, daily_summary (Telegram), import_breeze_1s
+│   └── research/            #   expiry-day data download and rule studies
+├── trading_strategies/      # regular intraday / swing strategies (not scalpers)
+│   └── index_oi_momentum/   #   Index Options OI Momentum - switched off (deprecated until further notice)
+├── investment_strategies/   # long-horizon strategies (empty for now)
+│
+├── core/                    # domain models (Order, Trade, Candle, Signal) + StrategyBase / StrategyRegistry
+├── backtest/                # generic candle backtest engine, charge tables, streaming job manager
+├── execution/               # order execution + risk manager, forward-test runner, runner registry
+├── market_data/             # data providers (Breeze, Angel, yfinance), tick recorder/store, option symbols, calendars
+├── brokers/                 # Mock, Angel One SmartAPI and ICICI Breeze adapters
+├── persistence/             # JSONL journal + atomic state snapshots
+├── platform_config/         # paths, universe.yaml (symbols), strategy_flags.yaml (dashboard flags / status)
+├── utils/                   # logging, IST time helpers, Telegram, Breeze SDK loader
+├── cli/ + main.py           # command-line interface
+├── web_app.py               # FastAPI dashboard & REST API (uvicorn web_app:app)
+├── tools/breeze/            # ICICI Breeze auto-login
+├── deploy/linux/            # server install, systemd unit, cron scripts
+├── docs/                    # scalping/ (rules, tick data), trading/, broker and login guides
+└── tests/
 ```
 
-> **Configuration lives in `platform_config/`** (renamed from `config/` so it no longer
-> shadows the `config` module used internally by the `breeze_connect` SDK).
+Runtime data (never committed): `data/ticks/` recorded ticks, `data/forward_test/` paper state,
+`data/cache/`, `logs/`, and `.env` with broker credentials.
 
----
+## Where a new strategy goes
 
-## 1. Environment Setup
-
-```bash
-cd /Users/apple/work/automated-engines
-source .venv/bin/activate
-# (first time only)
-python -m pip install -r requirements.txt
-```
-
----
-
-## 2. Quick Start — Bash Runner (`run_strategy.sh`)
-
-```bash
-./run_strategy.sh list                      # list all registered strategies
-
-./run_strategy.sh backtest ema_crossover    # backtest any strategy
-./run_strategy.sh backtest rsi --instrument NSE:BANKNIFTY --timeframe 15m --capital 200000
-./run_strategy.sh backtest mcx_trend_rider --instrument "MCX_GOLDM, MCX_SILVERM, MCX_CRUDEOIL" --capital 2000000
-./run_strategy.sh backtest index_oi_momentum --instrument "NIFTY, BANKNIFTY"
-
-./run_strategy.sh web 8080                  # launch the web dashboard
-```
-
----
-
-## 3. Python CLI
-
-The package is installed (editable) as `trading-platform`:
-
-```bash
-trading-platform strategy list
-trading-platform backtest <strategy_id> [--instrument <inst>] [--timeframe <tf>] [--capital <cap>]
-trading-platform status
-trading-platform position list
-trading-platform order list
-```
-
-Or directly:
-
-```bash
-python3 main.py strategy list
-python3 main.py backtest ema_crossover --capital 200000
-```
-
----
-
-## 4. Web Dashboard
-
-```bash
-source .venv/bin/activate
-python3 -m uvicorn web_app:app --host 0.0.0.0 --port 8080
-# or:  ./run_strategy.sh web 8080
-# or:  ./scripts/start_dashboard.sh
-```
-
-Then open **http://localhost:8080** for: interactive backtests with equity curves,
-strategy parameter tuning, live instance deployment, forward/paper testing and the
-positions/orders monitor.
-
-Key REST endpoints: `/api/catalog`, `/api/strategies`, `/api/status`,
-`/api/backtest`, `/api/backtest/oi-momentum`, `/api/strategy/start`,
-`/api/order/place`, `/api/forward-test/register`, `/api/paper/oi-momentum/start`.
-
----
-
-## 5. Brokers & Credentials
-
-Credentials are read from **`.env`** at the project root (Git-ignored).
-
-| Broker | Status | Notes |
+| Kind | Folder | How it plugs in |
 |---|---|---|
-| **Mock** | ✅ Default, no setup | Used for backtests and the dashboard |
-| **Angel One SmartAPI** | ✅ Configured | `ANGEL_API_KEY`, `ANGEL_CLIENT_CODE`, `ANGEL_PASSWORD_OR_MPIN`, `ANGEL_TOTP_SECRET` |
-| **ICICI Breeze** | ✅ Wired | Lazy-loaded; needs a valid Breeze session token. Auto-login: `tools/breeze/breeze_auto_login.py` |
+| Tick scalper | `scalp_strategies/` | Subclass `ScalpEngine`, add the class to `SCALP_STRATEGIES` in `scalp_strategies/__init__.py`, add a card in `web_app.py` (`_SCALP_CARDS`) and flags in `platform_config/strategy_flags.yaml`. Backtest, paper trading, the daily report and the Telegram summary pick it up from the registry. |
+| Regular trading strategy | `trading_strategies/<name>/` | Subclass `core.strategy.StrategyBase` in `strategy.py`, register it in `trading_strategies/__init__.py`, add a catalog entry in `web_app.py` and flags in `strategy_flags.yaml`. It then runs on the generic backtest engine, the CLI and the dashboard. |
+| Investment strategy | `investment_strategies/<name>/` | Same as a trading strategy, registered in `investment_strategies/__init__.py`. |
 
----
-
-## 6. ICICI Breeze Auto-Login
+## Running
 
 ```bash
-source .venv/bin/activate
-python tools/breeze/breeze_auto_login.py --visible   # Playwright + Telegram OTP
-python tools/breeze/breeze_auto_login.py --headless   # cron / background
+python -m venv .venv && source .venv/bin/activate    # Windows: .venv\Scripts\activate
+python -m pip install -r requirements.txt
+python -m uvicorn web_app:app --host 127.0.0.1 --port 9090
 ```
 
-See `docs/BREEZE_AUTO_LOGIN_GUIDE.md` for the full guide.
+Open http://localhost:9090. While the server runs it records NIFTY ticks 09:12-15:42 IST on trading
+days and resumes every paper session that was running before a restart.
 
+Scalper tools:
+
+```bash
+python -m scalp_strategies.tools.condition_report --date 2026-10-05   # why each scalper did / did not trade
+python -m scalp_strategies.tools.daily_summary --dry-run              # preview the Telegram summary
+python -m scalp_strategies.tools.import_breeze_1s --date 2026-09-29   # rebuild a past day from Breeze
+```
+
+CLI for the registered (non-scalper) strategies: `python main.py strategy list`, `python main.py status`.
+
+Tests: `python -m pytest tests` (broker-credential and Playwright tests need a live login / browser).
+
+## Documentation
+
+- `docs/scalping/README.md` - how the scalpers run, endpoints, limitations
+- `docs/scalping/STRATEGIES.md` - the exact rules of every scalper
+- `docs/scalping/TICK_DATA.md` - tick format and storage
+- `docs/trading/INDEX_OI_MOMENTUM_REPORT.md` - Index OI Momentum
+- `deploy/linux/README.md` - server deployment, schedules (Breeze login, Telegram summary, condition report)
+- `docs/BROKER_CREDENTIALS.md`, `docs/BREEZE_AUTO_LOGIN_GUIDE.md` - credentials and the daily Breeze login
+
+Credentials are read from `.env` at the project root (see `.env.example`); it is git-ignored.
