@@ -25,8 +25,14 @@ quotes, the tick rule). **Big print** = a traded tick whose LTQ >= 5x the runnin
 | Trailing | from +10%: stop = max(entry, peak - 8%) | stop raised to the previous 1-minute low |
 | Other exits | 5-min time stop if the peak never reached +5% | LTP below VWAP; 5-min time stop (< +5%) |
 | Capital / sizing | Rs 50,000; whole current balance per trade (compounding) | same |
+| Expiry days | **never trade** (`EXPIRY_MODE = "skip"`) | **never trade** |
 
-Expiry Trend Breakout has its own limits and exits - see its section.
+S1-S4 and OI + Volume Burst were calibrated on normal sessions; on the weekly expiry day premiums are
+cheap and move fast, so the percentage stops that work on Rs 100 premiums get hit in seconds (on
+2026-10-06 three such entries lost Rs 18k combined in trades lasting 13-74 s). They now stand aside on
+expiry day and leave it to the two dedicated expiry cards (`EXPIRY_MODE = "only"`).
+
+Expiry Trend Breakout and Expiry Gamma Squeeze have their own limits and exits - see their sections.
 
 All thresholds are parameters (`ScalpConfig`); stop, target, risk, trade and loss limits and
 slippage are editable on each card.
@@ -58,7 +64,9 @@ Entry: buy that option.
 1. Across ATM +/-2 strikes, sum call dOI and put dOI over the latest 3 minutes and the 3 minutes before.
 2. Both windows: call OI falling and put OI rising -> bullish (calls); the reverse -> bearish (puts).
    In the latest window the falling side must shed at least 20% of what the rising side added
-   (`PcrVelocity.MIN_UNWIND_RATIO`), so a token unwind against heavy writing does not count as a shift.
+   (`PcrVelocity.MIN_UNWIND_RATIO`), and **both legs must actually move** - the smaller leg at least
+   20% of the larger (`MIN_TWO_SIDED_RATIO`). This rejects one-sided OI shifts: on 2026-10-06 calls
+   unwound 4.28M while puts built only 117k (3%), which is not a real PCR rotation.
 3. The ATM option on that side: volume spike x 2, above VWAP; futures price moving the same way over 3 min.
 
 Entry: buy the ATM option.

@@ -35,14 +35,14 @@ from typing import Optional
 
 from market_data.tick_store import Tick
 from scalp_strategies.engine import TICK_SIZE, ScalpConfig, ScalpEngine, hhmm
-from scalp_strategies.expiry_breakout import ExpiryOnly
 
 
-class ExpiryGammaSqueeze(ExpiryOnly, ScalpEngine):
+class ExpiryGammaSqueeze(ScalpEngine):
     strategy_id = "scalp_expiry_gamma"
     name = "Expiry Gamma Squeeze"
 
     AUTO_START = True            # paper session starts with the app; it only trades on expiry days
+    EXPIRY_MODE = "only"         # never enters outside the option chain's expiry day
     PREMIUM_BAND = (12.0, 25.0)
     OI_WINDOW_MIN = 15
     OI_DROP = -0.015             # own-strike OI change over OI_WINDOW_MIN

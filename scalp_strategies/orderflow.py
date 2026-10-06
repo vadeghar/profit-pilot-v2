@@ -16,6 +16,8 @@ Signal = Optional[tuple[str, float, str]]
 
 
 class _OrderFlowBase(ScalpEngine):
+    EXPIRY_MODE = "skip"  # S1-S4 were calibrated off-expiry; the expiry cards handle expiry day
+
     def ready(self, se: Series) -> bool:
         return se.has(se.n(15) + se.n(1))
 
@@ -104,14 +106,17 @@ class StealthAccumulation(_OrderFlowBase):
 class PcrVelocity(_OrderFlowBase):
     """S3 - two consecutive 3-minute windows of call-OI unwinding + put-OI building (or the reverse).
 
-    The latest window's unwind must be at least MIN_UNWIND_RATIO of the build: on 2026-10-01 the only
-    losing entry had puts shedding 28,860 OI against 408,590 written on calls (7%).
+    The latest window's unwind must be at least MIN_UNWIND_RATIO of the build, and both legs must
+    actually move (MIN_TWO_SIDED_RATIO): on 2026-10-01 a losing entry had puts shedding 28,860 OI
+    against 408,590 written on calls (7%); on 2026-10-06 one had calls unwinding 4.28M while puts
+    built only 117k (3%) - a one-sided OI shift, not the two-sided unwind+build the strategy trades.
     """
 
     strategy_id = "scalp_pcr_velocity"
     name = "S3 Delta-PCR Velocity"
 
-    MIN_UNWIND_RATIO = 0.2  # unwinding side's 3-min OI drop as a share of the building side's OI rise
+    MIN_UNWIND_RATIO = 0.2    # unwinding side's 3-min OI drop as a share of the building side's OI rise
+    MIN_TWO_SIDED_RATIO = 0.2  # the smaller OI leg must be at least this x the larger (both sides move)
 
     def signal(self, ts: datetime, spot: float, atm: float) -> Signal:
         if not self.fut_tok:
@@ -145,6 +150,8 @@ class PcrVelocity(_OrderFlowBase):
         unwind, build = (ce0, pe0) if kind == "CE" else (pe0, ce0)
         if abs(unwind) < self.MIN_UNWIND_RATIO * build:
             return None  # a token unwind against heavy writing is noise, not a shift
+        if min(abs(unwind), abs(build)) < self.MIN_TWO_SIDED_RATIO * max(abs(unwind), abs(build)):
+            return None  # one-sided OI shift: one leg barely moved, so it is not a real PCR rotation
         t = self.tok(atm, kind)
         if not t:
             return None

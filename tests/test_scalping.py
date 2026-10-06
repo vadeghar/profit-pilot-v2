@@ -197,8 +197,9 @@ def test_oi_volume_burst_needs_opposite_side_unwinding():
 
 
 # ------------------------------------------------------------ S3 PCR velocity
-def pcr_session(pe_unwind_per_sec):
-    """25 quiet minutes, then calls are written (+500 OI/s per strike) while puts shed ``pe_unwind_per_sec``."""
+def pcr_session(pe_unwind_per_sec, ce_build_per_sec=500):
+    """25 quiet minutes, then calls are written (+``ce_build_per_sec`` OI/s per strike) while puts shed
+    ``pe_unwind_per_sec``."""
     strikes = (22450, 22500, 22550, 22600, 22650)
     ii = insts(strikes=strikes)
     e = PcrVelocity(ii, capital=100_000)
@@ -218,7 +219,7 @@ def pcr_session(pe_unwind_per_sec):
             for kind in ("CE", "PE"):
                 key = f"{k}{kind}"
                 if shift:
-                    ois[key] += 500 if kind == "CE" else -pe_unwind_per_sec
+                    ois[key] += ce_build_per_sec if kind == "CE" else -pe_unwind_per_sec
                 atm_pe = key == "22550PE"
                 vols[key] += 300 if (atm_pe and shift) else 50
                 px = pe_px if atm_pe else 100.0
@@ -230,6 +231,38 @@ def test_pcr_velocity_buys_the_put_when_puts_unwind_against_call_writing():
     e = pcr_session(pe_unwind_per_sec=250)   # unwind = 50% of the build
     p = e.pos or (e.trades[0] if e.trades else None)
     assert p is not None and (p.kind, p.strike) == ("PE", 22550.0)
+
+
+def test_pcr_velocity_ignores_a_one_sided_shift():
+    # puts unwind hard but calls barely build: one-sided, not the two-sided rotation S3 trades
+    e = pcr_session(pe_unwind_per_sec=500, ce_build_per_sec=25)
+    assert e.pos is None and not e.trades
+
+
+def test_regular_scalpers_skip_expiry_while_expiry_cards_require_it():
+    from datetime import datetime
+
+    from scalp_strategies import SCALP_STRATEGIES
+    ii = insts()
+    for i in ii.values():
+        if i.kind in ("CE", "PE"):
+            i.expiry = "2026-09-29"            # == the expiry_day date below
+    expiry_day = datetime(2026, 9, 29, 13, 30, tzinfo=IST)   # inside every scalper's entry window
+    other_day = datetime(2026, 9, 30, 13, 30, tzinfo=IST)
+    regular = {"scalp_writer_squeeze", "scalp_stealth_accum", "scalp_pcr_velocity",
+               "scalp_trap_fade", "scalp_oi_volume_burst"}
+    for sid, cls in SCALP_STRATEGIES.items():
+        on_exp = cls(ii, capital=50_000)
+        on_exp._new_day("2026-09-29", expiry_day)
+        off_exp = cls(ii, capital=50_000)
+        off_exp._new_day("2026-09-30", other_day)
+        assert on_exp.is_expiry_day() and not off_exp.is_expiry_day()
+        if sid in regular:
+            assert cls.EXPIRY_MODE == "skip"
+            assert not on_exp.can_enter(expiry_day) and off_exp.can_enter(other_day)
+        else:
+            assert cls.EXPIRY_MODE == "only"
+            assert on_exp.can_enter(expiry_day) and not off_exp.can_enter(other_day)
 
 
 def test_pcr_velocity_ignores_a_token_unwind():

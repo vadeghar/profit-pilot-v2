@@ -24,6 +24,7 @@ class OiVolumeBurst(ScalpEngine):
     strategy_id = "scalp_oi_volume_burst"
     name = "OI + Volume Burst"
 
+    EXPIRY_MODE = "skip"  # calibrated off-expiry; the expiry cards handle expiry day
     VOL_SPIKE = 3.0
     BASE_MIN = 20
     BURST_TICKS = 5

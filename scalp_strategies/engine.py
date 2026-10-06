@@ -19,7 +19,7 @@ from __future__ import annotations
 import math
 from collections import deque
 from dataclasses import asdict, dataclass, field
-from datetime import datetime, time, timedelta
+from datetime import date, datetime, time, timedelta
 from typing import Any, Callable, Optional
 
 from backtest.charges import ChargeConfig, Fill, option_charges
@@ -31,6 +31,16 @@ TICK_SIZE = 0.05
 def hhmm(s: str) -> time:
     h, m = map(int, s.split(":"))
     return time(h, m)
+
+
+def expiry_date(text: str) -> Optional[date]:
+    """Parse an instrument's expiry string: '2026-10-06' (Breeze import) or '06OCT2026' (Angel master)."""
+    for fmt in ("%Y-%m-%d", "%d%b%Y"):
+        try:
+            return datetime.strptime(text[:10] if fmt == "%Y-%m-%d" else text, fmt).date()
+        except ValueError:
+            continue
+    return None
 
 
 @dataclass
@@ -249,6 +259,9 @@ class ScalpEngine:
 
     strategy_id = "scalp"
     name = "Scalp"
+    # "any" trades every day; "skip" never enters on the option chain's expiry day
+    # (the regular scalpers were calibrated off-expiry); "only" trades expiry day alone.
+    EXPIRY_MODE = "any"
 
     def __init__(self, instruments: dict[str, Instrument], *, capital: float = 50_000.0,
                  config: Optional[ScalpConfig] = None, on_event: Optional[Callable[[str, dict], None]] = None):
@@ -348,8 +361,15 @@ class ScalpEngine:
             self._exit(ts or self.last_tick_at, self.S(self.pos.token), "END_OF_DATA")
 
     # ---------------------------------------------------------- entry gating
+    def is_expiry_day(self) -> bool:
+        """True when today is the expiry day of the recorded CE/PE chain."""
+        exp = next((i.expiry for i in self.insts.values() if i.kind in ("CE", "PE") and i.expiry), "")
+        return bool(exp) and self.day is not None and expiry_date(exp) == date.fromisoformat(self.day)
+
     def can_enter(self, ts: datetime) -> bool:
         t = ts.time()
+        if self.EXPIRY_MODE != "any" and self.spot_tok and (self.EXPIRY_MODE == "only") != self.is_expiry_day():
+            return False
         if not (hhmm(self.cfg.entry_start) <= t <= hhmm(self.cfg.entry_end)):
             return False
         if self.day_trades >= self.cfg.max_trades or self.day_losses >= self.cfg.max_losses:

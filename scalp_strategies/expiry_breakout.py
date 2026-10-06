@@ -18,34 +18,18 @@ morning's high/low and the range restarts from that moment.
 """
 from __future__ import annotations
 
-from datetime import date, datetime, time
+from datetime import datetime, time
 from typing import Optional
 
 from scalp_strategies.engine import ScalpConfig, ScalpEngine
 
 
-def _expiry_date(text: str) -> Optional[date]:
-    for fmt in ("%Y-%m-%d", "%d%b%Y"):  # Breeze import / Angel scrip master
-        try:
-            return datetime.strptime(text[:10] if fmt == "%Y-%m-%d" else text, fmt).date()
-        except ValueError:
-            continue
-    return None
-
-
-class ExpiryOnly:
-    """Mixin for scalpers that trade only on the expiry day of the recorded option chain."""
-
-    def is_expiry_day(self) -> bool:
-        exp = next((i.expiry for i in self.insts.values() if i.kind in ("CE", "PE") and i.expiry), "")
-        return bool(exp) and _expiry_date(exp) == date.fromisoformat(self.day)
-
-
-class ExpiryTrendBreakout(ExpiryOnly, ScalpEngine):
+class ExpiryTrendBreakout(ScalpEngine):
     strategy_id = "scalp_expiry_breakout"
     name = "Expiry Trend Breakout"
 
     AUTO_START = True            # paper session starts with the app; it only trades on expiry days
+    EXPIRY_MODE = "only"         # never enters outside the option chain's expiry day
     SESSION_OPEN = time(9, 15)
     MIN_RANGE = 0.005            # day range (share of spot) required before a breakout counts
     PREMIUM = 40.0

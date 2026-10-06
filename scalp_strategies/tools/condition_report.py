@@ -131,6 +131,7 @@ def _s3(e, ts, spot, atm, rec):
             "this-window OI shift": (ce0 < 0 and pe0 > 0) if kind == "CE" else (pe0 < 0 and ce0 > 0),
             "previous-window OI shift": (ce1 < 0 and pe1 > 0) if kind == "CE" else (pe1 < 0 and ce1 > 0),
             f"unwind >= {e.MIN_UNWIND_RATIO:.0%} of build": unwind < 0 < build and abs(unwind) >= e.MIN_UNWIND_RATIO * build,
+            "both OI legs move": min(abs(unwind), abs(build)) >= e.MIN_TWO_SIDED_RATIO * max(abs(unwind), abs(build), 1),
             "ATM volume >= 2x": a.vol_ratio(1, 15) >= 2, "ATM > VWAP": a.last().c > a.vwap(),
             "futures moving with trade": sg * f.dpx(a.n(3)) > 0,
         }, f"{kind} ATM {atm:.0f}")
