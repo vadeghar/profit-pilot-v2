@@ -38,6 +38,7 @@ STRIKES_EACH_SIDE = 10
 RECENTER_STRIKES = 6
 MAX_TOKENS = 100
 RECORD_START, RECORD_STOP = time(9, 12), time(15, 42)
+RETRY_SECONDS = 30   # re-attempt auto-start this often after a failed login (e.g. Angel timeout at the open)
 SNAP_QUOTE = 3
 EXCH_TYPE = {"NSE": 1, "NFO": 2}
 
@@ -298,11 +299,11 @@ class TickHub:
                 now = now_ist()
                 if self.running and (now.time() >= RECORD_STOP or (self.day and now.date() != self.day)):
                     self.stop(compress=True)
-                elif self.auto and not self.running and self.in_session(now) and _time.time() - self._last_attempt > 300:
+                elif self.auto and not self.running and self.in_session(now) and _time.time() - self._last_attempt > RETRY_SECONDS:
                     try:
                         self.start()
                     except Exception as e:
-                        self._err(f"auto-start failed (retry in 5 min): {e}")
+                        self._err(f"auto-start failed (retry in {RETRY_SECONDS}s): {e}")
                 elif (self.running and self.in_session(now) and self.last_tick_at
                       and now - self.last_tick_at > timedelta(minutes=3)):
                     self._err("no ticks for 3 minutes: reconnecting")
