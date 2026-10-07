@@ -17,7 +17,8 @@ Studies: ``default`` the indicator's own book-keeping per timeframe (positions c
 the same signals flat by 15:10, ``exits`` six ways of managing the trade, ``filters`` entry filters one at a
 time, ``vehicles`` the same trades as bought options against a synthetic future, ``benchmark`` the same plan on
 a plain SuperTrend, ``stocks`` the defaults on NIFTY, HDFC Bank, ICICI Bank and Reliance, ``presets`` every preset of the
-script on the same four, ``hourly`` the presets on three years of Yahoo hourly candles, ``tune`` the tuning lists
+script on the same four, ``hourly`` the presets on three years of Yahoo hourly candles, ``real`` the trades priced on recorded
+option candles from Breeze against the premium model, ``tune`` the tuning lists
 for NIFTY on the Swing preset (2025-2026; ``--holdout`` shows 2024), ``signals`` the last signals with their levels.
 
 Results are split by period (2024, 2025, 2026H1, 2026H2). The first round of this work only had 2026 and
@@ -189,6 +190,58 @@ def price_synthetic(trades: Sequence[dict], market: Market, costs: Costs = HOUSE
         out.append({**tr, "right": "CE" if d > 0 else "PE", "strike": strike, "expiry": expiry.isoformat(),
                     "gross": round(gross, 2), "charges": round(charges, 2), "net": round(gross - charges, 2),
                     "vix": market.vix[day]})
+    return out
+
+
+def price_real(trades: Sequence[dict], market: Market, quotes: "dataset.OptionCandles", costs: Costs = HOUSE,
+               itm_steps: int = 0, min_dte: int = 1, lots: int = LOTS, delta: float = 0.9, stale_bars: int = 3) -> List[dict]:
+    """The intraday ``trades`` as bought weekly options at *recorded* prices (Breeze 5-minute option candles).
+
+    The entry and every exit that happens on a candle close take the close of the option's own candle for
+    that five minutes. A stop or target hit inside a candle takes that candle's option close moved by
+    ``delta`` x the distance from the index close to the fill level. If the option did not trade in the candle
+    needed, the last close within ``stale_bars`` candles is used (flagged ``stale``); a trade with no price at
+    all is dropped. ``costs`` adds slippage on top of the recorded prices - a candle close is a last traded
+    price, not the side of the spread one would have got - and the real charges."""
+    cfg = ChargeConfig(brokerage_per_order=costs.brokerage_per_order)
+    spot_close = dict(zip(market.candles["t"], market.candles["c"]))
+    out = []
+    for tr in trades:
+        day = date.fromisoformat(tr["date"])
+        if tr["exit_date"] != tr["date"]:
+            continue
+        right = "CE" if tr["dir"] > 0 else "PE"
+        strike = pick_strike(tr["entry"], right, itm_steps)
+        candles = quotes.get(day, weekly_expiry(day, min_dte, CALENDAR), strike, right)
+
+        def recorded(minute: float, level: Optional[float] = None):
+            """(price, stale, volume) for a fill at ``minute``; ``level`` is the index price of an intrabar fill."""
+            start = int(minute // 5) * 5 if level is not None else int(minute) - 5
+            for back in range(stale_bars + 1):
+                bar = candles.get(start - 5 * back)
+                if bar is None:
+                    continue
+                price = bar[3]
+                if level is not None and back == 0:
+                    index_close = spot_close.get(pd.Timestamp(datetime.combine(day, time(9, 15))) + pd.Timedelta(minutes=start))
+                    if index_close is not None:
+                        price += delta * (level - index_close) * (1 if right == "CE" else -1)
+                return max(0.05, price), back > 0, bar[4]
+            return None
+
+        entry = recorded(tr["entry_minute"])
+        exits = [recorded(f["minute"], f["price"] if f["minute"] % 5 else None) for f in tr["fills"]]
+        if entry is None or any(x is None for x in exits):
+            continue
+        lot = nifty_lot_size(day)
+        buy = entry[0] + costs.slip(entry[0])
+        fills = [Fill("BUY", buy, lot * lots)] + [
+            Fill("SELL", max(0.05, x[0] - costs.slip(x[0])), int(round(f["share"] * lots)) * lot) for x, f in zip(exits, tr["fills"])]
+        gross = sum(f.price * f.quantity for f in fills[1:]) - buy * lot * lots
+        charges = option_charges(fills, day, cfg)["total"]
+        out.append({**tr, "right": right, "strike": strike, "buy": round(buy, 2), "outlay": round(buy * lot * lots),
+                    "gross": round(gross, 2), "charges": round(charges, 2), "net": round(gross - charges, 2),
+                    "stale": entry[1] or any(x[1] for x in exits), "entry_volume": entry[2]})
     return out
 
 
@@ -405,6 +458,38 @@ def study_tune(market: Market, tf: int = 25, holdout: bool = False, configs: Opt
             for group, name, plan, settings in (configs or tune_configs())]
 
 
+NO_SLIPPAGE = Costs(slip_abs=0.0, slip_pct=0.0)
+
+
+def study_real(market: Market, data_root: Path, tf: int, plan: Plan, settings: Settings, env_path: Optional[str] = None) -> List[dict]:
+    """Recorded option prices against the premium model, on the trades both can price.
+
+    ATM, 200 and 500 points in the money. ``recorded`` rows add no slippage, tight or house slippage to the
+    recorded candle closes; ``model`` rows are the Black-Scholes premiums the earlier studies used."""
+    trades = market.run(tf, plan, settings)
+    quotes = dataset.OptionCandles(data_root, env_path)
+    rows = []
+    for label, steps, capital in (("ATM", 0, CAPITAL), ("200 ITM", 4, CAPITAL), ("500 ITM", 10, 1.5 * CAPITAL)):
+        real = {name: price_real(trades, market, quotes, costs, steps)
+                for name, costs in (("none", NO_SLIPPAGE), ("tight", TIGHT), ("house", HOUSE))}
+        keys = {(t["date"], t["entry_minute"]) for t in real["none"]}
+        both = lambda priced: [t for t in priced if (t["date"], t["entry_minute"]) in keys]
+        runs = [("recorded", name, priced) for name, priced in real.items()]
+        runs += [("model", name, both(price_options(trades, market, costs, steps))) for name, costs in (("tight", TIGHT), ("house", HOUSE))]
+        for source, slippage, priced in runs:
+            m = metrics_rupees(priced, market.days, capital)
+            rows.append({"strike": label, "prices": source, "slippage": slippage, "capital": round(capital), "trades": len(priced),
+                         "of": len(trades), "stale": sum(t.get("stale", False) for t in priced),
+                         **{k: m.get(k) for k in ("win_rate", "profit_factor", "net", "annualised_pct", "max_dd", "max_dd_pct", "sharpe")},
+                         "per_trade": round(m["net"] / len(priced)) if priced else None,
+                         "avg_premium": round(float(np.mean([t["buy"] for t in priced]))) if priced else None,
+                         "median_entry_volume": round(float(np.median([t["entry_volume"] for t in priced]))) if source == "recorded" and priced else None,
+                         **{f"net_{p}": metrics_rupees(between(priced, lo, hi), between(market.days, lo, hi, key=str), capital).get("net", 0)
+                            for p, lo, hi in PERIODS}})
+    print(f"({quotes.requests} option requests sent to Breeze)")
+    return rows
+
+
 def study_stocks(data_root: Path, settings: Settings = Settings()) -> List[dict]:
     """The script's defaults (preset Auto) on NIFTY and the three stocks: as it scores itself, and intraday."""
     return [{"symbol": name, "tf": tf, "mode": mode, "sessions": len(mkt.days),
@@ -470,10 +555,11 @@ def _table(rows) -> str:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("--study", choices=("default", "intraday", "exits", "filters", "vehicles", "benchmark", "stocks", "presets", "hourly", "tune", "signals", "all"), default="default")
+    ap.add_argument("--study", choices=("default", "intraday", "exits", "filters", "vehicles", "benchmark", "stocks", "presets", "hourly", "tune", "real", "signals", "all"), default="default")
     ap.add_argument("--tf", type=int, default=30, choices=TIMEFRAMES, help="timeframe for the filters, vehicles and signals studies")
     ap.add_argument("--exit", default="script: thirds at 1R/2R/3R", choices=tuple(EXITS), help="exit plan for the filters, vehicles and benchmark studies")
     ap.add_argument("--combos", action="store_true", help="tune study: the second list (combinations)")
+    ap.add_argument("--env-file", help="the .env with a live Breeze session; lets the real study fetch missing option candles")
     ap.add_argument("--holdout", action="store_true", help="tune study: show 2024 instead of 2025-2026")
     ap.add_argument("--symbol", default="NIFTY", help="instrument for the single-market studies")
     ap.add_argument("--futures-volume", action="store_true", help="give NIFTY spot its near-month future's volume")
@@ -513,6 +599,8 @@ def main() -> None:
             res = study_presets(args.data_root)
         elif study == "tune":
             res = study_tune(market, args.tf, args.holdout, combo_configs() if args.combos else None)
+        elif study == "real":
+            res = study_real(market, args.data_root, args.tf, EXITS[args.exit], settings, args.env_file)
         elif study == "hourly":
             res = study_hourly(args.data_root, args.refresh)
         else:

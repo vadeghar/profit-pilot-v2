@@ -250,3 +250,28 @@ def test_daily_trade_cap_and_stop_after_a_loss():
     assert [t["reason"] for t in run(rows, at)] == ["stop", "tp3"]
     assert len(run(rows, at, Plan(max_trades_per_day=1))) == 1 and len(run(rows, at, Plan(max_trades_per_day=2))) == 2
     assert [t["reason"] for t in run(rows, at, Plan(stop_after_loss=True))] == ["stop"]
+
+
+def test_recorded_option_prices_replace_the_model():
+    from trading_strategies.self_aware_trend.backtest import NO_SLIPPAGE, price_real
+
+    class Quotes:
+        def __init__(self, candles):
+            self.candles, self.asked = candles, []
+
+        def get(self, day, expiry, strike, right):
+            self.asked.append((day, expiry, strike, right))
+            return self.candles
+
+    ex = session([(24000, 24001, 23999, 24000)] * 2 + [(24000, 24031, 24000, 24030)])
+    market = Market(ex[["t", "o", "h", "l", "c"]])
+    trades = simulate(signals(ex, {1: 1}), ex, np.arange(3), INTRADAY)         # thirds at 24010 / 24020 / 24030, inside bar 2
+    quotes = Quotes({5: (500, 501, 499, 500.0, 1300), 10: (500, 530, 500, 528.0, 2600)})
+    priced = price_real(trades, market, quotes, NO_SLIPPAGE, itm_steps=10)
+    assert quotes.asked == [(date(2026, 3, 9), date(2026, 3, 10), 23500, "CE")]
+    sells = [528.0 + 0.9 * (level - 24030) for level in (24010, 24020, 24030)]  # option close moved back to each fill level
+    assert priced[0]["buy"] == 500.0 and priced[0]["gross"] == pytest.approx(sum(s - 500.0 for s in sells) * 65)
+    assert not priced[0]["stale"] and priced[0]["entry_volume"] == 1300
+    stale = price_real(trades, market, Quotes({0: (498, 499, 497, 498.0, 65), 10: (500, 530, 500, 528.0, 2600)}), NO_SLIPPAGE, itm_steps=10)
+    assert stale[0]["stale"] and stale[0]["buy"] == 498.0                       # no trade in the entry candle: last close before it
+    assert price_real(trades, market, Quotes({}), NO_SLIPPAGE) == []

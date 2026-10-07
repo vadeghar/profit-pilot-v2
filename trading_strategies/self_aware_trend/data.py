@@ -164,6 +164,57 @@ def download_nifty_futures(data_root: Path = DEFAULT_DATA_ROOT, env_path: Option
     return path
 
 
+class OptionCandles:
+    """Recorded 5-minute candles of one NIFTY option on one day, from Breeze, cached a file per contract-day.
+
+    ``get`` returns {minutes after 09:15 at the candle's start: (open, high, low, close, volume)}, empty when
+    Breeze has nothing. A missing file is fetched if ``env_path`` points at a live session; without one the
+    cache is read-only. The weekly expiry is tried as given and then one and two days earlier, because the
+    holiday calendar on disk does not reach back before 2026."""
+
+    def __init__(self, data_root: Path = DEFAULT_DATA_ROOT, env_path: Optional[str] = None):
+        self.dir = Path(data_root) / SUBDIR / "breeze" / "options"
+        self.env_path, self.client, self.requests = env_path, None, 0
+
+    def get(self, day: date, expiry: date, strike: int, right: str) -> dict:
+        path = self.dir / f"{day:%Y%m%d}_{strike}_{right}.json"
+        if not path.exists():
+            if self.env_path is None:
+                return {}
+            self._fetch(path, day, expiry, strike, right)
+        rows = json.loads(path.read_text())["candles"]
+        out = {}
+        for t, o, h, l, c, v in rows:
+            minute = int(t[11:13]) * 60 + int(t[14:16]) - SESSION_OPEN_MINUTE
+            if 0 <= minute < 375:
+                out[minute] = (o, h, l, c, v)
+        return out
+
+    def _fetch(self, path: Path, day: date, expiry: date, strike: int, right: str) -> None:
+        if self.client is None:
+            from market_data.breeze_client import connect_breeze
+            self.client = connect_breeze(env_path=self.env_path)
+        rows, used = [], expiry
+        for back in (0, 1, 2):
+            used = expiry - timedelta(days=back)
+            if used < day:
+                break
+            res = self.client.get_historical_data_v2(
+                interval="5minute", from_date=f"{day}T09:00:00.000Z", to_date=f"{day}T16:00:00.000Z", stock_code="NIFTY",
+                exchange_code="NFO", product_type="options", expiry_date=f"{used}T06:00:00.000Z",
+                right="call" if right == "CE" else "put", strike_price=str(strike))
+            self.requests += 1
+            _time.sleep(0.35)
+            if res and res.get("Status") != 200:
+                raise RuntimeError(f"Breeze refused the option request for {day} {strike} {right}: {res.get('Error')}")
+            rows = (res or {}).get("Success") or []
+            if rows:
+                break
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"expiry": used.isoformat(), "candles": [
+            [r["datetime"], r["open"], r["high"], r["low"], r["close"], r.get("volume") or 0] for r in rows]}))
+
+
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--download", nargs="*", metavar="SYMBOL", help="fetch 5-minute history from Breeze for these symbols")

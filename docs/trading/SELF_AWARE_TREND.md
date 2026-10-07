@@ -351,3 +351,52 @@ Result (2024 hold-out): tuned 12.7 points a trade, Rs 86,910, profit factor 1.10
 Verdict: FAIL for the tuned version (worse than the baseline out of sample); baseline signal holds but the option drawdown is unsolved
 Next step: stop tuning inputs; price the baseline on real deep-ITM option candles from Breeze
 ```
+
+## 10. Round 6: the baseline on recorded option prices (7-Oct-2026)
+
+**What changed.** The premium model is replaced by Breeze's own 5-minute candles of the option actually
+traded: for each of the 526 baseline trades (NIFTY, Swing, 25 minutes, script exits) the contract-day was
+downloaded at three strikes (1,578 requests, cached under `research/self_aware_trend/breeze/options/`).
+Entries and exits on a candle close take the option's close for that candle; a stop or target inside a
+candle takes that close moved by 0.9 x the index distance to the fill level. All 526 trades were priced
+at every strike; one needed a stale price. `--study real --preset Swing --tf 25`.
+
+A candle close is a last traded price, not the side of the spread one would get, so slippage is still an
+assumption added on top: none, tight (Rs 0.15 or 0.1%) or house (Rs 0.5 or 0.5%). Three lots.
+
+| Strike | Prices | Slippage | Net (Rs) | Per trade | Profit factor | Max DD (Rs) | Sharpe | 2024 / 2025 / 2026H1 / 2026H2 |
+|---|---|---|---|---|---|---|---|---|
+| ATM | recorded | none | 2,44,322 | 464 | 1.12 | 2,27,246 | 0.61 | 1,83,559 / −30,488 / 1,35,246 / −43,995 |
+| ATM | recorded | house | 78,037 | 148 | 1.04 | 2,59,057 | 0.20 | 1,27,992 / −94,065 / 1,01,806 / −57,696 |
+| ATM | model | house | 5,042 | 10 | 1.00 | 2,50,677 | 0.01 | |
+| 200 ITM | recorded | none | 4,95,686 | 942 | 1.18 | 2,98,581 | 0.91 | 3,04,629 / 32,182 / 1,96,266 / −37,391 |
+| 200 ITM | recorded | tight | 4,35,905 | 829 | 1.15 | 3,06,603 | 0.80 | 2,84,780 / 8,577 / 1,85,235 / −42,687 |
+| 200 ITM | recorded | house | 1,97,192 | 375 | 1.07 | 3,40,106 | 0.36 | 2,05,546 / −85,669 / 1,41,143 / −63,828 |
+| 200 ITM | model | house | 2,07,076 | 394 | 1.07 | 2,93,027 | 0.40 | |
+| 500 ITM | recorded | none | 7,50,119 | 1,426 | 1.22 | 3,53,148 | 1.14 | 4,58,322 / 74,694 / 2,58,533 / −41,430 |
+| 500 ITM | recorded | tight | 6,35,030 | 1,207 | 1.19 | 3,68,777 | 0.96 | 4,20,430 / 28,039 / 2,38,777 / −52,216 |
+| 500 ITM | recorded | house | 1,74,675 | 332 | 1.05 | 4,31,295 | 0.26 | 2,68,864 / −1,58,583 / 1,59,754 / −95,360 |
+| 500 ITM | model | house | 3,34,211 | 635 | 1.10 | 3,67,943 | 0.51 | |
+
+- **The model was close.** At 200 ITM the recorded and modelled results at house slippage are Rs 1.97 and
+  2.07 lakh. The model was too harsh on ATM and a little kind at 500 ITM.
+- **Liquidity decides the strike.** The median volume in the entry candle is 27 lakh units at the money,
+  2.2 lakh at 200 ITM and 3,525 at 500 ITM (about 54 lots in five minutes). Three lots is a visible share of
+  the 500 ITM candle, so its true slippage is nearer the house row or worse. 200 ITM trades freely and is the
+  practical strike; its true cost lies between its tight and house rows.
+- **Slippage is still the swing factor**: at 200 ITM, Rs 4.36 lakh at tight against Rs 1.97 lakh at house.
+- **Drawdown is confirmed, not removed.** Rs 3.0 to 3.4 lakh on three lots at 200 ITM, about Rs 1 lakh a
+  lot, against a net of Rs 0.7 to 1.6 lakh a lot over 2.8 years. 2025 is flat to negative and 2026H2 is
+  negative in every row.
+
+Rupee figures for 2024 use a 65-unit lot. Bid-ask spreads are still not observed; only live quotes or tick
+data can settle the slippage question.
+
+```
+Strategy: Self-Aware Trend (SATS), NIFTY intraday
+Round: 6 of 12 (no parameter changed; modelled premiums replaced by recorded option candles)
+Params this round: preset Swing, 25 minutes, script exits, 3 lots bought 200 points ITM
+Result: tight slippage Rs 4,35,905 net, max DD Rs 3,06,603, win rate 45.1%, Sharpe 0.80; house slippage Rs 1,97,192, max DD Rs 3,40,106, Sharpe 0.36; 526 trades
+Verdict: FAIL on drawdown (as large as two to four years of profit per lot); the index signal and the premium model both stand
+Next step: escalate to a human: paper-trade the baseline at 200 ITM to measure real slippage, or stop here
+```
