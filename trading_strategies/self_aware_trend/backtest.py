@@ -16,13 +16,12 @@ Signals come from real NIFTY 5-minute candles, resampled to 10 ... 60 minutes. T
 Studies: ``default`` the indicator's own book-keeping per timeframe (positions carry overnight), ``intraday``
 the same signals flat by 15:10, ``exits`` six ways of managing the trade, ``filters`` entry filters one at a
 time, ``vehicles`` the same trades as bought options against a synthetic future, ``benchmark`` the same plan on
-a plain SuperTrend, ``stocks`` the defaults on HDFC Bank, ICICI Bank and Reliance from Yahoo candles
-(``--base 5`` the last 60 days on every timeframe, ``--base 60`` three years of hourly bars), ``presets``
-every preset of the script on NIFTY and those stocks, ``signals`` the last signals with their levels.
+a plain SuperTrend, ``stocks`` the defaults on NIFTY, HDFC Bank, ICICI Bank and Reliance, ``presets`` every preset of the
+script on the same four, ``hourly`` the presets on three years of Yahoo hourly candles, ``signals`` the last
+signals with their levels.
 
-The 2026 sessions are split into ``dev`` (Jan-Jun) and ``test`` (Jul onward). Choices are meant to be made on
-``dev`` and only then read on ``test``; ``2025`` is a second check on a patchy calendar (about 12 sessions a
-month), which the indicator sees as one continuous chart.
+Results are split by period (2024, 2025, 2026H1, 2026H2). The first round of this work only had 2026 and
+part of 2025, so 2024 and most of 2025 are history the early choices were not made on.
 """
 from __future__ import annotations
 
@@ -52,7 +51,8 @@ CALENDAR = TradingCalendar()
 TIMEFRAMES = (5, 10, 15, 20, 25, 30, 45, 60)
 HIGHER_TF = {5: 30, 10: 30, 15: 60, 20: 60, 25: 60, 30: 60, 45: 60, 60: 60}
 MARGIN_PER_LOT = 180_000.0     # assumed SPAN + exposure for one NIFTY future or its option equivalent
-PERIODS = (("2025", "2025-01-01", "2025-12-31"), ("dev", "2026-01-01", "2026-06-30"), ("test", "2026-07-01", "2026-12-31"))
+PERIODS = (("2024", "2024-01-01", "2024-12-31"), ("2025", "2025-01-01", "2025-12-31"),
+           ("2026H1", "2026-01-01", "2026-06-30"), ("2026H2", "2026-07-01", "2026-12-31"))
 
 THIRD = 1.0 / 3.0
 EXITS: Dict[str, Plan] = {
@@ -294,6 +294,7 @@ def study_vehicles(market: Market, tf: int, plan: Plan, settings: Settings = Set
     trades = market.run(tf, plan, settings)
     vehicles = (("buy ATM option", lambda c: price_options(trades, market, c), CAPITAL),
                 ("buy option 200 points in the money", lambda c: price_options(trades, market, c, itm_steps=4), CAPITAL),
+                ("buy option 500 points in the money", lambda c: price_options(trades, market, c, itm_steps=10), 1.5 * CAPITAL),
                 ("synthetic future (buy call + sell put)", lambda c: price_synthetic(trades, market, c), MARGIN_PER_LOT * LOTS))
     rows = []
     for name, price, capital in vehicles:
@@ -308,63 +309,57 @@ def study_vehicles(market: Market, tf: int, plan: Plan, settings: Settings = Set
     return rows
 
 
-SYMBOLS = {"NIFTY": "^NSEI", "HDFCBANK": "HDFCBANK.NS", "ICICIBANK": "ICICIBANK.NS", "RELIANCE": "RELIANCE.NS"}
+STOCKS = ("HDFCBANK", "ICICIBANK", "RELIANCE")
+YAHOO_SYMBOLS = {"NIFTY": "^NSEI", "HDFCBANK": "HDFCBANK.NS", "ICICIBANK": "ICICIBANK.NS", "RELIANCE": "RELIANCE.NS"}
 STOCK_COST_BPS = 10.0          # assumed round trip for an intraday equity trade: charges about 8 bps + slippage
 HOURLY = Plan(first_entry=time(10, 15), last_entry=time(14, 15), exit_time=time(15, 15))
-
-
-def study_stocks(data_root: Path, base_minutes: int, refresh: bool = False, settings: Settings = Settings()) -> List[dict]:
-    """The script's defaults on the three heaviest NIFTY stocks, with NIFTY from the same source alongside.
-
-    ``base_minutes`` 5 covers the last 60 days on every timeframe; 60 covers about three years on the hourly
-    chart only. Moves are in basis points of the entry price so a stock and the index can be compared;
-    ``net_bps`` takes ``STOCK_COST_BPS`` off each stock trade."""
-    rows = []
-    for name, symbol in SYMBOLS.items():
-        market = Market(dataset.load_yahoo(symbol, base_minutes, data_root, refresh), base_minutes=base_minutes)
-        for tf in (TIMEFRAMES if base_minutes == 5 else (60,)):
-            for mode, plan in (("script", SCRIPT), ("intraday", INTRADAY if base_minutes == 5 else HOURLY)):
-                trades = market.run(tf, plan, settings)
-                bps = np.array([1e4 * t["points"] / t["entry"] for t in trades])
-                row = {"symbol": name, "tf": tf, "mode": mode, "sessions": len(market.days), "trades": len(trades)}
-                if len(bps) > 1:
-                    row.update(win_rate=round(100 * (bps > 0).mean(), 1), avg_r=round(float(np.mean([t["r"] for t in trades])), 3),
-                               avg_bps=round(bps.mean(), 1), t_stat=round(bps.mean() / (bps.std(ddof=1) / len(bps) ** 0.5), 2),
-                               total_pct=round(bps.sum() / 100, 1),
-                               net_bps=round(bps.mean() - (0.0 if name == "NIFTY" else STOCK_COST_BPS), 1),
-                               **{f"pct_{y}": round(sum(b for b, t in zip(bps, trades) if t["date"][:4] == y) / 100, 1)
-                                  for y in sorted({t["date"][:4] for t in trades})})
-                rows.append(row)
-    return rows
-
-
 PRESET_NAMES = ("Scalping", "Default", "Swing", "Crypto 24/7", "Custom")
 
 
-def study_presets(data_root: Path, market: Market, refresh: bool = False) -> List[dict]:
-    """Every preset of the script on every timeframe, intraday: NIFTY spot (the 5-minute research candles),
-    then HDFC Bank, ICICI Bank and Reliance on Yahoo's last 60 days, then all four on three years of hourly
-    candles. "Custom" is the script's own input defaults (ATR 13, band 2.0, SL buffer 1.5)."""
-    sources = [("NIFTY spot", "5m research", market, TIMEFRAMES, INTRADAY)]
-    for name, symbol in SYMBOLS.items():
-        if name != "NIFTY":
-            sources.append((name, "5m 60 days", Market(dataset.load_yahoo(symbol, 5, data_root, refresh)), TIMEFRAMES, INTRADAY))
-    for name, symbol in SYMBOLS.items():
-        sources.append((name, "1h 3 years", Market(dataset.load_yahoo(symbol, 60, data_root, refresh), base_minutes=60), (60,), HOURLY))
+def bps_row(trades: Sequence[dict], cost_bps: float = 0.0) -> dict:
+    """A run in basis points of the entry price, so a stock and the index compare; one total per calendar year."""
+    row: dict = {"trades": len(trades)}
+    if len(trades) > 1:
+        bps = np.array([1e4 * t["points"] / t["entry"] for t in trades])
+        row.update(win_rate=round(100 * (bps > 0).mean(), 1), avg_points=round(float(np.mean([t["points"] for t in trades])), 2),
+                   avg_bps=round(bps.mean(), 1), t_stat=round(bps.mean() / (bps.std(ddof=1) / len(bps) ** 0.5), 2),
+                   net_bps=round(bps.mean() - cost_bps, 1), total_pct=round(bps.sum() / 100, 1),
+                   **{f"pct_{y}": round(sum(b for b, t in zip(bps, trades) if t["date"][:4] == y) / 100, 1)
+                      for y in sorted({t["date"][:4] for t in trades})})
+    return row
+
+
+def markets(data_root: Path) -> Dict[str, Market]:
+    """NIFTY spot as it is on disk (no volume), NIFTY with its future's volume, and the three heaviest stocks."""
+    out = {"NIFTY": Market(dataset.load(data_root)),
+           "NIFTY +fut vol": Market(dataset.load(data_root, futures_volume=True))}
+    out.update({name: Market(dataset.load(data_root, name)) for name in STOCKS})
+    return out
+
+
+def study_stocks(data_root: Path, settings: Settings = Settings()) -> List[dict]:
+    """The script's defaults (preset Auto) on NIFTY and the three stocks: as it scores itself, and intraday."""
+    return [{"symbol": name, "tf": tf, "mode": mode, "sessions": len(mkt.days),
+             **bps_row(mkt.run(tf, plan, settings), 0.0 if name.startswith("NIFTY") or mode == "script" else STOCK_COST_BPS)}
+            for name, mkt in markets(data_root).items() for tf in TIMEFRAMES for mode, plan in (("script", SCRIPT), ("intraday", INTRADAY))]
+
+
+def study_presets(data_root: Path) -> List[dict]:
+    """Every preset of the script on every timeframe, intraday, on NIFTY and the three stocks.
+    "Custom" is the script's own input defaults (ATR 13, band 2.0, SL buffer 1.5)."""
+    return [{"symbol": name, "sessions": len(mkt.days), "preset": preset, "tf": tf,
+             **bps_row(mkt.run(tf, INTRADAY, Settings(preset=preset)), 0.0 if name.startswith("NIFTY") else STOCK_COST_BPS)}
+            for name, mkt in markets(data_root).items() for preset in PRESET_NAMES for tf in TIMEFRAMES]
+
+
+def study_hourly(data_root: Path, refresh: bool = False) -> List[dict]:
+    """Three years of Yahoo hourly candles, traded on the hourly bars themselves (entries 10:15-14:15, flat 15:15)."""
     rows = []
-    for name, source, mkt, timeframes, plan in sources:
+    for name, symbol in YAHOO_SYMBOLS.items():
+        mkt = Market(dataset.load_yahoo(symbol, 60, data_root, refresh), base_minutes=60)
         for preset in PRESET_NAMES:
-            for tf in timeframes:
-                trades = mkt.run(tf, plan, Settings(preset=preset))
-                bps = np.array([1e4 * t["points"] / t["entry"] for t in trades])
-                row = {"symbol": name, "data": source, "sessions": len(mkt.days), "preset": preset, "tf": tf, "trades": len(trades)}
-                if len(bps) > 1:
-                    half = len(bps) // 2
-                    row.update(win_rate=round(100 * (bps > 0).mean(), 1), avg_bps=round(bps.mean(), 1),
-                               t_stat=round(bps.mean() / (bps.std(ddof=1) / len(bps) ** 0.5), 2), total_pct=round(bps.sum() / 100, 1),
-                               avg_points=round(float(np.mean([t["points"] for t in trades])), 2),
-                               first_half_pct=round(bps[:half].sum() / 100, 1), second_half_pct=round(bps[half:].sum() / 100, 1))
-                rows.append(row)
+            rows.append({"symbol": name, "sessions": len(mkt.days), "preset": preset, "tf": 60,
+                         **bps_row(mkt.run(60, HOURLY, Settings(preset=preset)), 0.0 if name == "NIFTY" else STOCK_COST_BPS)})
     return rows
 
 
@@ -407,10 +402,12 @@ def _table(rows) -> str:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("--study", choices=("default", "intraday", "exits", "filters", "vehicles", "benchmark", "stocks", "presets", "signals", "all"), default="default")
+    ap.add_argument("--study", choices=("default", "intraday", "exits", "filters", "vehicles", "benchmark", "stocks", "presets", "hourly", "signals", "all"), default="default")
     ap.add_argument("--tf", type=int, default=30, choices=TIMEFRAMES, help="timeframe for the filters, vehicles and signals studies")
     ap.add_argument("--exit", default="script: thirds at 1R/2R/3R", choices=tuple(EXITS), help="exit plan for the filters, vehicles and benchmark studies")
-    ap.add_argument("--base", type=int, default=5, choices=(5, 60), help="candle size for the stocks study")
+    ap.add_argument("--symbol", default="NIFTY", help="instrument for the single-market studies")
+    ap.add_argument("--futures-volume", action="store_true", help="give NIFTY spot its near-month future's volume")
+    ap.add_argument("--preset", default="Auto", choices=("Auto",) + PRESET_NAMES, help="preset for the single-market studies")
     ap.add_argument("--data-root", type=Path, default=dataset.DEFAULT_DATA_ROOT)
     ap.add_argument("--refresh", action="store_true", help="rebuild the candle / VIX cache first")
     ap.add_argument("--out", type=Path, help="write the results as JSON (default: <data-root>/backtests/)")
@@ -418,33 +415,36 @@ def main() -> None:
     pd.set_option("display.width", 320)
     pd.set_option("display.max_columns", 60)
 
-    candles, vix_close = dataset.load(args.data_root, refresh=args.refresh)
-    market = Market(candles, vix_close)
+    candles = dataset.load(args.data_root, args.symbol, args.futures_volume, args.refresh)
+    market = Market(candles, dataset.load_vix(args.data_root, args.refresh))
+    settings = Settings(preset=args.preset)
     print(f"{len(market.days)} sessions of 5-minute candles, {market.days[0]} -> {market.days[-1]}; "
           + ", ".join(f"{name} {len(between(market.days, lo, hi, key=str))}" for name, lo, hi in PERIODS) + "\n")
     results: dict = {"generated": datetime.now().isoformat(timespec="seconds"), "capital": CAPITAL, "lots": LOTS,
                      "sessions": len(market.days), "from": market.days[0].isoformat(), "to": market.days[-1].isoformat(),
-                     "settings": asdict(Settings()), "costs": {"house": asdict(HOUSE), "tight": asdict(TIGHT)}}
+                     "symbol": args.symbol, "settings": asdict(settings), "costs": {"house": asdict(HOUSE), "tight": asdict(TIGHT)}}
     for study in (("default", "intraday", "exits", "filters", "vehicles", "benchmark") if args.study == "all" else (args.study,)):
         print(f"== {study} ==")
         if study == "default":
-            res = study_default(market)
+            res = study_default(market, settings)
         elif study == "intraday":
-            res = study_intraday(market)
+            res = study_intraday(market, settings)
         elif study == "exits":
-            res = study_exits(market)
+            res = study_exits(market, settings)
         elif study == "filters":
-            res = study_filters(market, args.tf, EXITS[args.exit])
+            res = study_filters(market, args.tf, EXITS[args.exit], settings)
         elif study == "vehicles":
-            res = study_vehicles(market, args.tf, EXITS[args.exit])
+            res = study_vehicles(market, args.tf, EXITS[args.exit], settings)
         elif study == "benchmark":
             res = study_benchmark(market, EXITS[args.exit])
         elif study == "stocks":
-            res = study_stocks(args.data_root, args.base, args.refresh)
+            res = study_stocks(args.data_root)
         elif study == "presets":
-            res = study_presets(args.data_root, market, args.refresh)
+            res = study_presets(args.data_root)
+        elif study == "hourly":
+            res = study_hourly(args.data_root, args.refresh)
         else:
-            res = study_signals(market, args.tf)
+            res = study_signals(market, args.tf, settings=settings)
         print(_table(res) + "\n")
         results[study] = res.astype(str).to_dict("records") if isinstance(res, pd.DataFrame) else res
     out = args.out or Path(args.data_root) / "backtests" / f"self_aware_trend_{args.study}_{datetime.now():%Y%m%d_%H%M%S}.json"

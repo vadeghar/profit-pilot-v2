@@ -232,3 +232,13 @@ def test_resample_sums_volume_and_presets_change_the_band():
     bars = random_bars(900, seed=5).assign(v=1000.0)
     flips = {p: int((compute(bars, Settings(preset=p), 15)["flip"] != 0).sum()) for p in ("Scalping", "Default", "Swing")}
     assert flips["Scalping"] > flips["Default"] > flips["Swing"] > 0
+
+
+def test_closing_auction_bars_and_short_sessions_are_dropped():
+    def day(d, n=75):
+        return session([FLAT] * n, day=d).assign(v=1.0)
+    before, after, short = day(date(2026, 7, 31)), day(date(2026, 8, 3)), day(date(2026, 8, 4), 20)
+    clean = dataset._sessions(pd.concat([before, after, after.tail(3), short], ignore_index=True))
+    per_day = clean.groupby(clean["t"].dt.date)["t"].agg(["size", "max"])
+    assert per_day["size"].tolist() == [75, 72]                                # 15:15, 15:20, 15:25 gone from 3-Aug-2026
+    assert per_day["max"].iloc[0].time() == time(15, 25) and per_day["max"].iloc[1].time() == time(15, 10)

@@ -2,6 +2,10 @@
 
 **Status: research. The default settings do not pass. Nothing here is ready for money.**
 
+> **Read section 8 first.** Sections 1-7 were run on 311 NIFTY sessions that included closing-auction
+> bars after 15:15 from 3-Aug-2026 and, for stocks, on 57 sessions from Yahoo. Section 8 reruns the work on
+> 684 continuous sessions from Breeze with those bars removed, and supersedes their numbers.
+
 The TradingView indicator "Self-Aware Trend System [WillyAlgoTrader]" v1.12.0 was ported to Python and
 run with its default settings on 311 sessions of real NIFTY 5-minute candles (Feb-2025 to 5-Oct-2026).
 On the index, 30-minute signals earned about 13 points a trade when made intraday; 5-minute signals
@@ -227,4 +231,72 @@ Params this round: presets Scalping / Default / Swing / Crypto 24/7 / Custom x 8
 Result: NIFTY best cell Swing 25m, 16.3 points a trade, 225 trades, win rate 55%; stocks best cell Swing 45m, 30.5 bps, 63 trades in 57 sessions
 Verdict: NEEDS MORE DATA (index); FAIL on the three-year hourly stock test after costs
 Next step: get 5-minute stock history from Breeze, then test Swing on 20-30 minutes for NIFTY with deep ITM options
+```
+
+## 8. Round 3: 684 sessions from Breeze (7-Oct-2026)
+
+**Data.** 5-minute candles from Breeze for NIFTY, HDFC Bank, ICICI Bank and Reliance, continuous from
+1-Jan-2024 to 7-Oct-2026 (684 sessions; `data.py --download`). 2024 and most of 2025 were never seen in
+rounds 1-2.
+
+**A data fault found and fixed.** From 3-Aug-2026 the bars Breeze serves after 15:15 are closing-auction
+prints: 5-minute ranges of 60-200 bps on NIFTY against about 10 before. They were in the round-1 data for
+August and September and distorted the indicator on exactly the months that lost. They are now dropped
+(sessions end with the 15:10 candle from that date), as are Muhurat and Saturday sessions.
+
+**NIFTY volume.** TradingView may be showing the future's volume for NIFTY spot. With the near-month
+future's 5-minute volume attached to the spot candles, Swing on 25 minutes makes 11.7 points a trade
+against 12.4 without, and Default on 30 minutes 10.4 against 9.4. The volume question does not change the
+picture.
+
+**Presets on NIFTY spot** (684 sessions, intraday, points a trade; t in brackets):
+
+| Preset | 5 | 10 | 15 | 20 | 25 | 30 | 45 | 60 |
+|---|---|---|---|---|---|---|---|---|
+| Scalping | −1.1 | 1.1 | 3.4 | 4.4 | 5.6 | 5.0 | **8.6** (2.1) | 5.0 |
+| Default | −1.1 | 1.9 | 2.6 | 6.0 | 7.2 | **9.4** (2.3) | 4.5 | 2.2 |
+| Swing | 0.1 | 2.9 | 4.2 | 7.1 | **12.4** (3.1) | 10.1 (2.1) | 2.6 | −1.2 |
+| Crypto 24/7 | −0.5 | 4.7 | 3.9 | 5.8 | **10.7** (2.3) | 5.4 | −2.1 | 2.6 |
+| Custom | −1.0 | 1.9 | 2.6 | 4.8 | 7.1 | 9.6 (2.4) | 4.0 | 2.0 |
+
+The round-2 pattern repeats on more than twice the history: each preset peaks on its own timeframe along
+the same diagonal, and Swing on 25 minutes is the best cell (526 trades, 51% wins). It was positive in
+each year: +14.1% of index value summed over trades in 2024, +4.8% in 2025, +8.8% in 2026. Default on 30
+minutes: +11.4%, +3.2%, +8.0%. 5 minutes loses under every preset. 2025 is the weak year throughout.
+
+**The three stocks** (683 sessions, intraday, bps a trade before the assumed 10 bps cost):
+
+| | Best cell | bps | t | 2024 / 2025 / 2026 (total %) |
+|---|---|---|---|---|
+| HDFC Bank | Default 45 min | 6.7 | 2.1 | 8.4 / 1.0 / 16.2 |
+| ICICI Bank | Scalping 20 min | 2.3 | 1.5 | −0.7 / 4.3 / 23.0 |
+| Reliance | Swing 60 min | 10.6 | 2.3 | 12.7 / 1.4 / 12.6 |
+| Pooled, best cell | Crypto 25 min | 4.5 | | |
+
+No cell clears the cost over the full history. ICICI Bank is negative in 2024 in 39 of the 40
+preset and timeframe cells. The 57-session Yahoo result in section 7 (30 bps on 45 minutes) was the strong 2026 stretch,
+not the rule: the same stocks lost in most cells in 2025.
+
+**Vehicle, NIFTY Swing 25 minutes, three lots, script exits** (house costs unless noted):
+
+| Vehicle | Capital | Net (Rs) | Per trade | Profit factor | Max DD | 2024 / 2025 / 2026H1 / 2026H2 |
+|---|---|---|---|---|---|---|
+| Buy ATM option | 1,00,000 | 5,042 | 10 | 1.00 | 92% | 1,47,414 / −1,41,783 / 61,854 / −62,443 |
+| Buy 200 points ITM | 1,00,000 | 2,07,076 | 394 | 1.07 | 78% | 2,44,000 / −99,567 / 1,19,147 / −56,505 |
+| Buy 500 points ITM | 1,50,000 | 3,34,211 | 635 | 1.10 | 73% | 3,14,481 / −91,845 / 1,69,828 / −58,254 |
+| Buy 500 points ITM, tight costs | 1,50,000 | 7,91,464 | 1,505 | 1.25 | 47% | 4,65,272 / 94,352 / 2,47,190 / −15,351 |
+| Synthetic future | 5,40,000 | 8,39,015 | 1,595 | 1.23 | 34% | 4,72,804 / 89,984 / 2,90,863 / −14,636 |
+
+Deeper in the money keeps more of the signal, but slippage is modelled as 0.5% of premium, and a Rs 550
+premium pays Rs 2.75 a side. Whether deep ITM works therefore rests on the real bid-ask spread of those
+strikes, which this backtest does not have. Rupee figures for 2024 use a 65-unit lot (the real lot was 50,
+then 25, then 75 that year). Premiums are still modelled.
+
+```
+Strategy: Self-Aware Trend (SATS), NIFTY intraday
+Round: 3 of 12 (presets only, 684 sessions, auction bars removed)
+Params this round: preset Swing (ATR 21, band 2.5, SL buffer 2.0), 25 minutes, script exits, 3 lots bought 500 points ITM
+Result: annualised 81%, max DD 73%, win rate 46.4%, Sharpe 0.51, 526 trades (index: 12.4 points a trade, t 3.1)
+Verdict: FAIL on drawdown and profit factor as bought options; index signal PASSES a first out-of-sample look; stocks FAIL
+Next step: record or buy real deep-ITM option quotes; then tune exits and position size against the drawdown
 ```
