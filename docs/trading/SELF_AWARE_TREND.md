@@ -386,7 +386,7 @@ assumption added on top: none, tight (Rs 0.15 or 0.1%) or house (Rs 0.5 or 0.5%)
   practical strike; its true cost lies between its tight and house rows.
 - **Slippage is still the swing factor**: at 200 ITM, Rs 4.36 lakh at tight against Rs 1.97 lakh at house.
 - **Drawdown is confirmed, not removed.** Rs 3.0 to 3.4 lakh on three lots at 200 ITM, about Rs 1 lakh a
-  lot, against a net of Rs 0.7 to 1.6 lakh a lot over 2.8 years. 2025 is flat to negative and 2026H2 is
+  lot, against a net of Rs 0.7 to 1.5 lakh a lot over 2.8 years. 2025 is flat to negative and 2026H2 is
   negative in every row.
 
 Rupee figures for 2024 use a 65-unit lot. Bid-ask spreads are still not observed; only live quotes or tick
