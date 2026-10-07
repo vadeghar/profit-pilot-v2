@@ -68,8 +68,10 @@ class Market:
 
 
 def run(market: Market, params: Params = Params(), costs: Costs = Costs(), capital: float = CAPITAL,
-        start: str = WINDOWS[0][1], end: str = WINDOWS[0][2], whole_shares: bool = True) -> dict:
-    """Simulate ``params`` from ``start`` to ``end``. Returns the daily equity, the closed trades and each month's picks."""
+        start: str = WINDOWS[0][1], end: str = WINDOWS[0][2], whole_shares: bool = True, ranker=None) -> dict:
+    """Simulate ``params`` from ``start`` to ``end``. Returns the daily equity, the closed trades and each month's picks.
+
+    ``ranker(market, day, names)`` may replace the momentum score: it returns the candidates, best first."""
     days = market.close.loc[start:end].index
     decisions = {d for d in month_ends(market.close.index, params.rebalance_months) if days[0] <= d <= days[-1]}
     last_close = market.close.ffill()
@@ -114,7 +116,7 @@ def run(market: Market, params: Params = Params(), costs: Costs = Costs(), capit
         equity.append(value(day))
         if day in decisions:
             names = universe(market.turnover, market.close, day, params)
-            ranked = scores(market.close, day, names, params)
+            ranked = ranker(market, day, names) if ranker else scores(market.close, day, names, params)
             if params.volume_rule != "none":
                 ranked = volume_screen(ranked, volume_ratio(market.turnover, day, ranked.index), params)
             up = risk_on(market.bench["NIFTY"], day, params)
