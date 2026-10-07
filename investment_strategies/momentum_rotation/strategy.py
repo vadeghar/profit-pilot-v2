@@ -35,6 +35,8 @@ class Params:
     regime: str = "exit"             # "exit" | "no_new" | "none"
     regime_ma: int = 200
     rebalance_months: int = 1        # 1 = monthly, 6 = half-yearly like the NSE index
+    volume_rule: str = "none"        # "skip_surge": drop stocks whose volume ratio is above ``volume_level``;
+    volume_level: float = 2.0        # "quiet": keep only those at or below it; "rising": only those at or above it
 
 
 def month_ends(days: pd.DatetimeIndex, every: int = 1) -> List[pd.Timestamp]:
@@ -68,6 +70,21 @@ def scores(close: pd.DataFrame, at: pd.Timestamp, names: Sequence[str], params: 
         z = lambda s: (s - s.mean()) / s.std()
         out = (z(r12 / vol) + z(r6 / vol)) / 2.0
     return out.replace([np.inf, -np.inf], np.nan).dropna().sort_values(ascending=False)
+
+
+def volume_ratio(turnover: pd.DataFrame, at: pd.Timestamp, names: Sequence[str]) -> pd.Series:
+    """Recent trading against the stock's own norm: median daily turnover of the last month over the last year."""
+    window = turnover.loc[:at, list(names)].tail(DAYS_12M)
+    return window.tail(DAYS_1M).median() / window.median()
+
+
+def volume_screen(ranked: pd.Series, ratio: pd.Series, params: Params) -> pd.Series:
+    """``ranked`` with the stocks the volume rule rejects removed (order kept)."""
+    if params.volume_rule == "none":
+        return ranked
+    r = ratio.reindex(ranked.index)
+    keep = {"skip_surge": r <= params.volume_level, "quiet": r <= params.volume_level, "rising": r >= params.volume_level}[params.volume_rule]
+    return ranked[keep.fillna(False)]
 
 
 def risk_on(index_close: pd.Series, at: pd.Timestamp, params: Params) -> bool:

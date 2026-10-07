@@ -10,7 +10,9 @@ whole numbers, cash earns nothing, and every order pays the delivery charges in 
 Studies: ``baseline`` the specified rules on the whole period and its two halves against the Nifty 50 (price index:
 add about 1.3% a year for dividends),
 ``variants`` one rule changed at a time (the list is fixed in ``VARIANTS``), ``account`` capital and brokerage,
-``bias`` how much today's member list flatters the result, ``picks`` what it holds and what it would buy now.
+``bias`` how much today's member list flatters the result, ``picks`` what it holds and what it would buy now,
+``volume`` the rules with a volume filter on the ranked list (V2), ``volume_events`` next-month returns of the
+top momentum stocks by how heavily they have been trading.
 
 Windows: ``early`` 2011-2018 is where a choice between variants may be made; ``late`` 2019 onward is read
 afterwards. Each window starts with fresh capital, because whole-share and flat-fee drag depend on account size.
@@ -28,7 +30,8 @@ import numpy as np
 import pandas as pd
 
 from investment_strategies.momentum_rotation import data as dataset
-from investment_strategies.momentum_rotation.strategy import Params, month_ends, risk_on, scores, select, universe
+from investment_strategies.momentum_rotation.strategy import (Params, month_ends, risk_on, scores, select, universe, volume_ratio,
+                                                             volume_screen)
 
 CAPITAL = 65_000.0
 WINDOWS = (("full", "2011-01-01", "2026-12-31"), ("early", "2011-01-01", "2018-12-31"), ("late", "2019-01-01", "2026-12-31"))
@@ -112,6 +115,8 @@ def run(market: Market, params: Params = Params(), costs: Costs = Costs(), capit
         if day in decisions:
             names = universe(market.turnover, market.close, day, params)
             ranked = scores(market.close, day, names, params)
+            if params.volume_rule != "none":
+                ranked = volume_screen(ranked, volume_ratio(market.turnover, day, ranked.index), params)
             up = risk_on(market.bench["NIFTY"], day, params)
             slot = equity[-1] / params.top_n
             affordable = (lambda s: market.close.at[day, s] * 1.01 <= slot) if whole_shares else (lambda s: True)
@@ -202,6 +207,50 @@ def study_variants(market: Market) -> List[dict]:
     return [{"variant": name, **row(market, replace(Params(), **change))} for name, change in VARIANTS.items()]
 
 
+VOLUME_RULES: Dict[str, dict] = {
+    "no volume rule (A1 as tested)": {},
+    "skip stocks trading above 2x their norm (V2 as specified)": {"volume_rule": "skip_surge", "volume_level": 2.0},
+    "skip above 1.5x": {"volume_rule": "skip_surge", "volume_level": 1.5},
+    "skip above 3x": {"volume_rule": "skip_surge", "volume_level": 3.0},
+    "only stocks at or below their normal volume": {"volume_rule": "quiet", "volume_level": 1.0},
+    "only stocks at 1.2x their norm or more (the opposite)": {"volume_rule": "rising", "volume_level": 1.2},
+    "only stocks at 2x their norm or more": {"volume_rule": "rising", "volume_level": 2.0},
+}
+
+
+def study_volume(market: Market) -> List[dict]:
+    """V2: the rotation with each volume rule applied to the ranked list before the six are chosen."""
+    return [{"volume_rule": name, **row(market, replace(Params(), **change))} for name, change in VOLUME_RULES.items()]
+
+
+def study_volume_events(market: Market, params: Params = Params(), top: int = 30) -> List[dict]:
+    """The top ``top`` momentum stocks each month-end, split into thirds by volume ratio: return over the next
+    month (close to close), minus the average of all ``top``. No account, no costs."""
+    ends = [d for d in month_ends(market.close.index) if d >= pd.Timestamp("2010-12-01")]
+    records = []
+    for at, nxt in zip(ends, ends[1:]):
+        ranked = scores(market.close, at, universe(market.turnover, market.close, at, params), params).head(top)
+        if len(ranked) < top:
+            continue
+        ratio = volume_ratio(market.turnover, at, ranked.index)
+        forward = market.close.loc[nxt, ranked.index] / market.close.loc[at, ranked.index] - 1.0
+        frame = pd.DataFrame({"ratio": ratio, "excess": forward - forward.mean()}).dropna().sort_values("ratio")
+        third = len(frame) // 3
+        for label, part in (("lowest third (quiet)", frame.iloc[:third]), ("middle third", frame.iloc[third:len(frame) - third]),
+                            ("highest third (heavy)", frame.iloc[len(frame) - third:])):
+            records.append({"date": at, "group": label, "excess": float(part["excess"].mean()), "ratio": float(part["ratio"].median())})
+    events = pd.DataFrame(records)
+    rows = []
+    for window, lo, hi in WINDOWS:
+        sub = events[(events["date"] >= lo) & (events["date"] <= hi)]
+        for label, x in sub.groupby("group", sort=False):
+            e = x["excess"]
+            rows.append({"window": window, "group": label, "months": len(e), "median_volume_ratio": round(float(x["ratio"].median()), 2),
+                         "avg_excess_pct_a_month": round(100 * float(e.mean()), 2), "months_ahead_pct": round(100 * float((e > 0).mean()), 1),
+                         "t_stat": round(float(e.mean() / (e.std(ddof=1) / len(e) ** 0.5)), 2)})
+    return rows
+
+
 def study_account(market: Market, params: Params = Params()) -> List[dict]:
     """What account size and the broker's delivery fee do to the same rules."""
     rows = [{"account": f"Rs {int(c):,}, Rs 20 an order", **row(market, params, capital=c)} for c in (50_000.0, 65_000.0, 80_000.0, 500_000.0)]
@@ -275,7 +324,7 @@ def study_picks(market: Market, data_root: Path, params: Params = Params()) -> d
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("--study", choices=("baseline", "variants", "account", "bias", "picks", "all"), default="baseline")
+    ap.add_argument("--study", choices=("baseline", "variants", "account", "bias", "picks", "volume", "volume_events", "all"), default="baseline")
     ap.add_argument("--data-root", type=Path, default=dataset.DEFAULT_DATA_ROOT)
     ap.add_argument("--refresh", action="store_true", help="download prices again first")
     ap.add_argument("--out", type=Path, help="write the results as JSON (default: <data-root>/backtests/)")
@@ -296,6 +345,9 @@ def main() -> None:
             print(pd.DataFrame(res).to_string(index=False))
         elif study == "account":
             res = study_account(market)
+            print(pd.DataFrame(res).to_string(index=False))
+        elif study in ("volume", "volume_events"):
+            res = study_volume(market) if study == "volume" else study_volume_events(market)
             print(pd.DataFrame(res).to_string(index=False))
         elif study == "bias":
             res = study_bias(market)

@@ -12,6 +12,11 @@ Rules (daily candles; decided at a close, traded at the next open) - Donchian / 
                 "average" - a close below the ``exit_days``-day average; "chandelier" - a close more than
                 ``atr_mult`` ATRs below the highest high of the last ``exit_days`` days.
 
+  5. Volume     optional (the "volume price analysis" claim that a breakout on heavy volume is the real one):
+                the day's turnover must be at least ``volume_mult`` times its average over the previous
+                ``volume_days`` days (and below ``volume_max`` times, to test the opposite), and the close
+                must be in the top ``close_strength`` share of the day's range.
+
 A stock that was sold can be bought again at its next new high. ``indicators`` returns what the rules need as
 date x symbol frames; backtest.py does the money.
 """
@@ -35,13 +40,29 @@ class Params:
     market_ma: int = 200             # 0 = no market filter
     market_exit: bool = False
     rank: str = "momentum"           # "momentum" | "turnover"
+    volume_mult: float = 0.0         # 0 = no volume condition
+    volume_max: float = 0.0          # 0 = no upper limit
+    volume_days: int = 50
+    close_strength: float = 0.0      # 0.67 = close in the top third of the day's range
     max_hold: int = 100_000          # no time limit (fields below are read by the shared simulator)
     stop_pct: float = 0.0
+
+
+def relative_volume(turnover: pd.DataFrame, days: int = 50) -> pd.DataFrame:
+    """Today's turnover as a multiple of its average over the previous ``days`` days."""
+    return turnover / turnover.shift(1).rolling(days).mean()
 
 
 def indicators(close: pd.DataFrame, high: pd.DataFrame, low: pd.DataFrame, turnover: pd.DataFrame, params: Params) -> Dict[str, pd.DataFrame]:
     """setup (bool: new high today), score (lower = buy first), exit_ok (bool: the trailing exit has triggered)."""
     setup = close >= close.rolling(params.entry_days, min_periods=params.entry_days).max()
+    relative = relative_volume(turnover, params.volume_days)
+    if params.volume_mult:
+        setup &= relative >= params.volume_mult
+    if params.volume_max:
+        setup &= relative < params.volume_max
+    if params.close_strength:
+        setup &= (close - low) / (high - low).replace(0.0, np.nan) >= params.close_strength
     if params.exit == "average":
         broken = close < close.rolling(params.exit_days).mean()
     elif params.exit == "chandelier":

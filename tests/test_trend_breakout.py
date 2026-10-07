@@ -69,3 +69,17 @@ def test_days_with_almost_no_prices_are_dropped():
                                                                                      {"d": days[5], "symbol": "B", "c": 1.0}]
     kept = _trading_days(pd.DataFrame(rows))
     assert sorted(kept["d"].unique()) == days[:5]
+
+
+def test_volume_condition_on_the_breakout_day():
+    from investment_strategies.trend_breakout.strategy import relative_volume
+    close, high, low = paths()
+    turnover = pd.DataFrame(1e7, index=DAYS, columns=close.columns)
+    turnover.iloc[430, 0] = 3e7                                                              # one heavy day during the climb
+    assert relative_volume(turnover)["RUN"].iloc[430] == 3.0 and relative_volume(turnover)["RUN"].iloc[429] == 1.0
+    heavy = indicators(close, high, low, turnover, Params(volume_mult=1.5))["setup"]["RUN"]
+    assert heavy.iloc[430] and heavy.iloc[420:549].sum() == 1
+    light = indicators(close, high, low, turnover, Params(volume_max=1.5))["setup"]["RUN"]
+    assert not light.iloc[430] and light.iloc[420:549].sum() == 128
+    weak_close = indicators(close, close * 1.03, close * 0.999, turnover, Params(close_strength=0.67))["setup"]["RUN"]
+    assert not weak_close.any()                                                              # every close near the day's low

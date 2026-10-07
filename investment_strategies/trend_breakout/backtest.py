@@ -9,7 +9,8 @@ charges on every order). The day-by-day simulator is the one in trading_strategi
 
 Studies: ``baseline`` the specified rules on the whole period and its halves against the Nifty 50, ``variants``
 one rule changed at a time (list fixed in ``VARIANTS``), ``account`` capital, brokerage and slippage, ``picks``
-what it holds, ``overlap`` how it moves with the momentum rotation.
+what it holds, ``overlap`` how it moves with the momentum rotation, ``volume`` the same rules with a volume
+condition on the breakout day (V1), ``volume_events`` what every breakout did next by how heavy its volume was.
 
 Windows: ``early`` 2011-2018 is where a choice between variants may be made; ``late`` 2019 onward is read after.
 """
@@ -28,7 +29,7 @@ import pandas as pd
 from investment_strategies.momentum_rotation import backtest as rotation
 from investment_strategies.momentum_rotation import data as dataset
 from investment_strategies.momentum_rotation.backtest import Costs, stats
-from investment_strategies.trend_breakout.strategy import Params, indicators
+from investment_strategies.trend_breakout.strategy import Params, indicators, relative_volume
 from trading_strategies.stock_pullback import backtest as engine
 from trading_strategies.stock_pullback.strategy import market_ok
 
@@ -105,6 +106,55 @@ def study_variants(market: Market) -> List[dict]:
     return [{"variant": name, **row(market, replace(Params(), **change))} for name, change in VARIANTS.items()]
 
 
+VOLUME_RULES: Dict[str, dict] = {
+    "any volume (A2 as tested)": {},
+    "volume at least 1.0x its 50-day average": {"volume_mult": 1.0},
+    "volume at least 1.5x (V1 as specified)": {"volume_mult": 1.5},
+    "volume at least 2.0x": {"volume_mult": 2.0},
+    "volume at least 3.0x": {"volume_mult": 3.0},
+    "volume below 1.0x (the opposite)": {"volume_max": 1.0},
+    "1.5x and close in the top third of the day": {"volume_mult": 1.5, "close_strength": 0.67},
+}
+VOLUME_BASES: Dict[str, dict] = {"exit below 50-day low": {}, "exit below 100-day low": {"exit_days": 100}}
+BUCKETS = ((0.0, 0.75, "below 0.75x"), (0.75, 1.5, "0.75x to 1.5x"), (1.5, 2.5, "1.5x to 2.5x"), (2.5, 1e9, "2.5x and above"))
+
+
+def study_volume(market: Market) -> List[dict]:
+    """V1: the breakout strategy with each volume rule, on its specified exit and on the slower exit."""
+    return [{"exit": base_name, "volume_rule": name, **row(market, replace(Params(), **base, **change))}
+            for base_name, base in VOLUME_BASES.items() for name, change in VOLUME_RULES.items()]
+
+
+def study_volume_events(market: Market, params: Params = Params(), quiet_days: int = 20) -> List[dict]:
+    """Every fresh breakout, with no account in the way: what the stock did next, by how heavy the volume was.
+
+    A fresh breakout is a new ``entry_days`` closing high in a universe stock with no such high in the previous
+    ``quiet_days`` days. The return is from the next open to the close 20 and 60 trading days later, minus the
+    same-period return of the equal-weighted universe, so a rising market is not counted as skill."""
+    setup = indicators(market.close, market.high, market.low, market.turnover, params)["setup"] & market.members(params.universe_size)
+    fresh = setup & ~setup.shift(1).rolling(quiet_days).max().fillna(0).astype(bool)
+    relative = relative_volume(market.turnover, params.volume_days)
+    entry = market.open.shift(-1)
+    members = market.members(params.universe_size)
+    rows = []
+    for horizon in (20, 60):
+        forward = market.close.shift(-horizon) / entry - 1.0
+        market_forward = forward.where(members).mean(axis=1)
+        excess = forward.sub(market_forward, axis=0)
+        for window, lo, hi in WINDOWS:
+            mask = fresh.loc[lo:hi]
+            values, volumes = excess.loc[lo:hi].where(mask).stack(), relative.loc[lo:hi].where(mask).stack()
+            frame = pd.DataFrame({"excess": values, "relative": volumes}).dropna()
+            for low, high, label in BUCKETS + ((0.0, 1e9, "all breakouts"),):
+                x = frame[(frame["relative"] >= low) & (frame["relative"] < high)]["excess"]
+                if len(x) > 1:
+                    rows.append({"window": window, "days_ahead": horizon, "volume": label, "breakouts": len(x),
+                                 "avg_excess_pct": round(100 * float(x.mean()), 2), "median_excess_pct": round(100 * float(x.median()), 2),
+                                 "beat_market_pct": round(100 * float((x > 0).mean()), 1),
+                                 "t_stat": round(float(x.mean() / (x.std(ddof=1) / len(x) ** 0.5)), 2)})
+    return rows
+
+
 def study_account(market: Market, params: Params = Params()) -> List[dict]:
     rows = [{"account": f"Rs {int(c):,}, Rs 20 an order", **row(market, params, capital=c)} for c in (50_000.0, 65_000.0, 80_000.0, 500_000.0)]
     rows.append({"account": "Rs 65,000, no brokerage", **row(market, params, replace(Costs(), brokerage_per_order=0.0))})
@@ -152,7 +202,7 @@ def study_overlap(market: Market, data_root: Path, params: Params = Params()) ->
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("--study", choices=("baseline", "variants", "account", "picks", "overlap", "all"), default="baseline")
+    ap.add_argument("--study", choices=("baseline", "variants", "account", "picks", "overlap", "volume", "volume_events", "all"), default="baseline")
     ap.add_argument("--data-root", type=Path, default=dataset.DEFAULT_DATA_ROOT)
     ap.add_argument("--out", type=Path, help="write the results as JSON (default: <data-root>/backtests/)")
     args = ap.parse_args()
@@ -173,6 +223,9 @@ def main() -> None:
             print(pd.DataFrame(res).to_string(index=False))
         elif study == "account":
             res = study_account(market)
+            print(pd.DataFrame(res).to_string(index=False))
+        elif study in ("volume", "volume_events"):
+            res = study_volume(market) if study == "volume" else study_volume_events(market)
             print(pd.DataFrame(res).to_string(index=False))
         elif study == "picks":
             res = study_picks(market, args.data_root)

@@ -98,3 +98,17 @@ def test_stats():
     equity = pd.Series([100.0, 120.0, 90.0, 144.0], index=pd.to_datetime(["2020-01-01", "2020-12-31", "2021-06-30", "2021-12-31"]))
     s = stats(equity)
     assert s["cagr"] == pytest.approx(20.0, abs=0.1) and s["max_dd"] == 25.0 and s["yearly"] == {2020: 20.0, 2021: 20.0}
+
+
+def test_volume_ratio_and_screen():
+    from investment_strategies.momentum_rotation.strategy import volume_ratio, volume_screen
+    turnover = pd.DataFrame({"CALM": 1e7, "SURGE": 1e7, "FADE": 1e7}, index=DAYS[:300])
+    turnover.iloc[-21:, 1] = 3e7
+    turnover.iloc[-21:, 2] = 5e6
+    ratio = volume_ratio(turnover, DAYS[299], ["CALM", "SURGE", "FADE"])
+    assert ratio.round(2).to_dict() == {"CALM": 1.0, "SURGE": 3.0, "FADE": 0.5}
+    ranked = pd.Series([3.0, 2.0, 1.0], index=["SURGE", "CALM", "FADE"])
+    assert volume_screen(ranked, ratio, Params()).index.tolist() == ["SURGE", "CALM", "FADE"]
+    assert volume_screen(ranked, ratio, Params(volume_rule="skip_surge", volume_level=2.0)).index.tolist() == ["CALM", "FADE"]
+    assert volume_screen(ranked, ratio, Params(volume_rule="quiet", volume_level=0.8)).index.tolist() == ["FADE"]
+    assert volume_screen(ranked, ratio, Params(volume_rule="rising", volume_level=1.2)).index.tolist() == ["SURGE"]
