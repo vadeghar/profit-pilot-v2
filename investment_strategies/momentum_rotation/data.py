@@ -80,17 +80,25 @@ def load(data_root: Path = DEFAULT_DATA_ROOT, refresh: bool = False) -> Tuple[pd
     out = Path(data_root) / SUBDIR
     if refresh or not (out / "prices.parquet").exists():
         build(data_root, refresh_members=refresh)
-    prices = pd.read_parquet(out / "prices.parquet")
+    prices = _trading_days(pd.read_parquet(out / "prices.parquet"))
     close = prices.pivot(index="d", columns="symbol", values="c").sort_index()
     open_ = prices.pivot(index="d", columns="symbol", values="o").sort_index()
     turnover = (prices.assign(t=prices["c"] * prices["v"]).pivot(index="d", columns="symbol", values="t").sort_index())
     bench = pd.read_parquet(out / "benchmarks.parquet").pivot(index="d", columns="symbol", values="c").sort_index()
-    return close, open_, turnover, bench
+    return close, open_, turnover, bench.reindex(close.index).ffill()
+
+
+def _trading_days(prices: pd.DataFrame) -> pd.DataFrame:
+    """Drop the days on which almost nothing has a price. Yahoo carries a few special Saturday sessions
+    (three in 2012) as rows for a handful of symbols; left in, they put an empty row in every stock's series
+    and blank every 200- and 252-day window for the following year."""
+    priced = prices.dropna(subset=["c"]).groupby("d")["symbol"].size()
+    return prices[prices["d"].isin(priced[priced >= 0.5 * priced.median()].index)]
 
 
 def load_field(field: str, data_root: Path = DEFAULT_DATA_ROOT) -> pd.DataFrame:
     """One price column ("o", "h", "l", "c" or "v") of the cached candles as a date x symbol frame."""
-    prices = pd.read_parquet(Path(data_root) / SUBDIR / "prices.parquet", columns=["d", "symbol", field])
+    prices = _trading_days(pd.read_parquet(Path(data_root) / SUBDIR / "prices.parquet", columns=["d", "symbol", "c", field][1 if field == "c" else 0:]))
     return prices.pivot(index="d", columns="symbol", values=field).sort_index()
 
 
