@@ -161,3 +161,70 @@ Next step: tune, with the limits below
    Cap the rounds, fix each list before running it.
 4. Decide the vehicle. Bought options do not carry this signal; a synthetic future does but needs margin
    and option-writing permission.
+
+## 7. Round 2: stocks and presets (7-Oct-2026)
+
+Asked: does it hold on the three heaviest NIFTY stocks, and which preset is best. No input was tuned;
+only the script's own presets were switched. `--study stocks --base 5|60` and `--study presets`,
+archived as `data/backtests/self_aware_trend_stocks_*.json` and `self_aware_trend_presets_20261007.json`.
+
+**Port check.** The user's TradingView dashboard (NIFTY spot, Scalping preset) confirms the TQI formula
+(0.26 x 0.35 + 0 x 0.20 + 0.51 x 0.25 + 0.50 x 0.20 = 0.32). It also shows `Vol Z -2.34`: TradingView has a
+volume for NIFTY spot and the script uses it, while these candles have none and take the no-volume
+branch. That is one TQI component (weight 0.20) computed differently on the index. Stocks have volume.
+
+**Stock data.** The local Breeze session had expired, so stocks come from Yahoo: 5-minute candles for the
+last 57 sessions only (16-Jul to 6-Oct-2026), hourly candles for about three years (Oct-2023 on, ~718
+sessions). The hourly test trades on hourly bars: entries 10:15-14:15, flat at 15:15. Moves are in basis
+points (bps) of the entry price; an intraday equity round trip is assumed to cost 10 bps.
+
+**Presets on NIFTY spot** (311 sessions, intraday, index points a trade; t in brackets for the best cells):
+
+| Preset (ATR, band, SL) | 5 | 10 | 15 | 20 | 25 | 30 | 45 | 60 |
+|---|---|---|---|---|---|---|---|---|
+| Scalping (10, 1.5, 1.0) | −2.1 | 0.8 | 2.3 | 4.6 | 6.9 | 5.0 | **12.6** (2.0) | 8.9 |
+| Default (14, 2.0, 1.5) | −1.5 | 1.5 | 0.7 | 4.2 | 6.3 | **13.4** (2.3) | 10.9 | 4.3 |
+| Swing (21, 2.5, 2.0) | 0.1 | 1.5 | 4.2 | 9.2 | **16.3** (2.8) | 13.7 (1.9) | 2.4 | −4.1 |
+| Crypto 24/7 (14, 2.8, 2.5) | −1.0 | 4.5 | 4.8 | 10.8 | **16.7** (2.5) | 11.1 | −0.9 | −3.6 |
+| Custom (13, 2.0, 1.5) | −1.9 | 1.4 | −0.4 | 3.9 | 6.1 | 11.5 | 9.8 | 4.5 |
+
+The best cell of each preset lies on a diagonal: the wider the band, the shorter the timeframe it wants
+(Scalping 45, Default 30, Swing and Crypto 25). The peaks are 12.6 to 16.7 points and cannot be told
+apart statistically. Swing is the steadiest: positive on 20, 25 and 30 minutes and in both halves of its
+trades. No preset makes 5 minutes work.
+
+**Presets on the three stocks, last 57 sessions** (pooled, bps a trade; 48 to 1,211 trades a cell):
+
+| Preset | 5 | 10 | 15 | 20 | 25 | 30 | 45 | 60 |
+|---|---|---|---|---|---|---|---|---|
+| Scalping | −0.6 | 0.9 | 2.2 | 3.5 | 3.9 | 0.2 | 12.3 | 12.1 |
+| Default | −0.6 | 3.1 | 2.5 | 4.2 | 3.3 | 6.4 | 27.8 | 18.9 |
+| Swing | 1.4 | 2.3 | 1.9 | 1.4 | 5.2 | 16.1 | **30.5** | 16.8 |
+| Crypto 24/7 | 2.4 | 4.9 | 1.1 | 7.3 | 8.3 | 21.6 | 24.9 | 14.0 |
+
+Only 30 minutes and slower clears the 10 bps cost, and 45 minutes is best for all three stocks. NIFTY
+itself lost on every timeframe in these same 57 sessions, so the stocks trended intraday while the index
+did not. 57 sessions and 55-80 trades in the best cells is a small sample.
+
+**Hourly chart, three years** (intraday, bps a trade and t):
+
+| Preset | NIFTY | HDFC Bank | ICICI Bank | Reliance |
+|---|---|---|---|---|
+| Scalping | 0.3 (0.2) | 2.2 (0.7) | −4.0 (−1.3) | 4.3 (1.4) |
+| Default | 1.0 (0.4) | 6.7 (1.9) | −5.8 (−1.5) | 8.3 (2.1) |
+| Swing | 0.0 (0.0) | 4.1 (1.0) | −7.4 (−1.7) | 10.9 (2.4) |
+| Crypto 24/7 | 2.2 (0.7) | −2.8 (−0.6) | −2.6 (−0.6) | 10.4 (1.9) |
+
+Over three years on the hourly chart nothing clears a 10 bps cost except Reliance, barely. ICICI Bank is
+negative under every preset. HDFC Bank earned its result in the first half of the period only. Held
+overnight as the script scores itself (Default), NIFTY hourly made 9.0 bps a trade (t 2.3) and was
+positive in each of 2023-2026; the intraday cut on hourly bars leaves almost none of that.
+
+```
+Strategy: Self-Aware Trend (SATS), NIFTY and top-3 stocks, intraday
+Round: 2 of 12 (presets only, no input tuned)
+Params this round: presets Scalping / Default / Swing / Crypto 24/7 / Custom x 8 timeframes x 4 symbols
+Result: NIFTY best cell Swing 25m, 16.3 points a trade, 225 trades, win rate 55%; stocks best cell Swing 45m, 30.5 bps, 63 trades in 57 sessions
+Verdict: NEEDS MORE DATA (index); FAIL on the three-year hourly stock test after costs
+Next step: get 5-minute stock history from Breeze, then test Swing on 20-30 minutes for NIFTY with deep ITM options
+```

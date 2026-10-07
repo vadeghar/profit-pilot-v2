@@ -221,3 +221,14 @@ def test_points_metrics():
     m = metrics_points(trades)
     assert m["win_rate"] == 33.3 and m["total_r"] == 0.0 and m["max_dd_r"] == 2.0 and m["profit_factor"] == 1.0
     assert m["long_points"] == 10 and m["short_points"] == -10 and metrics_points([]) == {"trades": 0}
+
+
+def test_resample_sums_volume_and_presets_change_the_band():
+    ex = session([FLAT] * 6).assign(v=[10, 20, 30, 40, 50, 60])
+    bars, closes_on = dataset.resample(ex, 15)
+    assert bars["v"].tolist() == [60, 150] and closes_on.tolist() == [2, 5]
+    hourly, closes_on = dataset.resample(ex, 60, base_minutes=60)
+    assert len(hourly) == 6 and closes_on.tolist() == list(range(6))
+    bars = random_bars(900, seed=5).assign(v=1000.0)
+    flips = {p: int((compute(bars, Settings(preset=p), 15)["flip"] != 0).sum()) for p in ("Scalping", "Default", "Swing")}
+    assert flips["Scalping"] > flips["Default"] > flips["Swing"] > 0
