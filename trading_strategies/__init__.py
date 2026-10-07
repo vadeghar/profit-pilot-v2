@@ -7,6 +7,7 @@ this package does that for every strategy listed below.
 
     index_oi_momentum/          Index Options OI Momentum (switched off: deprecated until further notice)
     nifty_afternoon_momentum/   NIFTY Afternoon Momentum (experimental: research candidate, no dashboard card yet)
+    self_aware_trend/           Self-Aware Trend System (research backtest only: no strategy class, not registered)
 """
 from core.strategy import StrategyRegistry
 from trading_strategies.index_oi_momentum import IndexOIMomentumStrategy
