@@ -88,6 +88,12 @@ def load(data_root: Path = DEFAULT_DATA_ROOT, refresh: bool = False) -> Tuple[pd
     return close, open_, turnover, bench
 
 
+def load_field(field: str, data_root: Path = DEFAULT_DATA_ROOT) -> pd.DataFrame:
+    """One price column ("o", "h", "l", "c" or "v") of the cached candles as a date x symbol frame."""
+    prices = pd.read_parquet(Path(data_root) / SUBDIR / "prices.parquet", columns=["d", "symbol", field])
+    return prices.pivot(index="d", columns="symbol", values=field).sort_index()
+
+
 def members(data_root: Path = DEFAULT_DATA_ROOT) -> pd.DataFrame:
     return pd.read_csv(Path(data_root) / SUBDIR / "constituents.csv")
 

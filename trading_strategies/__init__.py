@@ -9,6 +9,7 @@ this package does that for every strategy listed below.
     nifty_afternoon_momentum/   NIFTY Afternoon Momentum (experimental: research candidate, no dashboard card yet)
     self_aware_trend/           Self-Aware Trend System (research backtest only: no strategy class, not registered)
     nifty_credit_spread/        NIFTY trend-filtered credit spread (research backtest only: tested NO GO, not registered)
+    stock_pullback/             Stock pullback mean reversion (research backtest only: tested NO GO, not registered)
 """
 from core.strategy import StrategyRegistry
 from trading_strategies.index_oi_momentum import IndexOIMomentumStrategy
