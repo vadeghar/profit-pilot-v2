@@ -17,8 +17,8 @@ Studies: ``default`` the indicator's own book-keeping per timeframe (positions c
 the same signals flat by 15:10, ``exits`` six ways of managing the trade, ``filters`` entry filters one at a
 time, ``vehicles`` the same trades as bought options against a synthetic future, ``benchmark`` the same plan on
 a plain SuperTrend, ``stocks`` the defaults on NIFTY, HDFC Bank, ICICI Bank and Reliance, ``presets`` every preset of the
-script on the same four, ``hourly`` the presets on three years of Yahoo hourly candles, ``signals`` the last
-signals with their levels.
+script on the same four, ``hourly`` the presets on three years of Yahoo hourly candles, ``tune`` the tuning lists
+for NIFTY on the Swing preset (2025-2026; ``--holdout`` shows 2024), ``signals`` the last signals with their levels.
 
 Results are split by period (2024, 2025, 2026H1, 2026H2). The first round of this work only had 2026 and
 part of 2025, so 2024 and most of 2025 are history the early choices were not made on.
@@ -238,6 +238,7 @@ def metrics_rupees(trades: Sequence[dict], days: Sequence[date], capital: float 
                net=round(series.sum()), return_pct=round(100 * series.sum() / capital, 1),
                annualised_pct=round(100 * series.sum() / capital / (len(days) / 250.0), 1),
                max_dd_pct=round(100 * float(((peak - equity) / peak).max()), 1),
+               max_dd=round(float((peak - equity).max())),
                sharpe=round(series.mean() / sd * 252 ** 0.5, 2) if sd else 0.0,
                charges=round(sum(t["charges"] for t in trades)),
                calls=round(sum(t["net"] for t in trades if t["right"] == "CE")),
@@ -337,6 +338,73 @@ def markets(data_root: Path) -> Dict[str, Market]:
     return out
 
 
+TUNE, HOLDOUT = ("2025-01-01", "2026-12-31"), ("2024-01-01", "2024-12-31")
+SWING_25 = Settings(preset="Swing")
+RISK: Dict[str, dict] = {
+    "one trade a day": {"max_trades_per_day": 1},
+    "two trades a day": {"max_trades_per_day": 2},
+    "stop for the day after a loss": {"stop_after_loss": True},
+    "entries until 13:30": {"last_entry": time(13, 30)},
+    "entries until 12:30": {"last_entry": time(12, 30)},
+    "entries from 09:45": {"first_entry": time(9, 45)},
+}
+PARTS: Dict[str, dict] = {
+    "no trend quality engine": {"use_tqi": False},
+    "no asymmetric bands": {"use_asym": False},
+    "no efficiency-weighted ATR": {"use_eff_atr": False},
+    "no character flip": {"use_char_flip": False},
+    "no legacy efficiency adaptation": {"use_adaptive": False},
+    "no multiplier smoothing": {"mult_smooth": False},
+}
+
+
+def tune_configs() -> List[tuple]:
+    """(list, name, plan, settings) for every configuration of the tuning round - written down before it was run.
+    One change at a time from the baseline: preset Swing (ATR 21, band 2.5, SL buffer 2.0), script exits."""
+    swing = SWING_25.resolve(25)
+    custom = lambda **kw: replace(swing, preset="Custom", **kw)
+    rows = [("baseline", "Swing preset, script exits", INTRADAY, SWING_25)]
+    rows += [("exits", name, plan, SWING_25) for name, plan in EXITS.items() if plan is not INTRADAY]
+    rows += [("filters", name, replace(INTRADAY, **change), SWING_25) for name, change in FILTERS.items() if change]
+    rows += [("risk", name, replace(INTRADAY, **change), SWING_25) for name, change in RISK.items()]
+    rows += [("inputs", f"band {band} x ATR {atr}", INTRADAY, custom(base_mult=band, atr_len=atr))
+             for band in (2.0, 2.5, 3.0, 3.5) for atr in (14, 21, 30) if (band, atr) != (2.5, 21)]
+    rows += [("stop", f"SL buffer {buffer}, cap {cap} ATR", INTRADAY, custom(sl_atr_mult=buffer, sl_max_dist=cap))
+             for buffer, cap in ((1.0, 1.0), (1.0, 2.0), (1.5, 1.5), (2.0, 2.0), (2.0, 3.0))]
+    rows += [("parts", name, INTRADAY, custom(**change)) for name, change in PARTS.items()]
+    return rows
+
+
+def combo_configs() -> List[tuple]:
+    """Second tuning list, fixed after reading the first on 2025-2026: the single changes that helped there and
+    have a reason behind them (first signal of the day only, a wider band, no late entries), in combination."""
+    swing = SWING_25.resolve(25)
+    wide = replace(swing, preset="Custom", base_mult=3.0)
+    one, early = {"max_trades_per_day": 1}, {"last_entry": time(13, 30)}
+    return [("combo", "baseline", INTRADAY, SWING_25),
+            ("combo", "one trade a day", replace(INTRADAY, **one), SWING_25),
+            ("combo", "band 3.0", INTRADAY, wide),
+            ("combo", "one trade a day + band 3.0", replace(INTRADAY, **one), wide),
+            ("combo", "one trade a day + entries until 13:30", replace(INTRADAY, **one, **early), SWING_25),
+            ("combo", "one trade a day + band 3.0 + entries until 13:30", replace(INTRADAY, **one, **early), wide)]
+
+
+def tune_row(market: Market, trades: Sequence[dict], window: Tuple[str, str], itm_steps: int = 10, capital: float = 1.5 * CAPITAL) -> dict:
+    """Index points and deep in-the-money option rupees (house costs) for the trades inside ``window``."""
+    trades = between(trades, *window)
+    pts = metrics_points(trades)
+    rs = metrics_rupees(price_options(trades, market, HOUSE, itm_steps), between(market.days, *window, key=str), capital)
+    return {**{k: pts.get(k) for k in ("trades", "win_rate", "avg_points", "t_stat", "total_points")},
+            **{"opt_" + k: rs.get(k) for k in ("net", "profit_factor", "max_dd", "sharpe", "avg_win", "avg_loss")}}
+
+
+def study_tune(market: Market, tf: int = 25, holdout: bool = False, configs: Optional[List[tuple]] = None) -> List[dict]:
+    """Every tuning configuration on 2025-2026 only; ``holdout`` reads the same rows on 2024 instead."""
+    window = HOLDOUT if holdout else TUNE
+    return [{"list": group, "config": name, **tune_row(market, market.run(tf, plan, settings), window)}
+            for group, name, plan, settings in (configs or tune_configs())]
+
+
 def study_stocks(data_root: Path, settings: Settings = Settings()) -> List[dict]:
     """The script's defaults (preset Auto) on NIFTY and the three stocks: as it scores itself, and intraday."""
     return [{"symbol": name, "tf": tf, "mode": mode, "sessions": len(mkt.days),
@@ -402,9 +470,11 @@ def _table(rows) -> str:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("--study", choices=("default", "intraday", "exits", "filters", "vehicles", "benchmark", "stocks", "presets", "hourly", "signals", "all"), default="default")
+    ap.add_argument("--study", choices=("default", "intraday", "exits", "filters", "vehicles", "benchmark", "stocks", "presets", "hourly", "tune", "signals", "all"), default="default")
     ap.add_argument("--tf", type=int, default=30, choices=TIMEFRAMES, help="timeframe for the filters, vehicles and signals studies")
     ap.add_argument("--exit", default="script: thirds at 1R/2R/3R", choices=tuple(EXITS), help="exit plan for the filters, vehicles and benchmark studies")
+    ap.add_argument("--combos", action="store_true", help="tune study: the second list (combinations)")
+    ap.add_argument("--holdout", action="store_true", help="tune study: show 2024 instead of 2025-2026")
     ap.add_argument("--symbol", default="NIFTY", help="instrument for the single-market studies")
     ap.add_argument("--futures-volume", action="store_true", help="give NIFTY spot its near-month future's volume")
     ap.add_argument("--preset", default="Auto", choices=("Auto",) + PRESET_NAMES, help="preset for the single-market studies")
@@ -441,6 +511,8 @@ def main() -> None:
             res = study_stocks(args.data_root)
         elif study == "presets":
             res = study_presets(args.data_root)
+        elif study == "tune":
+            res = study_tune(market, args.tf, args.holdout, combo_configs() if args.combos else None)
         elif study == "hourly":
             res = study_hourly(args.data_root, args.refresh)
         else:

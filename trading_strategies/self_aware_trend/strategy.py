@@ -46,6 +46,8 @@ class Plan:
     vix_min: float = 0.0                  # previous India VIX close needed
     join_time: Optional[time] = None      # if flat at this time, enter with the standing trend (no flip needed)
     sides: Tuple[int, ...] = (1, -1)
+    max_trades_per_day: int = 0           # 0 = no limit
+    stop_after_loss: bool = False         # no new entry on a day that already closed a losing trade
 
 
 SCRIPT = Plan(intraday=False, gap_aware=False)
@@ -82,6 +84,8 @@ def simulate(sig: pd.DataFrame, ex: pd.DataFrame, ex_of_sig: np.ndarray, plan: P
 
     trades: List[dict] = []
     pos: Optional[dict] = None
+    opened: dict = {}                     # day -> trades opened
+    lost: set = set()                     # days with a closed losing trade
 
     def fill(j: int, price: float, share: float, reason: str, intrabar: bool) -> None:
         minute = (start_min[j] + exec_minutes / 2 if intrabar else end_min[j]) - SESSION_OPEN_MINUTE
@@ -89,6 +93,10 @@ def simulate(sig: pd.DataFrame, ex: pd.DataFrame, ex_of_sig: np.ndarray, plan: P
         pos["left"] -= share
 
     def allowed(d: int, j: int, k: int) -> bool:
+        if plan.max_trades_per_day and opened.get(day[j], 0) >= plan.max_trades_per_day:
+            return False
+        if plan.stop_after_loss and day[j] in lost:
+            return False
         if d not in plan.sides or (plan.intraday and not first_min <= end_min[j] <= last_min):
             return False
         if tqi[k] < plan.min_tqi or score[k] < plan.min_score:
@@ -133,6 +141,8 @@ def simulate(sig: pd.DataFrame, ex: pd.DataFrame, ex_of_sig: np.ndarray, plan: P
                     "reason": last["reason"], "targets_hit": pos["targets_hit"], "points": points,
                     "r": points / pos["risk"],
                     "fills": [{**f, "day": f["day"].isoformat()} for f in pos["fills"]]})
+                if points < 0:
+                    lost.add(day[j])
                 pos = None
 
         if pos is None and k >= 0:
@@ -143,6 +153,7 @@ def simulate(sig: pd.DataFrame, ex: pd.DataFrame, ex_of_sig: np.ndarray, plan: P
                 entry, stop = c[j], float(stops[d][k])
                 risk = abs(entry - stop)
                 plan_targets = plan.targets if plan.targets is not None else tuple((r[k], 1.0 / 3.0) for r in tp_r)
+                opened[day[j]] = opened.get(day[j], 0) + 1
                 pos = {"dir": d, "entry": entry, "stop": stop, "initial_stop": stop, "risk": risk, "left": 1.0,
                        "targets": [(entry + d * risk * r, share) for r, share in plan_targets], "targets_hit": 0,
                        "at_breakeven": False, "age": 0, "fills": [], "day": day[j],

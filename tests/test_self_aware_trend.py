@@ -242,3 +242,11 @@ def test_closing_auction_bars_and_short_sessions_are_dropped():
     per_day = clean.groupby(clean["t"].dt.date)["t"].agg(["size", "max"])
     assert per_day["size"].tolist() == [75, 72]                                # 15:15, 15:20, 15:25 gone from 3-Aug-2026
     assert per_day["max"].iloc[0].time() == time(15, 25) and per_day["max"].iloc[1].time() == time(15, 10)
+
+
+def test_daily_trade_cap_and_stop_after_a_loss():
+    rows = [FLAT, FLAT, (100, 101, 89, 90), (90, 91, 89, 90), (90, 121, 90, 120), (120, 121, 119, 120)]
+    at = {1: 1, 3: 1}                                                          # first long stops out, second wins
+    assert [t["reason"] for t in run(rows, at)] == ["stop", "tp3"]
+    assert len(run(rows, at, Plan(max_trades_per_day=1))) == 1 and len(run(rows, at, Plan(max_trades_per_day=2))) == 2
+    assert [t["reason"] for t in run(rows, at, Plan(stop_after_loss=True))] == ["stop"]

@@ -300,3 +300,54 @@ Result: annualised 81%, max DD 73%, win rate 46.4%, Sharpe 0.51, 526 trades (ind
 Verdict: FAIL on drawdown and profit factor as bought options; index signal PASSES a first out-of-sample look; stocks FAIL
 Next step: record or buy real deep-ITM option quotes; then tune exits and position size against the drawdown
 ```
+
+## 9. Rounds 4-5: tuning NIFTY Swing 25 minutes (7-Oct-2026)
+
+**Protocol.** Tuned on 2025-01 to 2026-10 only (444 sessions); 2024 kept shut as the hold-out. Lists fixed
+in code before running (`tune_configs`, `combo_configs`), one change at a time from the baseline (preset
+Swing, script exits). Rupees are three lots bought 500 points in the money at house costs.
+`--study tune --tf 25`, `--combos`, `--holdout`.
+
+**Round 4, 41 single changes, 2025-2026** (baseline: 344 trades, 9.5 points a trade, t 1.96, Rs 19,730):
+
+| List | What happened |
+|---|---|
+| Exits (5) | 9.0 to 9.9 points. No effect, as on 30 minutes. |
+| Stop distance (5) | Every tighter stop is worse (1.7 to 8.5 points). The wide stop stays. |
+| Risk controls (6) | One trade a day 14.3 (t 2.45); stop for the day after a loss 12.7; entries until 13:30 11.8. |
+| Entry filters (8) | Entries 09:45-13:30 14.1; higher-timeframe trend 17.8 on 80 trades; VIX >= 15 18.4 on 101; TQI >= 0.35 7.9; longs 14.7, shorts 4.2. |
+| Band x ATR length (11) | Band 3.0 gives 14.2 to 16.4 at every ATR length; band 2.0 gives 7.0 to 9.3; band 3.5 falls to 3.5 to 8.8. A peak with a cliff beside it. |
+| Adaptive parts off (6) | Removing the trend quality engine (14.6), the asymmetric bands (14.4), the legacy adaptation (14.4) or the smoothing (12.0) each *improves* the result. Removing the efficiency-weighted ATR (2.0) hurts, because it widens the band by about a third. |
+
+The adaptive machinery is not what earns the points; the effective band width is.
+
+**Round 5, six combinations.** Choice written down before 2024 was opened: one trade a day + band 3.0.
+
+| Configuration | 2025-2026: trades / points / t / Rs | 2024 hold-out: trades / points / t / Rs |
+|---|---|---|
+| Baseline (Swing, script exits) | 344 / 9.5 / 1.96 / 19,730 | 182 / **17.8** / 2.35 / 3,14,481 |
+| One trade a day | 259 / 14.3 / 2.45 / 2,50,575 | 138 / 17.8 / 2.04 / 2,17,136 |
+| Band 3.0 | 277 / 14.2 / 2.47 / 2,54,693 | 158 / 15.1 / 1.72 / 1,85,814 |
+| **One trade a day + band 3.0 (chosen)** | 228 / 16.5 / 2.53 / 3,00,293 | 123 / 12.7 / 1.25 / 86,910 |
+| One trade a day + entries until 13:30 | 238 / 15.0 / 2.42 / 2,47,844 | 126 / 15.4 / 1.66 / 1,40,618 |
+| One trade a day + band 3.0 + until 13:30 | 210 / 17.9 / 2.57 / 3,21,070 | 118 / 12.4 / 1.19 / 78,769 |
+
+**The tuning did not carry over.** On the hold-out the chosen configuration makes 12.7 points a trade against
+17.8 for the untouched baseline, and every tuned row is at or below the baseline. What the tuning found in
+2025-2026 was mostly the shape of those two years. All six rows are still positive in 2024, so the signal
+itself held; the improvements did not. The one change that cost nothing per trade out of sample is "one
+trade a day" (17.8 in both), which trades less often for the same edge.
+
+**Drawdown.** No list touched it. On 2025-2026 the option drawdown is Rs 2.2 to 3.9 lakh on three lots in
+every configuration with a usable number of trades, against average wins of about Rs 15,000 and losses of
+Rs 12,500 at 52% wins. That is the trade-to-trade swing of a three-lot position around an edge of a few
+hundred rupees; exits and stops do not shrink it without also shrinking the edge.
+
+```
+Strategy: Self-Aware Trend (SATS), NIFTY intraday
+Round: 5 of 12
+Params this round: Swing 25 minutes; tuned = one trade a day + band 3.0; 3 lots bought 500 points ITM, house costs
+Result (2024 hold-out): tuned 12.7 points a trade, Rs 86,910, profit factor 1.10, Sharpe 0.40, 123 trades; baseline 17.8 points, Rs 3,14,481, profit factor 1.28, Sharpe 1.41, 182 trades
+Verdict: FAIL for the tuned version (worse than the baseline out of sample); baseline signal holds but the option drawdown is unsolved
+Next step: stop tuning inputs; price the baseline on real deep-ITM option candles from Breeze
+```
