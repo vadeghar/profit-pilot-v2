@@ -71,6 +71,15 @@ Entry: buy that option.
 
 Entry: buy the ATM option.
 
+**Sizing (overrides the shared default).** On the recorded week S3's OI signal was marginal in the
+choppy regime - right direction, often shaken out before the move. So S3 trades at **33% of balance**
+with a **-20% stop and +50% target** (give the 15-30 min signal room), via its own `default_config`.
+On the four non-expiry days this turned -Rs 12k into about +Rs 5k and cut the worst day from -Rs 12k to
+-Rs 5k. It is capital protection, not an edge: the real fix is a trend-day activation gate, for which
+`scalp_strategies/tools/regime_report.py` now logs a daily regime panel (ADX, opening-range hold, VWAP
+extension/adherence, net/range) to `logs/regime_panel.csv` next to S3's outcome, to be calibrated once
+enough days accumulate. India VIX will join the panel once its token is wired into the recorder.
+
 ## S4 - Trap Fade
 
 1. Range = spot high/low over the 15 minutes before the last 2 minutes.

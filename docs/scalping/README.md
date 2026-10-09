@@ -91,6 +91,9 @@ only a Stop from the dashboard ends it. Linux deployment: [deploy/linux/README.m
   why every OI/volume feature is computed on 15-second buckets.
 - **Daily Telegram summary:** `deploy/linux/scalp_summary.sh` (cron, 15:25 IST on trading days) sends each
   scalper's trades, wins/losses, net P&L and balance, plus the combined total (`scalp_strategies/tools/daily_summary.py`).
+- **Daily regime panel:** `deploy/linux/regime_report.sh` (cron, 15:55 IST on trading days) appends one
+  row (ADX, opening-range hold, VWAP extension/adherence, net/range, S3's P&L) to `logs/regime_panel.csv` -
+  the trend/chop dataset for a future S3 day-type activation gate (`scalp_strategies/tools/regime_report.py`).
 - **Daily condition report:** `deploy/linux/condition_report.sh` (cron, 15:50 IST on trading days) writes
   `logs/condition_report_<date>.md` - how often each entry condition held, the closest near-misses and
   what blocked them, for the live rules and for the experimental options.

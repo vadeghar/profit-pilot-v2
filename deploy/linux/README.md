@@ -90,6 +90,16 @@ Stop from the dashboard ends them). Older strategies' paper sessions must be res
 
   Re-run a past day: `DAY=2026-10-01 bash ~/automation_engines/deploy/linux/condition_report.sh`.
 
+  And the **daily market-regime panel** at 15:55 IST (10:25 UTC) - appends one row (ADX, opening-range
+  hold, VWAP extension/adherence, net/range, S3's P&L) to `logs/regime_panel.csv`, the labelled
+  trend/chop dataset a future S3 activation gate is built on:
+
+  ```
+  25 10 * * 1-5 /bin/bash /home/lakshman/automation_engines/deploy/linux/regime_report.sh >> /home/lakshman/automation_engines/logs/regime_report.log 2>&1
+  ```
+
+  Re-run a past day: `DAY=2026-10-08 bash ~/automation_engines/deploy/linux/regime_report.sh`.
+
   And the **daily scalper summary on Telegram** at 15:25 IST (09:55 UTC), after the last square-off (15:10, the expiry-day cards):
   per scalper the day's trades, wins/losses, net P&L and balance, then the combined total. Skips NSE
   holidays; uses `TELEGRAM_BOT_TOKEN` + `TELEGRAM_HOME_CHANNEL` from `.env`.

@@ -227,6 +227,16 @@ def pcr_session(pe_unwind_per_sec, ce_build_per_sec=500):
     return e
 
 
+def test_s3_runs_at_reduced_size_with_room():
+    from scalp_strategies.orderflow import PcrVelocity
+    c = PcrVelocity.default_config()
+    assert (c.deploy_pct, c.sl_pct, c.target_pct) == (0.33, 0.20, 0.50)
+    # the other regular scalpers keep whole-balance compounding and the shared stop/target
+    from scalp_strategies.orderflow import WriterSqueeze
+    w = WriterSqueeze.default_config()
+    assert (w.deploy_pct, w.sl_pct, w.target_pct) == (1.0, 0.10, 0.20)
+
+
 def test_pcr_velocity_buys_the_put_when_puts_unwind_against_call_writing():
     e = pcr_session(pe_unwind_per_sec=250)   # unwind = 50% of the build
     p = e.pos or (e.trades[0] if e.trades else None)

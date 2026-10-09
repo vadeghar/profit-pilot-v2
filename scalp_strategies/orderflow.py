@@ -10,7 +10,7 @@ from datetime import datetime
 from statistics import median
 from typing import Optional
 
-from scalp_strategies.engine import ScalpEngine, Series
+from scalp_strategies.engine import ScalpConfig, ScalpEngine, Series
 
 Signal = Optional[tuple[str, float, str]]
 
@@ -117,6 +117,15 @@ class PcrVelocity(_OrderFlowBase):
 
     MIN_UNWIND_RATIO = 0.2    # unwinding side's 3-min OI drop as a share of the building side's OI rise
     MIN_TWO_SIDED_RATIO = 0.2  # the smaller OI leg must be at least this x the larger (both sides move)
+
+    @classmethod
+    def default_config(cls) -> ScalpConfig:
+        # Sized down from the shared default: on the recorded week S3's OI signal was marginal in the
+        # choppy regime, so it is run at 1/3 of balance with a wider -20% stop and a +50% target (give
+        # the 15-30 min signal room). This turned the four non-expiry days from -Rs 12k to about +Rs 5k
+        # and cut the worst day from -Rs 12k to -Rs 5k. The real fix is a trend-day gate (needs more
+        # data); until then this is capital protection. Other scalpers keep whole-balance compounding.
+        return ScalpConfig(deploy_pct=0.33, sl_pct=0.20, target_pct=0.50)
 
     def signal(self, ts: datetime, spot: float, atm: float) -> Signal:
         if not self.fut_tok:
