@@ -120,8 +120,8 @@ _SCALP_CARDS = [
      "while the opposite side is written, ATM volume spikes 2.5x, the ATM option breaks its 5-min high above "
      "VWAP and futures confirm (price + OI up) - buy the ATM option."),
     ("scalp_stealth_accum", "S2 Stealth Accumulation", "fa-user-secret", "purple",
-     "Spot boxed within 20 pts for 15 min while the ATM/next option shows CVD >= 20% of volume, >=3 big LTQ "
-     "prints and a 2x volume spike with real OI change - buy on the box breakout."),
+     "Big-print breakout: spot coils within 40 pts for 15 min, then closes out of the box on an option "
+     "showing >=3 big LTQ prints in 3 min and a 2x volume spike - buy that option. Half balance per trade."),
     ("scalp_pcr_velocity", "S3 Delta-PCR Velocity", "fa-gauge-high", "cyan",
      "Two consecutive 3-minute windows of call-OI unwinding + put-OI building across ATM+/-2 (or the reverse; "
      "the unwind at least 20% of the build), "

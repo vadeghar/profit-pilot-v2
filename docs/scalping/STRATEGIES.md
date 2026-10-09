@@ -50,14 +50,21 @@ For calls (puts mirrored with strikes below spot):
 
 Entry: buy the ATM call.
 
-## S2 - Stealth Accumulation (CVD + Box Breakout)
+## S2 - Stealth Accumulation (Big-Print Breakout)
 
-1. Spot's high-low range over the previous 15 minutes is <= 20 pts (the box).
+1. Spot's high-low range over the previous 15 minutes is <= 40 pts (`BOX_PTS`, the coil).
 2. Spot closes above the box (calls) or below it (puts).
-3. For the ATM or next strike on the breakout side: 15-minute CVD >= 20% of its volume; >= 3 big
-   prints in the last 3 minutes; volume spike x 2; |dOI(3m)| >= 15% of the 3-minute volume (churn filter).
+3. For the ATM or next strike on the breakout side: >= 3 big prints in the last 3 minutes (`MIN_BIG`,
+   large-LTQ trades) and a volume spike x 2 (`VOL_MULT`).
 
-Entry: buy that option.
+Entry: buy that option, at half balance (`deploy_pct` 0.5).
+
+Recalibrated from the original CVD / stealth-accumulation rules, which never fired - a <=20-pt box, CVD
+>= 20% of volume and dOI >= 15% of volume are each ~2% likely, so their conjunction was ~never, and the
+tight box did not predict good breakouts. The one predictive filter on the recorded week was big prints:
+requiring >= 3 lifted the "+20% before the stop" rate from 26% (all breakouts) to 50%. Four non-expiry
+days: 0 trades -> +Rs 1,138 (up on three of four days), and it wins on 2026-10-05 where S3 loses. Still
+regime-sensitive - breakouts fail in chop - so it wants the same trend-day gate S3 does (regime log).
 
 ## S3 - Delta-PCR Velocity
 

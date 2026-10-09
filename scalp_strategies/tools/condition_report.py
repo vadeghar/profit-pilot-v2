@@ -92,11 +92,11 @@ def _s2(e, ts, spot, atm, rec):
             if not t or not e.ready(e.S(t)):
                 continue
             o = e.S(t)
-            cvd, v, m3 = o.cvd(o.n(15)), o.vol(o.n(15)), o.n(3)
+            m3 = o.n(3)
             rec.record(ts, {
-                box_name: lim is not None and bh - bl <= lim, "box breakout": brk, "CVD >= 20% of volume": bool(v and cvd >= 0.2 * v),
-                ">= 3 big prints in 3m": o.big(m3) >= 3, "volume >= 2x": o.vol_ratio(1, 15) >= 2,
-                "|dOI| >= 15% of volume": abs(o.doi_abs(m3)) >= 0.15 * max(o.vol(m3), 1),
+                box_name: lim is not None and bh - bl <= lim, "box breakout": brk,
+                f">= {e.MIN_BIG} big prints in 3m": o.big(m3) >= e.MIN_BIG,
+                f"volume >= {e.VOL_MULT:g}x": o.vol_ratio(1, 15) >= e.VOL_MULT,
             }, f"{kind} {k:.0f} (box {bh - bl:.0f} pts)")
 
 

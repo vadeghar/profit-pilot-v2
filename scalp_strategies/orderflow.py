@@ -54,13 +54,30 @@ class WriterSqueeze(_OrderFlowBase):
 
 
 class StealthAccumulation(_OrderFlowBase):
-    """S2 - spot boxed in 20 points while an ATM/next option is quietly accumulated, then breaks out."""
+    """S2 - big-print breakout: spot coils (<= BOX_PTS over 15 min), then closes out of the box on an
+    option showing institutional-size prints and a volume spike.
+
+    Recalibrated from the original "CVD / stealth accumulation" rules, which never fired: a <=20-pt box,
+    CVD >= 20% of volume and dOI >= 15% of volume are each ~2% likely, so their conjunction was ~never,
+    and the tight box did not predict good breakouts. On the recorded week the one predictive filter was
+    big prints (>= 3 large-LTQ trades): it lifted the +20%-before-stop rate from 26% (all breakouts) to
+    50%. So S2 now trades a wider <=40-pt box confirmed by big prints + a 2x volume spike, at half
+    balance, and drops the CVD / dOI gates. Four non-expiry days: 0 trades -> +Rs 1,138 (3 of 4 days up),
+    and it wins on 2026-10-05 where S3 loses. Still regime-sensitive (breakouts fail in chop) - the
+    eventual gate is the same trend-day filter S3 wants.
+    """
 
     strategy_id = "scalp_stealth_accum"
-    name = "S2 Stealth Accumulation (CVD Breakout)"
+    name = "S2 Stealth Accumulation (Big-Print Breakout)"
 
-    BOX_PTS = 20
+    BOX_PTS = 40
+    MIN_BIG = 3            # big (>= 5x average LTQ) prints in the last 3 min on the breakout option
+    VOL_MULT = 2.0         # 1-min volume vs the 15-min average
     MIN_BOX_SAMPLES = 120  # 30 minutes of evaluations before the relative box limit is trusted
+
+    @classmethod
+    def default_config(cls) -> ScalpConfig:
+        return ScalpConfig(deploy_pct=0.5)  # half balance: the breakout edge is thin, keep risk down
 
     def _new_day(self, day: str, ts: datetime) -> None:
         super()._new_day(day, ts)
@@ -95,11 +112,9 @@ class StealthAccumulation(_OrderFlowBase):
                 if not t or not self.ready(self.S(t)):
                     continue
                 o = self.S(t)
-                cvd, v = o.cvd(o.n(15)), o.vol(o.n(15))
                 m3 = o.n(3)
-                if (v and cvd >= 0.2 * v and o.big(m3) >= 3 and o.vol_ratio(1, 15) >= 2
-                        and abs(o.doi_abs(m3)) >= 0.15 * max(o.vol(m3), 1)):
-                    return kind, k, f"box {bl:.0f}-{bh:.0f} broken, CVD {cvd / v:.0%} of volume"
+                if o.vol(o.n(15)) > 0 and o.big(m3) >= self.MIN_BIG and o.vol_ratio(1, 15) >= self.VOL_MULT:
+                    return kind, k, f"box {bh - bl:.0f}pt broken, {o.big(m3)} big prints, vol {o.vol_ratio(1, 15):.1f}x"
         return None
 
 

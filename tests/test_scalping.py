@@ -404,17 +404,28 @@ def test_volume_basis_counts_a_snapshot_with_many_small_trades_as_a_big_print():
     assert big_prints("volume") == 1
 
 
+def test_s2_is_a_big_print_breakout_at_half_size():
+    from scalp_strategies.orderflow import StealthAccumulation
+    c = StealthAccumulation.default_config()
+    assert c.deploy_pct == 0.5 and StealthAccumulation.BOX_PTS == 40 and StealthAccumulation.MIN_BIG == 3
+    # the recalibrated signal no longer references CVD or dOI gates
+    import inspect
+    src = inspect.getsource(StealthAccumulation.signal)
+    assert "cvd" not in src.lower() and "doi" not in src.lower()
+    assert "big" in src and "vol_ratio" in src
+
+
 def test_stealth_box_limit_is_fixed_unless_box_rel_is_set():
     e = StealthAccumulation(insts())
     e._new_day("2026-09-29", T0)
-    assert e.box_limit() == 20
+    assert e.box_limit() == 40                         # the fixed box (BOX_PTS)
     e = StealthAccumulation(insts(), config=StealthAccumulation.default_config().update({"box_rel": 0.75}))
     e._new_day("2026-09-29", T0)
     assert e.box_limit() is None                      # no history yet
-    e._ranges = [60.0] * e.MIN_BOX_SAMPLES
-    assert e.box_limit() == 45
+    e._ranges = [80.0] * e.MIN_BOX_SAMPLES
+    assert e.box_limit() == 60                         # 0.75 x median range
     e._ranges = [10.0] * e.MIN_BOX_SAMPLES
-    assert e.box_limit() == 20                        # never tighter than the fixed box
+    assert e.box_limit() == 40                         # never tighter than the fixed box
 
 
 class FakeHub:
