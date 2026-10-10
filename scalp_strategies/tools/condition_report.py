@@ -187,7 +187,8 @@ def _expiry(e, ts, spot, atm, rec):
             "expiry day": e.is_expiry_day(), f"day range >= {e.MIN_RANGE:.1%}": e._range >= e.MIN_RANGE,
             "new day high/low this minute": e._break == kind, "no trade yet this direction": kind not in e._done,
             f"an option near Rs {e.PREMIUM:g}": e.pick_strike(kind) is not None,
-        }, f"{kind} (range {e._range:.2%})")
+            "put/call OI agrees": e.oi_agrees(kind, atm),
+        }, f"{kind} (range {e._range:.2%}, put/call OI {e.oi_balance(atm) or 0:.2f})")
 
 
 def _gamma(e, ts, spot, atm, rec):

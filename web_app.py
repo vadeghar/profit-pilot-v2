@@ -135,9 +135,10 @@ _SCALP_CARDS = [
      "short covering, opposite ATM OI unwinding >=2% in 3 min and LTP above VWAP. Target +20%, stop -10%, "
      "trail at the previous 1-min low, VWAP and 5-min time exits."),
     ("scalp_expiry_breakout", "Expiry Trend Breakout", "fa-calendar-day", "orange",
-     "Trades on the weekly expiry day only. From 11:00, once the index has ranged >= 0.5%, a 1-minute close at "
-     "a new day high buys the CE (new day low: the PE) trading nearest Rs 40. Stop -30%, target +100%, "
-     "square-off 15:10, one trade per direction, 25% of the balance per trade. Starts by itself with the app."),
+     "Trades on the weekly expiry day only. 11:00-14:30, once the index has ranged >= 0.5%, a 1-minute close at "
+     "a new day high buys the CE (new day low: the PE) trading nearest Rs 40 - only when put/call OI around the "
+     "money agrees (more put OI for a CE, more call OI for a PE). Stop -30%, target +100%, square-off 15:10, "
+     "one trade per direction, 25% of the balance per trade. Starts by itself with the app."),
     ("scalp_expiry_gamma", "Expiry Gamma Squeeze", "fa-bolt", "yellow",
      "Trades on the weekly expiry day only, 13:15-14:50. A Rs 12-25 option whose own OI fell >= 1.5% in 15 min, "
      "with the future on its side of VWAP, is bought when it breaks its 5-min high on 2x volume and >= 60% ask "

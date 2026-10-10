@@ -281,7 +281,7 @@ def test_pcr_velocity_ignores_a_token_unwind():
 
 
 # ------------------------------------------------------ expiry trend breakout
-def expiry_session(expiry="2026-09-29"):
+def expiry_session(expiry="2026-09-29", pe_oi=8e6):
     """Index sits at 22550, dips to 22430 (a 0.53% range), then closes a minute at 22560 after 11:00."""
     from scalp_strategies import ExpiryTrendBreakout
     ii = insts()
@@ -300,7 +300,7 @@ def expiry_session(expiry="2026-09-29"):
         for k in ("22500", "22550", "22600"):
             px = ce[f"{k}CE"]
             e.on_tick(Tick(t, f"{k}CE", px, 50, vol, 5e6, px - 0.05, px + 0.05))
-            e.on_tick(Tick(t, f"{k}PE", 300.0, 50, vol, 5e6, 299.95, 300.05))
+            e.on_tick(Tick(t, f"{k}PE", 300.0, 50, vol, pe_oi, 299.95, 300.05))
     return e
 
 
@@ -310,6 +310,15 @@ def test_expiry_breakout_buys_the_rs40_call_on_a_new_day_high_after_11():
     assert e.pos.t_in.strftime("%H:%M") == "11:03"          # the 11:02 minute closed at a new high
     assert e.pos.lots == 4                                  # 25% of Rs 50,000 at Rs 40.10 x 65
     assert e.pos.sl == pytest.approx(40.10 * 0.7) and e.pos.target == pytest.approx(40.10 * 2)
+
+
+def test_expiry_breakout_needs_the_put_call_oi_balance_on_its_side():
+    e = expiry_session(pe_oi=3e6)                           # call OI 15M vs put OI 9M: writers sit above, no CE
+    assert e.pos is None and not e.trades and "CE" not in e._done   # left open for a later new high
+    assert e.oi_balance(22550.0) == pytest.approx(0.6) and not e.oi_agrees("CE", 22550.0)
+    assert expiry_session(pe_oi=5e6).pos is None            # a level balance is not agreement either
+    from scalp_strategies import ExpiryTrendBreakout
+    assert ExpiryTrendBreakout.default_config().entry_end == "14:30"
 
 
 def test_expiry_breakout_stays_out_when_it_is_not_expiry_day():

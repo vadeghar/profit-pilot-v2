@@ -149,19 +149,36 @@ Sep-2026 (1-minute Breeze data, `scalp_strategies/research/`). Blind option buyi
 rule below was profitable on both indices and in both halves of the year.
 
 1. Today is the expiry day of the recorded option chain (other days it never trades).
-2. From 11:00: the index's range so far today (high - low of its 1-minute closes since 09:15) is >= 0.5%.
+2. Between 11:00 and 14:30: the index's range so far today (high - low of its 1-minute closes since
+   09:15) is >= 0.5%.
 3. A 1-minute close above that high buys a CE; below that low, a PE.
 4. Strike by price: the option trading nearest Rs 40 (accepted range Rs 20-64).
+5. Open interest agrees: summed over the ATM +/- 4 strikes, put OI exceeds call OI for a CE (put
+   writers underneath), call OI exceeds put OI for a PE. A breakout that fails this is skipped, and
+   the next new high/low is checked again.
 
 One trade per direction per day; stop -30%, target +100%, square-off 15:10; no trailing or time stop.
 Sizing: 25% of the current balance per trade (`deploy_pct`). The paper session starts with the app
 (`AUTO_START`) and stays idle on non-expiry days; a Stop from the dashboard is remembered.
 
 Study result for NIFTY replayed through this engine (`scalp_strategies/research/replay_expiry_engine.py`, 57 expiry
-days, LTP +/- Rs 0.5 fills): 44 trades, 34% winners, 32% doubled, +10.4% average per trade, longest
-losing streak 6; Rs 50,000 -> Rs 92,785 at 25% per trade with a 47.7% maximum drawdown. The rule is the
-best of many tested, so expect less live. Differences from the study: one position at a time (the study
-allowed a CE and a PE together), and a restart during the session loses the morning's range.
+days, LTP +/- Rs 0.5 fills):
+
+| Rules | Trades | Winners | Avg per trade | Longest losing streak | Rs 50,000 at 25% per trade | Max drawdown |
+|---|---|---|---|---|---|---|
+| 1-4, entries to 15:05 (original) | 44 | 34% | +10.4% | 6 | Rs 92,785 | -47.7% |
+| 1-5, entries to 14:30 (current) | 31 | 48% | +31.4% | 4 | Rs 338,401 | -27.7% |
+
+Rule 5 and the 14:30 cut-off were added on 2026-10-10 from a second pass over the same expiries.
+Entries after 14:30 lost (too little time left to double). Every breakout taken against the OI balance
+was stopped out, and the OI rule raised the average in all 30 start-time x range variants tried, in both
+halves of the year, and with every stop/target/premium variant. No other indicator (trend strength,
+momentum, option volume, straddle decay, time since the last extreme) helped on both indices and both
+halves. Caveats: the OI rule was the best of about 30 indicators screened and SENSEX history has no OI,
+so it is verified on NIFTY only and on the days it was chosen on - expect well under +31% live. On the
+one tick-recorded expiry (2026-10-06) put OI led and the losing CE trade would still have been taken.
+Other differences from the study: one position at a time (the study allowed a CE and a PE together),
+and a restart during the session loses the morning's range.
 
 ## Expiry Gamma Squeeze (expiry day only, spec v2.0)
 
