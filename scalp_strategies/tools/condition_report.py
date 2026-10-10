@@ -138,26 +138,19 @@ def _s3(e, ts, spot, atm, rec):
 
 
 def _s4(e, ts, spot, atm, rec):
-    if not e.fut_tok or not e.tok(atm, "CE") or not e.tok(atm, "PE"):
+    if not e.fut_tok:
         return
-    sp, f = e.S(e.spot_tok), e.S(e.fut_tok)
-    m2, m15 = sp.n(2), sp.n(15)
-    prior, recent = sp.win(m15 + m2, m2), sp.win(m2)
-    if len(prior) < m15:
+    sp = e.S(e.spot_tok)
+    mp, mr = sp.n(e.POKE_MIN), sp.n(e.RANGE_MIN)
+    prior, recent = sp.win(mr + mp, mp), sp.win(mp)
+    er = e.trend()
+    if len(prior) < mr or er is None:
         return
     H, Lo, c = max(b.h for b in prior), min(b.l for b in prior), sp.last().c
-    ce, pe = e.S(e.tok(atm, "CE")), e.S(e.tok(atm, "PE"))
-    if not (e.ready(ce) and e.ready(pe)):
-        return
-    m3, m1 = ce.n(3), ce.n(1)
     rec.record(ts, {"poked above range and fell back": max(b.h for b in recent) > H and c < H,
-                    "futures OI flat": f.doi(m3) <= 0.001, "CE writers +3% OI": ce.doi(m3) >= 0.03,
-                    "CE volume >= 2x": ce.vol_ratio(1, 15) >= 2, "PE > previous 1-min high": pe.last().c > pe.hh(m1, 1)},
-               "bull trap -> PE")
+                    f"hour falling (trend <= -{e.MIN_ER:g})": -er >= e.MIN_ER}, f"bull trap -> PE (trend {er:+.2f})")
     rec.record(ts, {"poked below range and came back": min(b.l for b in recent) < Lo and c > Lo,
-                    "futures OI flat": f.doi(m3) <= 0.001, "PE writers +3% OI": pe.doi(m3) >= 0.03,
-                    "PE volume >= 2x": pe.vol_ratio(1, 15) >= 2, "CE > previous 1-min high": ce.last().c > ce.hh(m1, 1)},
-               "bear trap -> CE")
+                    f"hour rising (trend >= {e.MIN_ER:g})": er >= e.MIN_ER}, f"bear trap -> CE (trend {er:+.2f})")
 
 
 def _burst(e, ts, spot, atm, rec):

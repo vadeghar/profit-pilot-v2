@@ -7,7 +7,7 @@ from market_data.tick_recorder import parse_snapquote
 from market_data.tick_store import Instrument, Tick, TickWriter, compress_day, list_days, load_instruments, read_ticks
 from scalp_strategies import SCALP_STRATEGIES, OiVolumeBurst, ScalpConfig, ScalpEngine
 from scalp_strategies.engine import Series
-from scalp_strategies.orderflow import PcrVelocity, StealthAccumulation
+from scalp_strategies.orderflow import PcrVelocity, StealthAccumulation, TrapFade
 from utils.timezone import IST
 
 DAY = date(2026, 9, 29)
@@ -426,6 +426,49 @@ def test_stealth_box_limit_is_fixed_unless_box_rel_is_set():
     assert e.box_limit() == 60                         # 0.75 x median range
     e._ranges = [10.0] * e.MIN_BOX_SAMPLES
     assert e.box_limit() == 40                         # never tighter than the fixed box
+
+
+def trap_session(hour_start):
+    """An hour drifting from ``hour_start`` to 22560, 15 flat minutes, then a 1-minute poke to 22575 and back."""
+    import math
+    e = TrapFade(insts())
+    for s in range(4700):
+        ts = T0 + timedelta(seconds=s)
+        if s < 3600:
+            px = hour_start + (22560 - hour_start) * s / 3600
+        elif s < 4500:
+            px = 22560 + 4 * math.sin((s - 3600) * math.pi / 60)
+        elif s < 4560:
+            px = 22560 + 15 * (s - 4500) / 60
+        else:
+            px = max(22558.0, 22575 - 17 * (s - 4560) / 30)
+        e.on_tick(Tick(ts, "IDX", px))
+        e.on_tick(Tick(ts, "FUT", px + 20, 65, s * 65, 1.8e7, px + 19.9, px + 20.1))
+        for tok in ("22550CE", "22550PE"):
+            e.on_tick(Tick(ts, tok, 100.0, 65, s * 65, 5e6, 99.95, 100.05))
+    return e
+
+
+def test_trap_fade_buys_the_put_when_a_poke_fails_in_a_falling_hour():
+    e = trap_session(hour_start=22700)
+    assert e.pos is not None and (e.pos.kind, e.pos.strike) == ("PE", 22550.0)
+    assert "bull trap" in e.pos.why and "falling hour" in e.pos.why
+
+
+def test_trap_fade_does_not_fade_a_poke_that_goes_with_the_hour():
+    e = trap_session(hour_start=22420)   # same poke-and-fall-back, but the hour was rising
+    assert e.pos is None and not e.trades
+
+
+def test_s4_runs_at_half_size_with_a_wide_stop_and_a_45_minute_exit():
+    c = TrapFade.default_config()
+    assert (c.deploy_pct, c.sl_pct, c.target_pct, c.time_stop_min) == (0.5, 0.20, 0.40, 45)
+    assert c.trail_trigger > 1 and c.time_stop_min_gain > c.target_pct   # no trail; the time exit is unconditional
+    e = OneShot(insts(), config=c)
+    feed(e, 12 * 60, 100.0)                                # entry 09:20; flat for 7 minutes
+    assert e.pos is not None                               # the shared 5-minute time stop would have exited
+    feed(e, 40 * 60, 100.0, start=T0 + timedelta(minutes=12))
+    assert e.pos is None and e.trades[0].reason == "TIME_STOP" and 44 * 60 <= e.trades[0].hold_sec <= 46 * 60
 
 
 class FakeHub:

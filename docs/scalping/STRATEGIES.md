@@ -87,13 +87,42 @@ On the four non-expiry days this turned -Rs 12k into about +Rs 5k and cut the wo
 extension/adherence, net/range) to `logs/regime_panel.csv` next to S3's outcome, to be calibrated once
 enough days accumulate. India VIX will join the panel once its token is wired into the recorder.
 
-## S4 - Trap Fade
+## S4 - Trap Fade (trend-aligned)
 
 1. Range = spot high/low over the 15 minutes before the last 2 minutes.
-2. Bull trap: in the last 2 minutes spot poked above the range high but is back below it; futures OI
-   flat or down (dOI(3m) <= +0.1%); ATM call writers added >= 3% OI with a volume spike x 2; the ATM put
-   breaks its previous 1-minute high -> buy the ATM **put**.
-3. Bear trap: mirrored -> buy the ATM **call**.
+2. Trend = the futures' 60-minute efficiency ratio: net move / sum of the absolute 15-second moves
+   (+1 = straight up, -1 = straight down, about 0 = chop).
+3. Bull trap in a falling hour: in the last 2 minutes spot poked above the range high but is back below
+   it, and the trend is <= -0.02 -> buy the ATM **put**.
+4. Bear trap in a rising hour: mirrored (poke below the range low, back above it, trend >= +0.02) ->
+   buy the ATM **call**.
+
+Sizing and exits (S4's own defaults): half the balance per trade, stop -20%, target +40%, no trailing
+stop, and an unconditional exit after 45 minutes. A stop costs about 10% of the balance.
+
+**Why it was recalibrated (week of 2026-10-01..08).** The original rules also required futures OI flat,
+the breakout side's writers adding >= 3% OI on a 2x volume spike, and the opposite option at a new
+1-minute high. They traded twice in the week and lost both. "Futures OI flat" held 74-99% of the time
+(no information); +3% ATM OI in 3 minutes held 10-20% of the time and did not predict the fade. The bare
+poke-and-fall-back was a coin flip - it won on range days and lost on trend days, because half the fades
+were bets against an established move. Splitting the same traps by the hour's direction separated them:
+
+| Same trap, entered... | Trades | Win rate | Avg per trade |
+|---|---|---|---|
+| against the hour (the original idea) | 28 | 46% | about -1% |
+| with the hour (now S4) | 18 | 83% | about +14% |
+| with the hour, no trap (trend only, control) | 34 | 50% | about +5% |
+
+(15-second-bar study, four non-expiry days, stop -20% / target +40% / 45-minute exit.) The result held
+for 10-20 minute ranges, 2-3 minute pokes and trend floors of 0.00-0.04; a 30-minute range did not work,
+a 5-minute poke was weaker, and a trailing stop cut the winners short. On the tick-level engine with the
+live defaults (fresh Rs 50,000 each day, max 3 trades): 11 trades, 9 winners, +Rs 16.3k / +5.4k / +4.0k /
++19.3k on 1, 5, 7, 8 Oct; worst trade -Rs 4.0k. Expiry day (6 Oct) lost Rs 7.8k, so S4 keeps skipping
+expiry days.
+
+Caveats: 11 trades over four days is a small sample, the week had two strong down days (8 of the 11
+trades were puts), and the rule was chosen on the same days it is reported on - expect live results well
+below these. Half size is the guard until more days accumulate.
 
 ## OI + Volume Burst
 

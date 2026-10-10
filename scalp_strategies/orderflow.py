@@ -187,28 +187,62 @@ class PcrVelocity(_OrderFlowBase):
 
 
 class TrapFade(_OrderFlowBase):
-    """S4 - fake breakout of the 15-minute range with no futures OI support: buy the opposite side."""
+    """S4 - trend-aligned trap: spot pokes out of its 15-minute range AGAINST the last hour's direction
+    and falls back inside; buy the option on the hour's side (a failed counter-trend breakout).
+
+    Recalibrated from the original rules (fake breakout + "futures OI flat" + breakout-side writers
+    +3% OI + 2x volume + the opposite option at a 1-minute high), which traded twice in a week and lost
+    both. On the recorded week "futures OI flat" held 74-99% of the time (no information), +3% ATM OI
+    in 3 minutes held 10-20% of the time and did not predict the fade, and the bare poke-and-fall-back
+    was a coin flip: it won on range days and lost on trend days, because half the fades were bets
+    against an established move. Splitting the same traps by the futures' 60-minute efficiency ratio
+    (net move / path length, signed towards the trade) separated them: fades against the hour averaged
+    about -1% per trade, fades WITH the hour about +10% (win rate ~70-80%, up on all four non-expiry
+    days), and the result held across 10-20 minute ranges, 2-5 minute pokes and ratio floors of
+    0.00-0.04. A trend-only entry without the trap made about +4%, so the trap is the timing edge.
+    The move takes 15-45 minutes, hence the wide stop/target, no trail and a 45-minute time exit.
+    """
 
     strategy_id = "scalp_trap_fade"
     name = "S4 Trap Fade"
 
-    def signal(self, ts: datetime, spot: float, atm: float) -> Signal:
-        if not self.fut_tok or not self.tok(atm, "CE") or not self.tok(atm, "PE"):
+    RANGE_MIN = 15    # the range that gets poked
+    POKE_MIN = 2      # the poke and the fall-back happen within this many minutes
+    TREND_MIN = 60    # the futures' efficiency ratio is measured over this window
+    MIN_ER = 0.02     # minimum efficiency ratio in the trade's direction
+
+    @classmethod
+    def default_config(cls) -> ScalpConfig:
+        # Half balance with a -20% stop risks ~10% of the balance per trade (as S1 does at full size
+        # with a -10% stop). The 45-minute time exit is unconditional (the gain floor is unreachable)
+        # and trailing is off: the trend leg needs room, and a trail cut the winners short.
+        return ScalpConfig(deploy_pct=0.5, sl_pct=0.20, target_pct=0.40, trail_trigger=9.0,
+                           time_stop_min=45, time_stop_min_gain=9.0)
+
+    def trend(self) -> Optional[float]:
+        """Futures efficiency ratio over TREND_MIN: +1 = straight up, -1 = straight down, ~0 = chop."""
+        L = self.S(self.fut_tok).buckets
+        k = self.S(self.fut_tok).n(self.TREND_MIN)
+        if len(L) <= k:
             return None
-        sp, f = self.S(self.spot_tok), self.S(self.fut_tok)
-        m2, m15 = sp.n(2), sp.n(15)
-        prior, recent = sp.win(m15 + m2, m2), sp.win(m2)
-        if len(prior) < m15:
+        c = [L[i].c for i in range(len(L) - k - 1, len(L))]
+        path = sum(abs(b - a) for a, b in zip(c, c[1:]))
+        return (c[-1] - c[0]) / path if path else 0.0
+
+    def signal(self, ts: datetime, spot: float, atm: float) -> Signal:
+        if not self.fut_tok:
+            return None
+        sp = self.S(self.spot_tok)
+        mp, mr = sp.n(self.POKE_MIN), sp.n(self.RANGE_MIN)
+        prior, recent = sp.win(mr + mp, mp), sp.win(mp)
+        if len(prior) < mr:
+            return None
+        er = self.trend()
+        if er is None:
             return None
         H, Lo, c = max(b.h for b in prior), min(b.l for b in prior), sp.last().c
-        ce, pe = self.S(self.tok(atm, "CE")), self.S(self.tok(atm, "PE"))
-        if not (self.ready(ce) and self.ready(pe)):
-            return None
-        m3, m1 = ce.n(3), ce.n(1)
-        if (max(b.h for b in recent) > H and c < H and f.doi(m3) <= 0.001
-                and ce.doi(m3) >= 0.03 and ce.vol_ratio(1, 15) >= 2 and pe.last().c > pe.hh(m1, 1)):
-            return "PE", atm, f"bull trap above {H:.0f}: CE writers +{ce.doi(m3):.1%} OI, futures OI flat"
-        if (min(b.l for b in recent) < Lo and c > Lo and f.doi(m3) <= 0.001
-                and pe.doi(m3) >= 0.03 and pe.vol_ratio(1, 15) >= 2 and ce.last().c > ce.hh(m1, 1)):
-            return "CE", atm, f"bear trap below {Lo:.0f}: PE writers +{pe.doi(m3):.1%} OI, futures OI flat"
+        if max(b.h for b in recent) > H and c < H and -er >= self.MIN_ER and self.tok(atm, "PE"):
+            return "PE", atm, f"bull trap above {H:.0f} in a falling hour (trend {er:+.2f})"
+        if min(b.l for b in recent) < Lo and c > Lo and er >= self.MIN_ER and self.tok(atm, "CE"):
+            return "CE", atm, f"bear trap below {Lo:.0f} in a rising hour (trend {er:+.2f})"
         return None

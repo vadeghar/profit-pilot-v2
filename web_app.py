@@ -127,8 +127,9 @@ _SCALP_CARDS = [
      "the unwind at least 20% of the build), "
      "ATM volume 2x, option above VWAP and futures moving the same way - buy the ATM option."),
     ("scalp_trap_fade", "S4 Trap Fade", "fa-shuffle", "amber",
-     "Fake breakout of the 15-min range: spot pokes out and falls back, futures OI flat, the breakout side's "
-     "writers add >=3% OI on a 2x volume spike - buy the opposite ATM option."),
+     "Trend-aligned trap: spot pokes out of its 15-min range against the last hour's direction and falls back "
+     "inside within 2 min - buy the ATM option on the hour's side. Half balance, stop -20%, target +40%, "
+     "out after 45 min."),
     ("scalp_oi_volume_burst", "OI + Volume Burst", "fa-burst", "emerald",
      "ATM/ITM/OTM option with a 3x 1-min volume spike + LTQ burst (5 big prints in 10 s), long buildup or "
      "short covering, opposite ATM OI unwinding >=2% in 3 min and LTP above VWAP. Target +20%, stop -10%, "
