@@ -8,7 +8,7 @@ mode = OHLC/volume without OI). Each binary packet is decoded by the library int
 
 | Field | Meaning | Unit / note |
 |---|---|---|
-| `token` | exchange token | NIFTY 50 = `99926000` on NSE (exchangeType 1); F&O on NFO (exchangeType 2) |
+| `token` | exchange token | NIFTY 50 = `99926000` on NSE (exchangeType 1); F&O on NFO (exchangeType 2); SENSEX = `99919000` on BSE (3), its F&O on BFO (4) |
 | `exchange_timestamp` | exchange time of the update | epoch **milliseconds** |
 | `last_traded_price` | LTP | **paise** (divide by 100) |
 | `last_traded_quantity` | LTQ of the last trade | units |

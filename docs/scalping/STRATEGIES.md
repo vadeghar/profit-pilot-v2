@@ -32,7 +32,8 @@ cheap and move fast, so the percentage stops that work on Rs 100 premiums get hi
 2026-10-06 three such entries lost Rs 18k combined in trades lasting 13-74 s). They now stand aside on
 expiry day and leave it to the two dedicated expiry cards (`EXPIRY_MODE = "only"`).
 
-Expiry Trend Breakout and Expiry Gamma Squeeze have their own limits and exits - see their sections.
+Expiry Trend Breakout, Expiry Gamma Squeeze and Expiry Closing Auction have their own limits and exits -
+see their sections.
 
 All thresholds are parameters (`ScalpConfig`); stop, target, risk, trade and loss limits and
 slippage are editable on each card.
@@ -214,11 +215,58 @@ breakeven exit a `shadow` row - what the original stop and target would have don
 Needs bid/ask: on Breeze 1-second days aggression falls back to the tick rule and fills to LTP + 0.5.
 NIFTY only; SENSEX waits for BSE tick recording.
 
+## Expiry Closing Auction (expiry day only, NIFTY and SENSEX)
+
+Source: the "NIFTY CAS Option-Buying Strategy" spec. During the closing auction the index is frozen
+(15:15) while futures and options trade on; the expiring options settle against the auction's closing
+print at about 15:29 and then trade at that settled value until 15:40. The card reads the futures as a
+live proxy for the print. Two cards run the same rules: NIFTY on its weekly expiry (Tuesday) and SENSEX
+on its own (Thursday).
+
+Baseline at 15:15: F0 = futures VWAP over 15:10-15:15; S0 = the frozen index level.
+
+Checked once a second on the future from 15:21 to 15:28, with D = (90-second futures VWAP) - F0:
+
+1. Dislocation: |D| >= 20 points on NIFTY (65 on SENSEX). D > 0 buys a CE, D < 0 a PE.
+2. Momentum: the future moved >= 0.03% in that direction over the last 5 seconds.
+3. Order flow: (aggressive buys - aggressive sells) / (both) over the last 10 seconds >= 0.25 that way.
+   A trade at or above the previous snapshot's ask is a buy; at or below its bid, a sell.
+4. The future is on that side of its own 60-second VWAP.
+5. The ATM option (strike nearest S0) is quoted, with a spread <= 0.75% of its mid-price.
+
+One trade a day, **one lot** (`sizing = "fixed"`). Stop -25%, target +37.5% (1.5x the risk), stop lifted
+to the entry once the premium is up 25%, everything flat at 15:35. Both paper sessions start with the app.
+
+Left out of the source spec, and why: the Black-Scholes fair-value filter (there is no option model
+here); the "option not up more than 25% since 15:15" filter (an expiring ATM option routinely moves 50%+
+in these minutes - it would have blocked the one recorded winner); the flow-flip, VWAP-failure and
+spread-expansion exits (untestable on one day).
+
+**Evidence is thin - treat this as a data-collection card.**
+
+| Recorded day | Signal | Result (one lot) |
+|---|---|---|
+| 2026-10-06 (NIFTY expiry) | CE 22700 at 15:25:00, D +21.1, flow +0.62 | target at 15:27:43, +Rs 964 |
+| 2026-10-01 (not expiry, would not trade) | CE 22450 at 15:22:03 | -Rs 1,403 |
+| 2026-10-05 (not expiry, would not trade) | CE 22550 at 15:23:39 | -Rs 313 |
+| 2026-10-07 / 08 / 09 (not expiry) | none | - |
+
+On 6 Oct all four futures conditions held together for one second out of 201 evaluated (momentum alone
+passed in 2), so expect few trades. Off expiry the same signal lost each time it fired, which is why the
+card is expiry-only. SENSEX has no recorded ticks yet: its futures may be too thin for rules 2 and 3,
+its auction timings are assumed to match NSE's, and charges use the NSE option table for both indices.
+
+Every fill and blocked trigger is logged as a `signal` event, and each expiry day ends with one `window`
+record (seconds evaluated, seconds each condition passed, the range of D, and the close implied by the
+expiring ATM options, strike + CE mid - PE mid). Those records, shown in the card's signal log and in the
+daily condition report, are what the thresholds should be calibrated from.
+
 ## Closing auction session
 
 Since the closing auction session started the index stops updating at 15:15 while derivatives trade on
-to 15:40 (seen in the 1-Oct-2026 recording: no index change after 15:15, options still trading). Both
-expiry cards are therefore flat by 15:10; S1-S4 and OI Burst already square off at 15:00.
+to 15:40 (seen in the 1-Oct-2026 recording: no index change after 15:15, options still trading). Expiry
+Trend Breakout and Expiry Gamma Squeeze are therefore flat by 15:10; S1-S4 and OI Burst already square
+off at 15:00. Only the Expiry Closing Auction cards trade inside the auction (15:21-15:35).
 
 ## Experimental options (off by default)
 

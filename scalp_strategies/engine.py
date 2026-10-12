@@ -262,11 +262,14 @@ class ScalpEngine:
     # "any" trades every day; "skip" never enters on the option chain's expiry day
     # (the regular scalpers were calibrated off-expiry); "only" trades expiry day alone.
     EXPIRY_MODE = "any"
+    UNDERLYING = "NIFTY"   # the tick hub also carries SENSEX on its expiry day; an engine sees one index only
 
     def __init__(self, instruments: dict[str, Instrument], *, capital: float = 50_000.0,
                  config: Optional[ScalpConfig] = None, on_event: Optional[Callable[[str, dict], None]] = None):
         self.cfg = config or self.default_config()
+        instruments = self._own(instruments)
         self.insts = instruments
+        self._expiry_today: Optional[bool] = None
         self.capital = self.balance = float(capital)
         self.on_event = on_event
         self.series: dict[str, Series] = {}
@@ -298,14 +301,21 @@ class ScalpEngine:
     def tok(self, strike: float, kind: str) -> Optional[str]:
         return self.opt.get((float(strike), kind))
 
+    def _own(self, instruments: dict[str, Instrument]) -> dict[str, Instrument]:
+        return {t: i for t, i in instruments.items() if (i.underlying or "NIFTY") == self.UNDERLYING}
+
     def set_instruments(self, instruments: dict[str, Instrument]) -> None:
         """Replace the contract map (a new day has new tokens/expiry)."""
+        instruments = self._own(instruments)
+        self._expiry_today = None
         self.insts = dict(instruments)
         self.opt = {(float(i.strike), i.kind): t for t, i in instruments.items() if i.kind in ("CE", "PE")}
         self.spot_tok = next((t for t, i in instruments.items() if i.kind == "IDX"), None)
         self.fut_tok = next((t for t, i in instruments.items() if i.kind == "FUT"), None)
 
     def add_instruments(self, instruments: dict[str, Instrument]) -> None:
+        instruments = self._own(instruments)
+        self._expiry_today = None
         self.insts.update(instruments)
         self.opt.update({(float(i.strike), i.kind): t for t, i in instruments.items() if i.kind in ("CE", "PE")})
         self.spot_tok = self.spot_tok or next((t for t, i in instruments.items() if i.kind == "IDX"), None)
@@ -350,6 +360,7 @@ class ScalpEngine:
         if self.pos and self.day:
             self._exit(ts, self.S(self.pos.token), "DAY_END")
         self.day = day
+        self._expiry_today = None
         self.day_trades = self.day_losses = 0
         self.last_exit = None
         self.series = {}
@@ -362,9 +373,15 @@ class ScalpEngine:
 
     # ---------------------------------------------------------- entry gating
     def is_expiry_day(self) -> bool:
-        """True when today is the expiry day of the recorded CE/PE chain."""
-        exp = next((i.expiry for i in self.insts.values() if i.kind in ("CE", "PE") and i.expiry), "")
-        return bool(exp) and self.day is not None and expiry_date(exp) == date.fromisoformat(self.day)
+        """True when a recorded CE/PE chain expires today. A paper session that runs for weeks also
+        holds earlier weeks' contracts, so every chain is checked, not only the first one loaded."""
+        if self.day is None:
+            return False
+        if self._expiry_today is None:
+            today = date.fromisoformat(self.day)
+            self._expiry_today = any(i.kind in ("CE", "PE") and i.expiry and expiry_date(i.expiry) == today
+                                     for i in self.insts.values())
+        return self._expiry_today
 
     def can_enter(self, ts: datetime) -> bool:
         t = ts.time()

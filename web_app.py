@@ -144,14 +144,24 @@ _SCALP_CARDS = [
      "with the future on its side of VWAP, is bought when it breaks its 5-min high on 2x volume and >= 60% ask "
      "aggression (stop-limit: high + 0.20, limit + 0.40). Target +100%, stop -35%, breakeven lock at +40%, "
      "8-min time stop, flat by 15:10. One lot, max 3 trades. Starts by itself with the app."),
+    ("scalp_expiry_auction", "Expiry Closing Auction (NIFTY)", "fa-gavel", "orange",
+     "NIFTY weekly expiry day (Tuesday) only, 15:21-15:28, while the index is frozen for the closing auction. Buys "
+     "the ATM CE/PE when the future is >= 20 pts away from its 15:10-15:15 VWAP, moved 0.03% that way in 5 s, order "
+     "flow agrees (>= 0.25 over 10 s) and it is on that side of its 60-s VWAP. Stop -25%, target +37.5%, stop to "
+     "entry at +25%, flat at 15:35. One lot, one trade. Starts by itself with the app."),
+    ("scalp_expiry_auction_sensex", "Expiry Closing Auction (SENSEX)", "fa-gavel", "yellow",
+     "SENSEX weekly expiry day (Thursday) only: the same closing-auction rules on SENSEX futures and options "
+     "(threshold 65 pts). Untested - SENSEX ticks are recorded from its first expiry day onwards. One lot, one "
+     "trade, flat at 15:35. Starts by itself with the app."),
 ]
 from scalp_strategies import SCALP_STRATEGIES as _SCALP_CLASSES
 for _sid, _name, _icon, _color, _desc in _SCALP_CARDS:
     _cfg = _SCALP_CLASSES[_sid].default_config()
+    _und = _SCALP_CLASSES[_sid].UNDERLYING
     STRATEGY_CATALOG[_sid] = {
         "id": _sid, "name": _name, "badge": "Tick Scalper", "badge_color": _color, "icon": _icon,
-        "description": _desc, "asset_class": "NIFTY Weekly Options (Intraday)", "data_provider": "Angel ticks",
-        "default_symbols": "NIFTY", "allowed_symbols": [{"label": "NIFTY weekly options", "value": "NIFTY"}],
+        "description": _desc, "asset_class": f"{_und} Weekly Options (Intraday)", "data_provider": "Angel ticks",
+        "default_symbols": _und, "allowed_symbols": [{"label": f"{_und} weekly options", "value": _und}],
         "default_timeframe": "1m", "default_capital": 50000.0,
         "default_start_date": (__import__("datetime").date.today() - __import__("datetime").timedelta(days=14)).isoformat(),
         "default_end_date": __import__("datetime").date.today().isoformat(),

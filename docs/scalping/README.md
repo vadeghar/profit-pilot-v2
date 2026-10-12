@@ -23,9 +23,12 @@ Scalping" spec. **Paper only - these engines never place real orders.**
 Angel One SmartWebSocketV2 (SNAP_QUOTE: LTP, LTQ, volume, OI, best bid/ask)
         |
         v
-market_data/tick_recorder.py  TickHub (one connection, NIFTY spot + future + ATM+/-10 CE/PE)
-        |---> data/ticks/angel/<date>/ticks.csv(.gz)       every tick, saved for backtests
-        |---> ScalpPaperSession x7  (scalp_strategies/paper_trader.py, one thread + queue each)
+market_data/tick_recorder.py  TickHub (one connection, NIFTY spot + future + ATM+/-10 CE/PE;
+        |                              on SENSEX expiry day also the SENSEX index, future and chain)
+        |---> data/ticks/angel/<date>/ticks.csv(.gz)          every NIFTY tick, saved for backtests
+        |---> data/ticks/angel_sensex/<date>/ticks.csv(.gz)   SENSEX ticks, its expiry days only
+        |---> ScalpPaperSession x9  (scalp_strategies/paper_trader.py, one thread + queue each;
+        |                            each engine sees only its own index, `UNDERLYING`)
                     |
                     v
              scalp_strategies/  ScalpEngine subclasses (15 s buckets, fills at bid/ask, risk limits)

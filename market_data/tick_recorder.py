@@ -12,6 +12,9 @@ disk and fanned out to every running scalping strategy.
   Set env TICK_AUTO_RECORD=0 to disable.
 * If spot drifts more than ``RECENTER_STRIKES`` strikes from the subscribed
   centre, the missing strikes are added to the subscription.
+* On SENSEX's own weekly expiry day (Thursday) the same socket also carries the SENSEX index (BSE),
+  its nearest future and the expiring CE/PE chain (BFO), recorded to data/ticks/angel_sensex/<date>/
+  for the expiry closing-auction scalper. A failure there never stops the NIFTY feed.
 """
 from __future__ import annotations
 
@@ -21,7 +24,7 @@ import threading
 import time as _time
 import urllib.request
 from collections import deque
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
 from typing import Any, Callable, Optional
@@ -36,11 +39,26 @@ SPOT_TOKEN = "99926000"
 STRIKE_STEP = 50
 STRIKES_EACH_SIDE = 10
 RECENTER_STRIKES = 6
-MAX_TOKENS = 100
+MAX_TOKENS = 200
 RECORD_START, RECORD_STOP = time(9, 12), time(15, 42)
 RETRY_SECONDS = 30   # re-attempt auto-start this often after a failed login (e.g. Angel timeout at the open)
 SNAP_QUOTE = 3
-EXCH_TYPE = {"NSE": 1, "NFO": 2}
+EXCH_TYPE = {"NSE": 1, "NFO": 2, "BSE": 3, "BFO": 4}
+
+
+@dataclass(frozen=True)
+class Underlying:
+    name: str
+    spot_token: str
+    spot_exchange: str
+    fo_exchange: str
+    ltp_symbol: str      # trading symbol of the index for the LTP call
+    strike_step: int
+    source: str          # tick-store folder
+
+
+NIFTY = Underlying("NIFTY", SPOT_TOKEN, "NSE", "NFO", "Nifty 50", STRIKE_STEP, "angel")
+SENSEX = Underlying("SENSEX", "99919000", "BSE", "BFO", "SENSEX", 100, "angel_sensex")
 
 TickCallback = Callable[[Tick], None]
 InstCallback = Callable[[dict[str, Instrument]], None]
@@ -48,42 +66,49 @@ InstCallback = Callable[[dict[str, Instrument]], None]
 
 def _scrip_master() -> list[dict]:
     """Angel instrument master, cached once per day under data/cache/."""
-    cache = Path(platform_config.CACHE_DIR) / f"angel_scrip_master_{date.today():%Y%m%d}.json"
+    cache = Path(platform_config.CACHE_DIR) / f"angel_scrip_master_idx_{date.today():%Y%m%d}.json"
     if cache.exists():
         return json.loads(cache.read_text(encoding="utf-8"))
     with urllib.request.urlopen(SCRIP_MASTER_URL, timeout=60) as r:
         rows = json.loads(r.read().decode("utf-8"))
-    rows = [x for x in rows if x.get("name") == "NIFTY" and x.get("exch_seg") == "NFO"]
+    keep = {(u.name, u.fo_exchange) for u in (NIFTY, SENSEX)}
+    rows = [x for x in rows if (x.get("name"), x.get("exch_seg")) in keep]
     cache.parent.mkdir(parents=True, exist_ok=True)
     cache.write_text(json.dumps(rows), encoding="utf-8")
     return rows
 
 
-def nifty_contracts(today: date, rows: Optional[list[dict]] = None) -> tuple[dict, list[dict], date]:
-    """(nearest future row, option rows of the nearest expiry, that expiry)."""
+def contracts(u: Underlying, today: date, rows: Optional[list[dict]] = None) -> tuple[dict, list[dict], date]:
+    """(nearest future row, option rows of the nearest expiry, that expiry) for one index."""
     rows = rows if rows is not None else _scrip_master()
+    rows = [r for r in rows if r.get("name") == u.name and r.get("exch_seg") == u.fo_exchange]
     exp = lambda r: datetime.strptime(r["expiry"], "%d%b%Y").date()
     opts = [r for r in rows if r.get("instrumenttype") == "OPTIDX" and r.get("expiry") and exp(r) >= today]
     futs = [r for r in rows if r.get("instrumenttype") == "FUTIDX" and r.get("expiry") and exp(r) >= today]
     if not opts or not futs:
-        raise RuntimeError("Angel scrip master has no live NIFTY options/futures")
+        raise RuntimeError(f"Angel scrip master has no live {u.name} options/futures")
     expiry = min(exp(r) for r in opts)
     return min(futs, key=exp), [r for r in opts if exp(r) == expiry], expiry
 
 
+def nifty_contracts(today: date, rows: Optional[list[dict]] = None) -> tuple[dict, list[dict], date]:
+    return contracts(NIFTY, today, rows)
+
+
 def build_instruments(spot: float, fut: dict, opts: list[dict], centre: Optional[float] = None,
-                      each_side: int = STRIKES_EACH_SIDE) -> dict[str, Instrument]:
-    atm = round((centre or spot) / STRIKE_STEP) * STRIKE_STEP
-    wanted = {float(atm + i * STRIKE_STEP) for i in range(-each_side, each_side + 1)}
-    insts = {SPOT_TOKEN: Instrument(SPOT_TOKEN, "NIFTY", "IDX", exchange="NSE"),
+                      each_side: int = STRIKES_EACH_SIDE, u: Underlying = NIFTY) -> dict[str, Instrument]:
+    step = u.strike_step
+    atm = round((centre or spot) / step) * step
+    wanted = {float(atm + i * step) for i in range(-each_side, each_side + 1)}
+    insts = {u.spot_token: Instrument(u.spot_token, u.name, "IDX", exchange=u.spot_exchange, underlying=u.name),
              str(fut["token"]): Instrument(str(fut["token"]), fut["symbol"], "FUT", lot=int(fut["lotsize"]),
-                                           expiry=fut["expiry"], exchange="NFO")}
+                                           expiry=fut["expiry"], exchange=u.fo_exchange, underlying=u.name)}
     for r in opts:
         k = float(r["strike"]) / 100.0
         kind = r["symbol"][-2:]
         if k in wanted and kind in ("CE", "PE"):
             insts[str(r["token"])] = Instrument(str(r["token"]), r["symbol"], kind, k, int(r["lotsize"]),
-                                                r["expiry"], "NFO")
+                                                r["expiry"], u.fo_exchange, u.name)
     return insts
 
 
@@ -133,6 +158,7 @@ class TickHub:
         self._sws = None
         self._fut: Optional[dict] = None
         self._opts: list[dict] = []
+        self._sx: Optional[dict] = None   # SENSEX feed on its expiry day: writer, fut, opts, centre, tokens, expiry
         self._scheduler: Optional[threading.Thread] = None
         self._last_attempt = 0.0
 
@@ -187,10 +213,44 @@ class TickHub:
                                                               "feed": "Angel One SmartWebSocketV2 SNAP_QUOTE"})
             self.ticks_session = 0
             self.running, self.started_at, self.stopped_at = True, now_ist().isoformat(), None
+            self._start_sensex(today)
             self._connect()
             self._publish_instruments(self.instruments)
             self.logger.info(f"tick hub started: spot {spot:.2f}, expiry {self.expiry}, {len(self.instruments)} tokens")
             return self.status()
+
+    def _ltp(self, exchange: str, symbol: str, token: str) -> float:
+        q = self._broker.client.ltpData(exchange, symbol, token)
+        return float(((q or {}).get("data") or {}).get("ltp") or 0)
+
+    def _start_sensex(self, today: date) -> None:
+        """Add the SENSEX chain on its own expiry day. Any failure is logged and leaves NIFTY untouched."""
+        self._sx = None
+        try:
+            fut, opts, expiry = contracts(SENSEX, today)
+            if expiry != today:
+                return
+            try:
+                spot = self._ltp(SENSEX.spot_exchange, SENSEX.ltp_symbol, SENSEX.spot_token)
+            except Exception:
+                spot = 0.0
+            if spot <= 0:  # the future is close enough to centre the strike window
+                spot = self._ltp(SENSEX.fo_exchange, fut["symbol"], str(fut["token"]))
+            if spot <= 0:
+                raise RuntimeError("could not read the SENSEX level")
+            insts = build_instruments(spot, fut, opts, u=SENSEX)
+            if set(insts) & set(self.instruments):
+                raise RuntimeError("a SENSEX token collides with a NIFTY token")
+            writer = TickWriter(SENSEX.source, today, self.root)
+            writer.write_instruments(insts, {"source": SENSEX.source, "underlying": SENSEX.name,
+                                             "expiry": expiry.isoformat(),
+                                             "feed": "Angel One SmartWebSocketV2 SNAP_QUOTE"})
+            self._sx = {"writer": writer, "fut": fut, "opts": opts, "centre": spot, "tokens": set(insts),
+                        "expiry": expiry}
+            self.instruments.update(insts)
+            self.logger.info(f"SENSEX expiry day: level {spot:.2f}, +{len(insts)} tokens")
+        except Exception as e:
+            self._err(f"SENSEX feed not started: {e}")
 
     def _connect(self) -> None:
         from SmartApi.smartWebSocketV2 import SmartWebSocketV2
@@ -242,6 +302,9 @@ class TickHub:
             if self.writer:
                 self.writer.close(compress=compress)
                 self.writer = None
+            if self._sx:
+                self._sx["writer"].close(compress=compress)
+                self._sx = None
             self.stopped_at = now_ist().isoformat()
             return self.status()
 
@@ -251,8 +314,10 @@ class TickHub:
             tick = parse_snapquote(msg)
             if tick is None or tick.token not in self.instruments or tick.ltp <= 0:
                 return
-            if self.writer:
-                self.writer.write(tick)
+            sx = self._sx if self._sx and tick.token in self._sx["tokens"] else None
+            writer = sx["writer"] if sx else self.writer
+            if writer:
+                writer.write(tick)
             self.ticks_session += 1
             self.last_tick_at = tick.ts
             for tick_cb, _ in list(self._subs.values()):
@@ -262,6 +327,8 @@ class TickHub:
                     self._err(f"subscriber failed: {e}")
             if tick.token == SPOT_TOKEN:
                 self._maybe_recentre(tick.ltp)
+            elif sx and tick.token == SENSEX.spot_token:
+                self._maybe_recentre_sensex(tick.ltp)
         except Exception as e:
             self._err(f"tick handling failed: {e}")
 
@@ -279,6 +346,23 @@ class TickHub:
             self._subscribe(list(added.values()))
             self._publish_instruments(self.instruments)
             self.logger.info(f"recentred on {spot:.0f}: +{len(added)} strikes")
+
+    def _maybe_recentre_sensex(self, spot: float) -> None:
+        sx = self._sx
+        if abs(spot - sx["centre"]) < RECENTER_STRIKES * SENSEX.strike_step:
+            return
+        added = {t: i for t, i in build_instruments(spot, sx["fut"], sx["opts"], u=SENSEX).items()
+                 if t not in self.instruments}
+        if not added or len(self.instruments) + len(added) > MAX_TOKENS:
+            return
+        with self._lock:
+            sx["centre"] = spot
+            sx["tokens"].update(added)
+            self.instruments.update(added)
+            sx["writer"].write_instruments(added, {})
+            self._subscribe(list(added.values()))
+            self._publish_instruments(self.instruments)
+            self.logger.info(f"SENSEX recentred on {spot:.0f}: +{len(added)} strikes")
 
     # ------------------------------------------------------------- scheduler
     def start_scheduler(self) -> None:
@@ -327,9 +411,11 @@ class TickHub:
     # ---------------------------------------------------------------- status
     def status(self) -> dict[str, Any]:
         kinds: dict[str, int] = {}
-        for i in self.instruments.values():
+        nifty = [i for i in self.instruments.values() if (i.underlying or "NIFTY") == "NIFTY"]
+        for i in nifty:
             kinds[i.kind] = kinds.get(i.kind, 0) + 1
-        strikes = sorted({i.strike for i in self.instruments.values() if i.kind in ("CE", "PE")})
+        strikes = sorted({i.strike for i in nifty if i.kind in ("CE", "PE")})
+        sx = self._sx
         return {"running": self.running, "connected": self.connected, "auto_record": self.auto,
                 "day": self.day.isoformat() if self.day else None, "expiry": self.expiry.isoformat() if self.expiry else None,
                 "instruments": len(self.instruments), "by_kind": kinds,
@@ -339,6 +425,8 @@ class TickHub:
                 "started_at": self.started_at, "stopped_at": self.stopped_at, "subscribers": len(self._subs),
                 "record_window": f"{RECORD_START:%H:%M}-{RECORD_STOP:%H:%M} IST on trading days",
                 "file": str(day_dir("angel", self.day, self.root)) if self.day else None,
+                "sensex": {"instruments": len(sx["tokens"]), "expiry": sx["expiry"].isoformat(),
+                           "rows_written": sx["writer"].rows} if sx else None,
                 "errors": list(self.errors)[-5:]}
 
 

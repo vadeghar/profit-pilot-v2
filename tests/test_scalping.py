@@ -14,12 +14,13 @@ DAY = date(2026, 9, 29)
 T0 = datetime(2026, 9, 29, 9, 15, tzinfo=IST)
 
 
-def insts(atm=22550, strikes=(22500, 22550, 22600)):
-    out = {"IDX": Instrument("IDX", "NIFTY", "IDX", exchange="NSE"),
-           "FUT": Instrument("FUT", "NIFTYFUT", "FUT", lot=65)}
+def insts(atm=22550, strikes=(22500, 22550, 22600), underlying=""):
+    name = underlying or "NIFTY"
+    out = {"IDX": Instrument("IDX", name, "IDX", exchange="NSE", underlying=underlying),
+           "FUT": Instrument("FUT", f"{name}FUT", "FUT", lot=65, underlying=underlying)}
     for k in strikes:
         for kind in ("CE", "PE"):
-            out[f"{k}{kind}"] = Instrument(f"{k}{kind}", f"NIFTY{k}{kind}", kind, float(k), 65)
+            out[f"{k}{kind}"] = Instrument(f"{k}{kind}", f"{name}{k}{kind}", kind, float(k), 65, underlying=underlying)
     return out
 
 
@@ -253,15 +254,16 @@ def test_regular_scalpers_skip_expiry_while_expiry_cards_require_it():
     from datetime import datetime
 
     from scalp_strategies import SCALP_STRATEGIES
-    ii = insts()
-    for i in ii.values():
-        if i.kind in ("CE", "PE"):
-            i.expiry = "2026-09-29"            # == the expiry_day date below
-    expiry_day = datetime(2026, 9, 29, 13, 30, tzinfo=IST)   # inside every scalper's entry window
-    other_day = datetime(2026, 9, 30, 13, 30, tzinfo=IST)
     regular = {"scalp_writer_squeeze", "scalp_stealth_accum", "scalp_pcr_velocity",
                "scalp_trap_fade", "scalp_oi_volume_burst"}
     for sid, cls in SCALP_STRATEGIES.items():
+        ii = insts(underlying=cls.UNDERLYING)
+        for i in ii.values():
+            if i.kind in ("CE", "PE"):
+                i.expiry = "2026-09-29"            # == the expiry_day date below
+        hh, mm = (13, 30) if cls.default_config().entry_start < "13:30" else (15, 25)   # inside the entry window
+        expiry_day = datetime(2026, 9, 29, hh, mm, tzinfo=IST)
+        other_day = datetime(2026, 9, 30, hh, mm, tzinfo=IST)
         on_exp = cls(ii, capital=50_000)
         on_exp._new_day("2026-09-29", expiry_day)
         off_exp = cls(ii, capital=50_000)
@@ -480,6 +482,146 @@ def test_s4_runs_at_half_size_with_a_wide_stop_and_a_45_minute_exit():
     assert e.pos is None and e.trades[0].reason == "TIME_STOP" and 44 * 60 <= e.trades[0].hold_sec <= 46 * 60
 
 
+# ------------------------------------------------------ expiry closing auction
+def auction_session(cls=None, fut_end=22640.0, aggressive=True, expiry="2026-09-29", underlying="", scale=1.0,
+                    strikes=(22500, 22550, 22600)):
+    """Future flat at 22600 to 15:20 (the baseline), steps to ``fut_end``, then kicks up 2 pts/s for 6 s at 15:22."""
+    from scalp_strategies import ExpiryCloseAuction
+    cls = cls or ExpiryCloseAuction
+    ii = insts(strikes=strikes, underlying=underlying)
+    for i in ii.values():
+        if i.kind in ("CE", "PE"):
+            i.expiry = expiry
+    e = cls(ii, capital=50_000)
+    start = datetime(2026, 9, 29, 15, 9, tzinfo=IST)
+    kick0 = 13 * 60                                               # 15:22:00
+    level = lambda s: scale * ((22600.0 if s < 11 * 60 else fut_end) + 2.0 * min(max(s - kick0, 0), 6))
+    vol = 0
+    for s in range(15 * 60):
+        ts = start + timedelta(seconds=s)
+        fut, kicking = level(s), kick0 < s <= kick0 + 6
+        vol += 0 if kicking and not aggressive else 650           # a passive kick: quotes move, nothing trades
+        e.on_tick(Tick(ts, "IDX", scale * 22540.0))               # the index is frozen through the auction
+        e.on_tick(Tick(ts, "FUT", fut, 65, vol, 1.8e7, fut - 0.5, fut + 0.5))   # a kick prints above the previous ask
+        ce = 60.0 + 40.0 * min(max(s - kick0 - 10, 0) / 20, 1.0)  # the call follows: 60 -> 100
+        e.on_tick(Tick(ts, f"{strikes[1]}CE", ce, 65, vol, 5e6, ce - 0.05, ce + 0.05))
+        e.on_tick(Tick(ts, f"{strikes[1]}PE", 50.0, 65, vol, 5e6, 49.95, 50.05))
+    return e
+
+
+def test_expiry_auction_buys_the_atm_call_when_the_future_runs_up_on_aggressive_buying():
+    e = auction_session()
+    t = (e.trades or [None])[0]
+    assert t is not None and (t.kind, t.strike, t.lots) == ("CE", 22550.0, 1)   # ATM of the frozen 22540 index
+    assert "T15:22:" in t.entry_time and "expiry auction" in t.why
+    assert t.reason == "TARGET"                                   # +37.5% of the fill
+    c = type(e).default_config()
+    assert (c.sizing, c.fixed_lots, c.max_trades) == ("fixed", 1, 1)
+    assert (c.entry_start, c.entry_end, c.square_off) == ("15:21", "15:28", "15:35")
+
+
+def test_expiry_auction_needs_the_dislocation_the_order_flow_and_the_expiry_day():
+    assert not auction_session(fut_end=22612.0).trades            # +12 pts < the 20-point dislocation
+    assert not auction_session(aggressive=False).trades           # the future is marked up without buying
+    assert not auction_session(expiry="2026-10-06").trades        # not this chain's expiry day
+
+
+def test_sensex_auction_card_trades_its_own_index_and_ignores_nifty():
+    from scalp_strategies import ExpiryCloseAuction, ExpiryCloseAuctionSensex
+    sx = dict(underlying="SENSEX", scale=3.3, strikes=(74300, 74400, 74500))   # the frozen index is 74,382
+    e = auction_session(ExpiryCloseAuctionSensex, **sx)
+    t = (e.trades or [None])[0]
+    assert t is not None and (t.kind, t.strike, t.lots) == ("CE", 74400.0, 1)   # 100-point strikes
+    assert ExpiryCloseAuctionSensex.MIN_DISLOCATION == 65
+    assert ExpiryCloseAuctionSensex.default_config().strike_step == 100
+    assert auction_session(ExpiryCloseAuctionSensex).ticks == 0   # fed NIFTY instruments: nothing is its own
+    assert auction_session(ExpiryCloseAuction, **sx).ticks == 0
+
+
+def test_expiry_day_is_recognised_after_weeks_of_accumulated_contracts():
+    e = OneShot(insts())                                          # a long-running session: last week's chain first
+    for i in e.insts.values():
+        i.expiry = "2026-09-22"
+    new = insts(strikes=(22700,))
+    for i in new.values():
+        i.expiry = "29SEP2026"
+    e.add_instruments({t: i for t, i in new.items() if i.kind in ("CE", "PE")})
+    e._new_day("2026-09-29", T0)
+    assert e.is_expiry_day()
+    e._new_day("2026-09-30", T0 + timedelta(days=1))
+    assert not e.is_expiry_day()
+
+
+def test_hub_builds_the_sensex_chain_on_bse_with_100_point_strikes():
+    from market_data.tick_recorder import NIFTY, SENSEX, build_instruments, contracts
+    row = lambda name, seg, typ, sym, strike, exp, tok, lot: {
+        "name": name, "exch_seg": seg, "instrumenttype": typ, "symbol": sym, "strike": str(strike * 100),
+        "expiry": exp, "token": tok, "lotsize": str(lot)}
+    rows = [row("SENSEX", "BFO", "FUTIDX", "SENSEX26OCTFUT", 0, "29OCT2026", "864571", 20),
+            row("NIFTY", "NFO", "FUTIDX", "NIFTY27OCT26FUT", 0, "27OCT2026", "48704", 65),
+            row("NIFTY", "NFO", "OPTIDX", "NIFTY13OCT2622550CE", 22550, "13OCT2026", "44601", 65)]
+    for n, k in enumerate(range(73000, 75100, 100)):
+        rows += [row("SENSEX", "BFO", "OPTIDX", f"SENSEX26O15{k}{kd}", k, "15OCT2026", str(1100000 + 2 * n + j), 20)
+                 for j, kd in enumerate(("CE", "PE"))]
+        rows.append(row("SENSEX", "BFO", "OPTIDX", f"SENSEX26O22{k}CE", k, "22OCT2026", str(1200000 + n), 20))
+    fut, opts, expiry = contracts(SENSEX, date(2026, 10, 14), rows)
+    assert expiry == date(2026, 10, 15) and fut["symbol"] == "SENSEX26OCTFUT" and len(opts) == 42
+    got = build_instruments(74020.0, fut, opts, u=SENSEX)
+    assert got["99919000"].exchange == "BSE" and got["864571"].kind == "FUT"
+    strikes = sorted({i.strike for i in got.values() if i.kind == "CE"})
+    assert strikes == [float(k) for k in range(73000, 75100, 100)]            # ATM 74000 +/- 10 x 100
+    assert {i.underlying for i in got.values()} == {"SENSEX"}
+    assert {i.lot for i in got.values() if i.kind == "PE"} == {20}
+    assert {i.exchange for i in got.values() if i.kind != "IDX"} == {"BFO"}
+    _nf, nopts, nexp = contracts(NIFTY, date(2026, 10, 13), rows)              # SENSEX rows never leak into NIFTY
+    assert nexp == date(2026, 10, 13) and [r["token"] for r in nopts] == ["44601"]
+
+
+def test_hub_records_sensex_to_its_own_folder_on_sensex_expiry_only(tmp_path, monkeypatch):
+    from market_data import tick_recorder as tr
+    row = lambda name, seg, typ, sym, strike, exp, tok, lot: {
+        "name": name, "exch_seg": seg, "instrumenttype": typ, "symbol": sym, "strike": str(strike * 100),
+        "expiry": exp, "token": tok, "lotsize": str(lot)}
+    rows = [row("SENSEX", "BFO", "FUTIDX", "SENSEX26OCTFUT", 0, "29OCT2026", "864571", 20),
+            row("SENSEX", "BFO", "OPTIDX", "SENSEX26O1574000CE", 74000, "15OCT2026", "1100001", 20),
+            row("SENSEX", "BFO", "OPTIDX", "SENSEX26O1574000PE", 74000, "15OCT2026", "1100002", 20)]
+    monkeypatch.setattr(tr, "_scrip_master", lambda: rows)
+
+    class Client:
+        def ltpData(self, exchange, symbol, token):
+            if exchange == "BSE":
+                raise RuntimeError("index quote unavailable")     # falls back to the future
+            return {"data": {"ltp": 74035.0}}
+
+    def hub():
+        h = tr.TickHub(root=tmp_path)
+        h._broker = type("B", (), {"client": Client()})()
+        h.instruments = {"44601": Instrument("44601", "NIFTY13OCT2622550CE", "CE", 22550.0, 65)}
+        h.writer = TickWriter("angel", date(2026, 10, 15), root=tmp_path)
+        return h
+
+    wed = hub()
+    wed._start_sensex(date(2026, 10, 14))                         # the chain expires tomorrow: NIFTY only
+    assert wed._sx is None and set(wed.instruments) == {"44601"}
+    wed.writer.close()
+
+    h = hub()
+    h._start_sensex(date(2026, 10, 15))
+    assert h._sx and set(h.instruments) == {"44601", "99919000", "864571", "1100001", "1100002"}
+    assert h.status()["sensex"] == {"instruments": 4, "expiry": "2026-10-15", "rows_written": 0}
+    assert h.status()["by_kind"] == {"CE": 1}                     # the NIFTY summary is not polluted
+    ms = int(datetime(2026, 10, 15, 15, 22, tzinfo=IST).timestamp() * 1000)
+    for tok, px in (("1100001", 15050), ("44601", 9000)):
+        h._on_data(None, {"token": tok, "exchange_timestamp": ms, "last_traded_price": px})
+    h._sx["writer"].close()
+    h.writer.close()
+    assert [t.token for t in read_ticks("angel_sensex", date(2026, 10, 15), root=tmp_path)] == ["1100001"]
+    assert [t.token for t in read_ticks("angel", date(2026, 10, 15), root=tmp_path)] == ["44601"]
+    got, meta = load_instruments("angel_sensex", date(2026, 10, 15), root=tmp_path)
+    assert meta["underlying"] == "SENSEX" and got["1100001"].underlying == "SENSEX" and got["1100001"].exchange == "BFO"
+    assert not any(d["source"] == "angel_sensex" for d in list_days(tmp_path))   # NIFTY tools never pick it up
+
+
 class FakeHub:
     def __init__(self):
         self.subs = {}
@@ -507,10 +649,10 @@ def test_running_sessions_resume_after_restart_but_stopped_ones_do_not(tmp_path)
     b.stop("manual")
     resume = sessions_to_resume(tmp_path)  # process "dies" here with a still running
     auto = [{"strategy_id": sid, "capital": 50_000, "overrides": {}}       # AUTO_START, never started
-            for sid in ("scalp_expiry_breakout", "scalp_expiry_gamma")]
+            for sid in ("scalp_expiry_breakout", "scalp_expiry_gamma", "scalp_expiry_auction", "scalp_expiry_auction_sensex")]
     assert resume == [{"strategy_id": "scalp_trap_fade", "capital": 50_000, "overrides": {"sl_pct": 0.08}}, *auto]
     a.stop("manual")
-    for sid in ("scalp_expiry_breakout", "scalp_expiry_gamma"):
+    for sid in ("scalp_expiry_breakout", "scalp_expiry_gamma", "scalp_expiry_auction", "scalp_expiry_auction_sensex"):
         c = ScalpPaperSession(sid, hub=FakeHub(), state_dir=tmp_path)
         c.start()
         c.stop("manual")
@@ -536,6 +678,6 @@ def test_daily_summary_reports_each_scalper_and_the_total(tmp_path):
 
 def test_every_strategy_is_registered_and_runs_on_quiet_ticks():
     for sid, cls in SCALP_STRATEGIES.items():
-        e = cls(insts(), capital=100_000)
+        e = cls(insts(underlying=cls.UNDERLYING), capital=100_000)
         feed(e, 30 * 60, 100.0)
         assert e.ticks > 0 and not e.trades, sid  # a flat, quiet tape must not trigger anything

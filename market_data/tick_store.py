@@ -7,7 +7,8 @@ Layout (one folder per source and trading day):
     data/ticks/<source>/<YYYY-MM-DD>/ticks.csv.gz     (after end-of-day compaction)
 
 ``source`` is ``angel`` (live Angel One SmartAPI WebSocket SnapQuote ticks) or
-``breeze_1s`` (ICICI Breeze 1-second bars imported as pseudo-ticks). Every
+``breeze_1s`` (ICICI Breeze 1-second bars imported as pseudo-ticks) for NIFTY, and
+``angel_sensex`` for the SENSEX chain recorded on SENSEX expiry days. Every
 row, whatever the source, has the columns in ``COLUMNS`` - see
 docs/scalping/TICK_DATA.md for field semantics.
 """
@@ -39,7 +40,8 @@ class Instrument:
     strike: float = 0.0
     lot: int = 0
     expiry: str = ""
-    exchange: str = "NFO"  # NSE (index) | NFO
+    exchange: str = "NFO"  # NSE / BSE (index) | NFO / BFO
+    underlying: str = ""   # NIFTY | SENSEX ("" = NIFTY: days recorded before SENSEX joined the feed)
 
 
 @dataclass

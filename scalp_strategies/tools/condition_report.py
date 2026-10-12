@@ -20,7 +20,7 @@ import sys
 from collections import Counter
 from datetime import date, timedelta
 
-from market_data.tick_store import best_source, load_instruments, read_ticks
+from market_data.tick_store import best_source, day_dir, load_instruments, read_ticks
 from scalp_strategies import SCALP_STRATEGIES
 
 
@@ -34,6 +34,7 @@ class Recorder:
         self.best = 0
         self.width = 0                  # conditions per evaluation
         self.samples: list[str] = []
+        self.notes: list[dict] = []     # a tick-evaluated card's own end-of-window summary
 
     def record(self, ts, conds: dict[str, bool], label: str) -> None:
         self.evals += 1
@@ -226,16 +227,19 @@ EXPERIMENTS = [
 
 
 def _replay(sid: str, insts, ticks, overrides: dict | None = None, attrs: dict | None = None):
-    cls, probe = SCALP_STRATEGIES[sid], PROBES[sid]
+    cls, probe = SCALP_STRATEGIES[sid], PROBES.get(sid)
     rec = Recorder([])
 
     class Probed(cls):
         def signal(self, ts, spot_, atm):
-            probe(self, ts, spot_, atm, rec)
+            if probe:
+                probe(self, ts, spot_, atm, rec)
             return super().signal(ts, spot_, atm)
     for k, v in (attrs or {}).items():
         setattr(Probed, k, v)
-    eng = Probed(insts, capital=50_000, config=cls.default_config().update(overrides))
+    # A card that evaluates on ticks (no probe) reports through its own "window" summary event instead.
+    eng = Probed(insts, capital=50_000, config=cls.default_config().update(overrides),
+                 on_event=lambda kind, p: rec.notes.append(p) if kind == "signal" and p.get("type") == "window" else None)
     for t in ticks:
         eng.on_tick(t)
     eng.finish()
@@ -254,6 +258,8 @@ def _section(title: str, eng, rec: Recorder) -> list[str]:
         out += ["", f"Closest approach: **{rec.best} of {n_conds}** conditions true at once "
                 f"({rec.near[rec.best]:,} times). Blocking condition(s) at those moments: {blockers}.", ""]
         out += [f"- {s}" for s in rec.samples] + [""]
+    for n in rec.notes:
+        out += ["Entry window: " + ", ".join(f"{k} {v}" for k, v in n.items() if k not in ("type", "time")), ""]
     for t in eng.trades:
         out.append(f"- Trade {t.entry_time[11:19]}-{t.exit_time[11:19]} {t.symbol} {t.lots} lots "
                    f"{t.entry} -> {t.exit} {t.reason} net Rs {t.net:,.0f} ({t.why})")
@@ -272,8 +278,12 @@ def run(day: date, source: str | None = None) -> str:
     out = [f"# Scalper condition report - {day} ({source})", "",
            f"{len(ticks):,} ticks, {len(insts)} instruments, expiry {meta.get('expiry')}. "
            f"NIFTY range {min(spot):,.0f} - {max(spot):,.0f} ({max(spot) - min(spot):,.0f} pts)." if spot else "", ""]
+    feeds = {"NIFTY": (insts, ticks)}
+    if (day_dir("angel_sensex", day) / "instruments.json").exists():   # recorded on SENSEX expiry days only
+        feeds["SENSEX"] = (load_instruments("angel_sensex", day)[0], list(read_ticks("angel_sensex", day)))
     for sid, cls in SCALP_STRATEGIES.items():
-        out += _section(cls.name, *_replay(sid, insts, ticks))
+        if cls.UNDERLYING in feeds:
+            out += _section(cls.name, *_replay(sid, *feeds[cls.UNDERLYING]))
     out += ["# Experimental options (not live)", ""]
     for label, sid, overrides, attrs in EXPERIMENTS:
         out += _section(label, *_replay(sid, insts, ticks, overrides, attrs))
