@@ -278,15 +278,20 @@ def run(day: date, source: str | None = None) -> str:
     out = [f"# Scalper condition report - {day} ({source})", "",
            f"{len(ticks):,} ticks, {len(insts)} instruments, expiry {meta.get('expiry')}. "
            f"NIFTY range {min(spot):,.0f} - {max(spot):,.0f} ({max(spot) - min(spot):,.0f} pts)." if spot else "", ""]
-    feeds = {"NIFTY": (insts, ticks)}
-    if (day_dir("angel_sensex", day) / "instruments.json").exists():   # recorded on SENSEX expiry days only
-        feeds["SENSEX"] = (load_instruments("angel_sensex", day)[0], list(read_ticks("angel_sensex", day)))
     for sid, cls in SCALP_STRATEGIES.items():
-        if cls.UNDERLYING in feeds:
-            out += _section(cls.name, *_replay(sid, *feeds[cls.UNDERLYING]))
+        if cls.UNDERLYING == "NIFTY":
+            out += _section(cls.name, *_replay(sid, insts, ticks))
     out += ["# Experimental options (not live)", ""]
     for label, sid, overrides, attrs in EXPERIMENTS:
         out += _section(label, *_replay(sid, insts, ticks, overrides, attrs))
+    del ticks, spot  # one index in memory at a time: both together ran the 6 GB server out of memory
+    if (day_dir("angel_sensex", day) / "instruments.json").exists():   # recorded on SENSEX expiry days only
+        sx_insts = load_instruments("angel_sensex", day)[0]
+        sx_ticks = list(read_ticks("angel_sensex", day))
+        out += ["# SENSEX", "", f"{len(sx_ticks):,} ticks, {len(sx_insts)} instruments.", ""]
+        for sid, cls in SCALP_STRATEGIES.items():
+            if cls.UNDERLYING == "SENSEX":
+                out += _section(cls.name, *_replay(sid, sx_insts, sx_ticks))
     return "\n".join(out)
 
 
