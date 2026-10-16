@@ -258,18 +258,41 @@ class TickHub:
         sws = SmartWebSocketV2(b.jwt_token, b.api_key, b.client_id, b.feed_token, max_retry_attempt=10)
         self._sws = sws
 
+        # The library treats its own close as an error and reconnects, so a stopped or replaced socket
+        # can keep delivering ticks for hours (seen 2026-10-15: after the 15:42 stop until the next morning).
+        def live() -> bool:
+            return self.running and self._sws is sws
+
         def on_open(_ws):
+            if not live():
+                self._retire(sws)
+                return
             self.connected = True
             self._subscribe(list(self.instruments.values()))
 
+        def on_data(ws, msg):
+            if live():
+                self._on_data(ws, msg)
+
         def on_error(_ws, e):
-            self._err(f"WS error: {e}")
+            if live():
+                self._err(f"WS error: {e}")
 
         def on_close(_ws):
-            self.connected = False
+            if live():
+                self.connected = False
 
-        sws.on_open, sws.on_data, sws.on_error, sws.on_close = on_open, self._on_data, on_error, on_close
+        sws.on_open, sws.on_data, sws.on_error, sws.on_close = on_open, on_data, on_error, on_close
         threading.Thread(target=self._run_ws, args=(sws,), daemon=True, name="tick-hub-ws").start()
+
+    @staticmethod
+    def _retire(sws) -> None:
+        """Close a socket for good: no library retries left, so the close is not followed by a reconnect."""
+        try:
+            sws.MAX_RETRY_ATTEMPT = 0
+            sws.close_connection()
+        except Exception:
+            pass
 
     def _run_ws(self, sws) -> None:
         try:
@@ -292,12 +315,10 @@ class TickHub:
         with self._lock:
             if not self.running:
                 return self.status()
-            self.running = False
-            try:
-                if self._sws:
-                    self._sws.close_connection()
-            except Exception:
-                pass
+            self.running = False   # from here on the socket callbacks drop everything (see _connect)
+            if self._sws:
+                self._retire(self._sws)
+                self._sws = None
             self.connected = False
             if self.writer:
                 self.writer.close(compress=compress)

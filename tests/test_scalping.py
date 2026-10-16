@@ -622,6 +622,48 @@ def test_hub_records_sensex_to_its_own_folder_on_sensex_expiry_only(tmp_path, mo
     assert not any(d["source"] == "angel_sensex" for d in list_days(tmp_path))   # NIFTY tools never pick it up
 
 
+def test_a_stopped_or_replaced_socket_delivers_nothing_and_does_not_reconnect(tmp_path, monkeypatch):
+    import SmartApi.smartWebSocketV2 as ws_mod
+    from market_data import tick_recorder as tr
+    made = []
+
+    class FakeSocket:                          # the library: reconnects on its own until MAX_RETRY_ATTEMPT runs out
+        def __init__(self, *a, max_retry_attempt=1, **k):
+            self.MAX_RETRY_ATTEMPT, self.closed = max_retry_attempt, 0
+            made.append(self)
+
+        def connect(self):
+            pass
+
+        def close_connection(self):
+            self.closed += 1
+
+        def subscribe(self, *a):
+            pass
+    monkeypatch.setattr(ws_mod, "SmartWebSocketV2", FakeSocket)
+    h = tr.TickHub(root=tmp_path)
+    h._broker = type("B", (), {"jwt_token": "", "api_key": "", "client_id": "", "feed_token": ""})()
+    h.instruments = {"44601": Instrument("44601", "NIFTY13OCT2622550CE", "CE", 22550.0, 65)}
+    h.writer = TickWriter("angel", date(2026, 10, 15), root=tmp_path)
+    h.running = True
+    got = []
+    h.subscribe(got.append)
+    ms = int(datetime(2026, 10, 15, 15, 30, tzinfo=IST).timestamp() * 1000)
+    msg = {"token": "44601", "exchange_timestamp": ms, "last_traded_price": 9000}
+    h._connect()
+    first = made[-1]
+    first.on_data(None, msg)
+    assert len(got) == 1
+    h._connect()                               # e.g. the 3-minute no-tick reconnect: the old socket is history
+    first.on_data(None, msg)
+    made[-1].on_data(None, msg)
+    assert len(got) == 2
+    h.stop(compress=False)
+    made[-1].on_data(None, msg)                # the library's self-reconnect after the 15:42 stop
+    made[-1].on_open(None)
+    assert len(got) == 2 and made[-1].MAX_RETRY_ATTEMPT == 0 and made[-1].closed >= 1
+
+
 class FakeHub:
     def __init__(self):
         self.subs = {}
