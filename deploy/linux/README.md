@@ -71,15 +71,20 @@ Stop from the dashboard ends them). Older strategies' paper sessions must be res
   the new token is written to `.env` and verified against the Breeze API. Needs `BREEZE_*` and
   `TELEGRAM_*` in `.env` and a Playwright Chromium (`.venv/bin/python -m playwright install chromium`).
 
-  **Active on the server: a user crontab entry** (no sudo needed; the server clock is UTC, so
-  08:25 IST = 02:55 UTC):
+  **Active on the server: user crontab entries** (no sudo needed; the server clock is UTC, so
+  08:25 / 09:00 / 09:45 IST = 02:55 / 03:30 / 04:15 UTC). The 09:00 and 09:45 runs are retries for a
+  missed OTP: every successful login writes `# BREEZE_SESSION_TOKEN last updated: <date time> IST`
+  above the token in `.env`, and the script exits at once when that date is today.
 
   ```bash
-  55 2 * * 1-5 APP_DIR=/home/lakshman/automation_engines /bin/bash /home/lakshman/ae-units/breeze_login.sh >> /home/lakshman/automation_engines/logs/breeze_login.log 2>&1
+  55 2 * * 1-5 APP_DIR=/home/lakshman/automation_engines /bin/bash /home/lakshman/automation_engines/deploy/linux/breeze_login.sh >> /home/lakshman/automation_engines/logs/breeze_login.log 2>&1
+  30 3 * * 1-5 APP_DIR=/home/lakshman/automation_engines /bin/bash /home/lakshman/automation_engines/deploy/linux/breeze_login.sh >> /home/lakshman/automation_engines/logs/breeze_login.log 2>&1
+  15 4 * * 1-5 APP_DIR=/home/lakshman/automation_engines /bin/bash /home/lakshman/automation_engines/deploy/linux/breeze_login.sh >> /home/lakshman/automation_engines/logs/breeze_login.log 2>&1
   ```
 
-  Run it by hand (answer the Telegram OTP): `APP_DIR=~/automation_engines bash ~/ae-units/breeze_login.sh`;
-  result in `~/automation_engines/logs/breeze_login.log`.
+  Run it by hand (answer the Telegram OTP): `APP_DIR=~/automation_engines bash ~/automation_engines/deploy/linux/breeze_login.sh`
+  (add `FORCE=1` to log in again although today's stamp is present); result in
+  `~/automation_engines/logs/breeze_login.log`.
 
   The same crontab also runs the **daily scalper condition report** at 15:50 IST (10:20 UTC), after
   the recorder stops - read-only, it replays the day's ticks and writes `logs/condition_report_<date>.md`:

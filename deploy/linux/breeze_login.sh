@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
-# Daily ICICI Breeze session refresh, run by breeze-login.timer (08:25 IST, Mon-Fri).
+# Daily ICICI Breeze session refresh, run from cron at 08:25 IST Mon-Fri with retries at 09:00 and 09:45.
 #  * skips NSE holidays (no pointless OTP prompts);
+#  * skips when the session was already refreshed today: the source of truth is the stamp the login
+#    writes above the token in .env ("# BREEZE_SESSION_TOKEN last updated: YYYY-MM-DD HH:MM:SS IST"),
+#    so the 09:00 / 09:45 runs only prompt for an OTP if the earlier one was missed. FORCE=1 overrides;
 #  * runs the headless auto-login (ICICI sends an OTP; the bot asks for it on Telegram - reply within ~90 s);
 #  * verifies the new BREEZE_SESSION_TOKEN against the Breeze API;
 #  * optionally copies the token into other .env files that use the SAME Breeze account
@@ -13,6 +16,12 @@ PY=.venv/bin/python
 
 if ! $PY -c "from datetime import date; from market_data.trading_days import TradingCalendar as C; import sys; sys.exit(0 if C().is_trading_day(date.today()) else 1)"; then
   echo "$(date '+%F %T') not a trading day - skipping Breeze login"
+  exit 0
+fi
+
+stamp=$(sed -n 's/^# BREEZE_SESSION_TOKEN last updated: //p' .env | tail -1)
+if [ "${FORCE:-0}" != 1 ] && [ "${stamp:0:10}" = "$(date +%F)" ]; then
+  echo "$(date '+%F %T') Breeze session already refreshed today ($stamp) - skipping"
   exit 0
 fi
 

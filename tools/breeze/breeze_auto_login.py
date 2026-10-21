@@ -8,7 +8,7 @@ import os
 import sys
 import time
 import re
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from urllib.parse import quote, urlparse, parse_qs
 from typing import Optional, Dict, Any
 import asyncio
@@ -41,6 +41,11 @@ except ImportError:
     sys.exit(1)
 
 import requests
+
+IST = timezone(timedelta(hours=5, minutes=30))
+# Comment written above BREEZE_SESSION_TOKEN on every successful login, e.g.
+# "# BREEZE_SESSION_TOKEN last updated: 2026-10-21 19:17:47 IST" (read by deploy/linux/breeze_login.sh).
+SESSION_STAMP = "# BREEZE_SESSION_TOKEN last updated: "
 
 
 class BreezeLoginAutomator:
@@ -432,24 +437,26 @@ class BreezeLoginAutomator:
 
         try:
             with open(self.env_file_path, 'r') as f:
-                lines = f.readlines()
+                lines = [l for l in f.readlines() if not l.startswith(SESSION_STAMP)]
 
+            # The stamp is the source of truth for "already refreshed today" (deploy/linux/breeze_login.sh).
+            stamp = f"{SESSION_STAMP}{datetime.now(IST).strftime('%Y-%m-%d %H:%M:%S')} IST\n"
             updated = False
             for i, line in enumerate(lines):
                 if line.strip().startswith('BREEZE_SESSION_TOKEN='):
-                    lines[i] = f'BREEZE_SESSION_TOKEN={self.session_token}\n'
+                    lines[i:i + 1] = [stamp, f'BREEZE_SESSION_TOKEN={self.session_token}\n']
                     updated = True
                     print(f"✓ Replaced BREEZE_SESSION_TOKEN in .env")
                     break
 
             if not updated:
-                lines.append(f'\nBREEZE_SESSION_TOKEN={self.session_token}\n')
+                lines += ['\n', stamp, f'BREEZE_SESSION_TOKEN={self.session_token}\n']
                 print(f"✓ Added BREEZE_SESSION_TOKEN to .env")
 
             with open(self.env_file_path, 'w') as f:
                 f.writelines(lines)
 
-            print(f"✅ .env updated at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+            print(f"✅ .env updated: {stamp.strip()}")
             return True
 
         except Exception as e:
