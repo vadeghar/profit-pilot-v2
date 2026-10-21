@@ -664,6 +664,28 @@ def test_a_stopped_or_replaced_socket_delivers_nothing_and_does_not_reconnect(tm
     assert len(got) == 2 and made[-1].MAX_RETRY_ATTEMPT == 0 and made[-1].closed >= 1
 
 
+def test_instrument_list_falls_back_to_a_recent_copy_when_the_download_breaks(tmp_path, monkeypatch):
+    import http.client
+    import json
+    import platform_config
+    from market_data import tick_recorder as tr
+    monkeypatch.setattr(platform_config, "CACHE_DIR", str(tmp_path))
+
+    def broken(*a, **k):
+        raise http.client.IncompleteRead(b"x" * 10, 36_000_000)
+    monkeypatch.setattr(tr.urllib.request, "urlopen", broken)
+    name = lambda days_ago: f"angel_scrip_master_idx_{date.today() - timedelta(days=days_ago):%Y%m%d}.json"
+    with pytest.raises(http.client.IncompleteRead):
+        tr._scrip_master()                                  # nothing to fall back to: the start fails as before
+    (tmp_path / name(10)).write_text(json.dumps([{"name": "OLD"}]))
+    with pytest.raises(http.client.IncompleteRead):
+        tr._scrip_master()                                  # older than SCRIP_FALLBACK_DAYS: not trusted
+    (tmp_path / name(2)).write_text(json.dumps([{"name": "NIFTY", "day": 2}]))
+    (tmp_path / name(1)).write_text(json.dumps([{"name": "NIFTY", "day": 1}]))
+    assert tr._scrip_master() == [{"name": "NIFTY", "day": 1}]           # the newest earlier copy
+    assert not (tmp_path / name(0)).exists()                # not saved as today's: the next start re-downloads
+
+
 class FakeHub:
     def __init__(self):
         self.subs = {}

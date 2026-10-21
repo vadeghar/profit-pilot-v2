@@ -64,13 +64,30 @@ TickCallback = Callable[[Tick], None]
 InstCallback = Callable[[dict[str, Instrument]], None]
 
 
+SCRIP_FALLBACK_DAYS = 7   # an earlier day's copy still lists this week's weekly and monthly contracts
+
+
 def _scrip_master() -> list[dict]:
-    """Angel instrument master, cached once per day under data/cache/."""
-    cache = Path(platform_config.CACHE_DIR) / f"angel_scrip_master_idx_{date.today():%Y%m%d}.json"
+    """Angel instrument master, cached once per day under data/cache/.
+
+    If today's download fails, the newest copy from the last SCRIP_FALLBACK_DAYS days is used (on
+    2026-10-21 the 36 MB file broke off mid-download 32 times and the feed started an hour late).
+    It is not saved as today's copy, so the next start still tries a fresh download.
+    """
+    folder = Path(platform_config.CACHE_DIR)
+    cache = folder / f"angel_scrip_master_idx_{date.today():%Y%m%d}.json"
     if cache.exists():
         return json.loads(cache.read_text(encoding="utf-8"))
-    with urllib.request.urlopen(SCRIP_MASTER_URL, timeout=60) as r:
-        rows = json.loads(r.read().decode("utf-8"))
+    try:
+        with urllib.request.urlopen(SCRIP_MASTER_URL, timeout=60) as r:
+            rows = json.loads(r.read().decode("utf-8"))
+    except Exception as e:
+        oldest = f"angel_scrip_master_idx_{date.today() - timedelta(days=SCRIP_FALLBACK_DAYS):%Y%m%d}.json"
+        earlier = sorted(p for p in folder.glob("angel_scrip_master_idx_*.json") if oldest <= p.name < cache.name)
+        if not earlier:
+            raise
+        Logger("market_data.tick_hub").warning(f"instrument list download failed ({e}); using {earlier[-1].name}")
+        return json.loads(earlier[-1].read_text(encoding="utf-8"))
     keep = {(u.name, u.fo_exchange) for u in (NIFTY, SENSEX)}
     rows = [x for x in rows if (x.get("name"), x.get("exch_seg")) in keep]
     cache.parent.mkdir(parents=True, exist_ok=True)
